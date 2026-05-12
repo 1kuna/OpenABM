@@ -866,6 +866,77 @@ class SQLiteStore:
             ).fetchall()
         return [self._data_classification_policy_from_row(row) for row in rows]
 
+    def get_issue(self, project_id: str, issue_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM issues
+                WHERE project_id = ? AND issue_id = ?
+                """,
+                (project_id, issue_id),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def create_agent_context_pack(
+        self,
+        *,
+        project_id: str,
+        source_trace_ids: list[str],
+        content: dict[str, Any],
+        classification: str,
+        issue_id: str | None = None,
+    ) -> dict[str, Any]:
+        self.ensure_project(project_id)
+        now = utc_now()
+        item = {
+            "context_pack_id": new_id("context_pack"),
+            "project_id": project_id,
+            "issue_id_nullable": issue_id,
+            "source_trace_ids": source_trace_ids,
+            "content": content,
+            "classification": classification,
+            "created_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_context_packs(
+                  context_pack_id, project_id, issue_id_nullable,
+                  source_trace_ids_json, content_json, classification, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["context_pack_id"],
+                    project_id,
+                    issue_id,
+                    encode_json(source_trace_ids),
+                    encode_json(content),
+                    classification,
+                    now,
+                ),
+            )
+        return item
+
+    def list_agent_context_packs(
+        self,
+        project_id: str,
+        issue_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses = ["project_id = ?"]
+        params: list[Any] = [project_id]
+        if issue_id:
+            clauses.append("issue_id_nullable = ?")
+            params.append(issue_id)
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM agent_context_packs WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY created_at DESC",
+                params,
+            ).fetchall()
+        return [self._agent_context_pack_from_row(row) for row in rows]
+
     def start_investigation(self, request: dict[str, Any]) -> dict[str, Any]:
         project_id = request["project_id"]
         query = request.get("natural_language_problem_nullable") or request.get("query") or ""
@@ -1320,6 +1391,18 @@ class SQLiteStore:
             "rules": decode_json(row["rules_json"], []),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _agent_context_pack_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "context_pack_id": row["context_pack_id"],
+            "project_id": row["project_id"],
+            "issue_id_nullable": row["issue_id_nullable"],
+            "source_trace_ids": decode_json(row["source_trace_ids_json"], []),
+            "content": decode_json(row["content_json"], {}),
+            "classification": row["classification"],
+            "created_at": row["created_at"],
         }
 
     @staticmethod

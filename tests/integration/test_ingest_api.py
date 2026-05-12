@@ -282,6 +282,62 @@ def test_v1_rubric_judge_run_persists_cited_score(tmp_path, monkeypatch) -> None
     assert scores.json()["data"][0]["cost"]["model"] == "stub-model"
 
 
+def test_v1_context_pack_cites_source_trace_and_span(tmp_path, monkeypatch) -> None:
+    class StubProvider:
+        async def structured_completion(self, request, schema):
+            del request, schema
+            return {
+                "status": "succeeded",
+                "value": {
+                    "issue_summary": "Refund issue",
+                    "trace_summaries": [
+                        {
+                            "trace_id": "trace_wrong_tool",
+                            "summary": "Order lookup was used.",
+                            "evidence_span_ids": ["span_wrong_tool_order_lookup"],
+                        }
+                    ],
+                    "tool_sequence_summary": "refund_agent then lookup_order",
+                    "business_dimension_summary": "No dimensions supplied.",
+                    "key_evidence": [
+                        {
+                            "claim": "wrong tool",
+                            "trace_id": "trace_wrong_tool",
+                            "span_ids": ["span_wrong_tool_order_lookup"],
+                        }
+                    ],
+                    "uncertainty": "single fixture trace",
+                },
+                "provider": "stub",
+                "model": "stub-model",
+                "usage": None,
+                "repaired": False,
+            }
+
+    monkeypatch.setattr(
+        "openabm_api.main.model_provider_from_settings",
+        lambda settings: StubProvider(),
+    )
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    response = client.post(
+        "/v1/context-packs",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "source_trace_ids": ["trace_wrong_tool"]},
+    )
+    assert response.status_code == 201
+    content = response.json()["content"]
+    assert content["model_metadata"]["summary_validation"]["status"] == "valid"
+    assert content["summary"]["key_evidence"][0]["span_ids"] == [
+        "span_wrong_tool_order_lookup"
+    ]
+
+
 def _wrong_tool_judge() -> dict[str, object]:
     return {
         "judge_id": "judge_wrong_tool_for_refund",

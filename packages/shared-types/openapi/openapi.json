@@ -116,6 +116,141 @@
         }
       }
     },
+    "/v1/context-packs": {
+      "get": {
+        "operationId": "listContextPacks",
+        "summary": "List agent context packs.",
+        "x-required-scopes": [
+          "context_packs:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "issue_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "../schemas/agent-context-pack.schema.json"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createContextPack",
+        "summary": "Create an auditable context pack from trace evidence.",
+        "x-required-scopes": [
+          "context_packs:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "source_trace_ids"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "issue_id_nullable": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source_trace_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "allowed_next_actions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "classification": {
+                    "enum": [
+                      "public",
+                      "internal",
+                      "confidential",
+                      "restricted",
+                      "secret"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Context pack created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/agent-context-pack.schema.json"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Trace not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/data-classification-policies": {
       "get": {
         "operationId": "listDataClassificationPolicies",

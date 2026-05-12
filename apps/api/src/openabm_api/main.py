@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.routing import APIRoute
+from openabm_worker.context_packs import build_agent_context_pack_content
 from openabm_worker.judges import run_rubric_judge
 from openabm_worker.model_runtime import ModelConfigurationError, model_provider_from_settings
 
@@ -689,6 +690,76 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ) from exc
         return result
 
+    @app.get("/api/context-packs")
+    def list_context_packs(
+        project_id: str,
+        issue_id: str | None = None,
+        actor: dict[str, object] = Depends(auth_dependency(["context_packs:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_agent_context_packs(project_id, issue_id=issue_id)}
+
+    @app.post("/api/context-packs", status_code=201)
+    async def create_context_pack(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["context_packs:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "source_trace_ids"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        project_id = request["project_id"]
+        traces = []
+        spans_by_trace = {}
+        dimensions_by_trace = {}
+        for trace_id in request["source_trace_ids"]:
+            trace = store.get_trace(project_id, trace_id)
+            if trace is None:
+                raise HTTPException(status_code=404, detail=_error("not_found", "Trace not found."))
+            traces.append(trace)
+            spans_by_trace[trace_id] = store.list_spans(project_id, trace_id)
+            dimensions_by_trace[trace_id] = store.list_trace_dimensions(project_id, trace_id)
+        issue_id = request.get("issue_id_nullable")
+        issue = store.get_issue(project_id, issue_id) if issue_id else None
+        try:
+            provider = model_provider_from_settings(settings)
+            content = await build_agent_context_pack_content(
+                provider,
+                issue=issue,
+                traces=traces,
+                spans_by_trace=spans_by_trace,
+                dimensions_by_trace=dimensions_by_trace,
+                allowed_next_actions=request.get("allowed_next_actions")
+                or ["read", "draft_behavior", "draft_judge", "create_dataset"],
+                classification=request.get("classification", "internal"),
+            )
+        except ModelConfigurationError:
+            content = _deterministic_context_pack_content(
+                issue,
+                traces,
+                spans_by_trace,
+                request["source_trace_ids"],
+            )
+        item = store.create_agent_context_pack(
+            project_id=project_id,
+            issue_id=issue_id,
+            source_trace_ids=request["source_trace_ids"],
+            content=content,
+            classification=request.get("classification", "internal"),
+        )
+        store.append_audit(
+            "create_context_pack",
+            "agent_context_pack",
+            project_id,
+            item["context_pack_id"],
+            {"source_trace_ids": request["source_trace_ids"]},
+        )
+        return item
+
     @app.post("/api/investigations", status_code=201)
     def start_investigation(
         request: dict[str, Any],
@@ -736,6 +807,33 @@ def _register_v1_aliases(app: FastAPI) -> None:
             name=f"v1_{route.name}",
             include_in_schema=True,
         )
+
+
+def _deterministic_context_pack_content(
+    issue: dict[str, Any] | None,
+    traces: list[dict[str, Any]],
+    spans_by_trace: dict[str, list[dict[str, Any]]],
+    source_trace_ids: list[str],
+) -> dict[str, object]:
+    return {
+        "issue": issue,
+        "source_trace_ids": source_trace_ids,
+        "summary": {
+            "issue_summary": issue.get("title") if issue else "No issue supplied.",
+            "trace_summaries": [
+                {
+                    "trace_id": trace["trace_id"],
+                    "summary": trace.get("summary") or trace["trace_id"],
+                    "evidence_span_ids": [
+                        span["span_id"] for span in spans_by_trace[trace["trace_id"]]
+                    ][:3],
+                }
+                for trace in traces
+            ],
+            "uncertainty": "Model provider unavailable.",
+        },
+        "model_metadata": {"status": "model_unavailable"},
+    }
 
 
 def _error(

@@ -79,6 +79,7 @@ REQUIRED_QUERY_PATHS = {
     "/v1/behaviors",
     "/v1/data-classification-policies",
     "/v1/data-classification/classify",
+    "/v1/context-packs",
 }
 
 

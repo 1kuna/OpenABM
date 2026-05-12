@@ -155,6 +155,9 @@ Done:
 - Added model-backed rubric judge execution with context packets, preserved-span
   citation validation, provider/model metadata, score persistence, and `/v1`
   API coverage.
+- Verified a live LM Studio structured-output canary against
+  `openabm-qwen35-9b`; output was valid JSON, unrepaired, and reported
+  reasoning-token usage.
 - Added deterministic rule judge scaffold.
 - Added development-only code judge sandbox with scrubbed environment,
   temporary inputs/outputs, timeout handling, stdout/stderr capture, and explicit
@@ -229,6 +232,9 @@ Done:
   interpolation rejection, and text diff helper.
 - Added MCP tool contract registry covering all required tool names, including
   side-effect and confirmation metadata.
+- Added agent context pack generation and persistence with model-backed
+  summaries, citation validation, deterministic fallback when a model provider is
+  unavailable, and `/v1/context-packs` API coverage.
 - Added web UI sections for judge runtime, behavior monitoring, datasets/evals,
   prompt registry, MCP, and ops status so unfinished surfaces are visible
   without pretending LLM-dependent capabilities exist.
