@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.routing import APIRoute
 from openabm_worker.context_packs import build_agent_context_pack_content
+from openabm_worker.investigation import assist_investigation
 from openabm_worker.judges import run_rubric_judge
 from openabm_worker.model_runtime import (
     ModelCallsDisabled,
@@ -818,7 +819,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return item
 
     @app.post("/api/investigations", status_code=201)
-    def start_investigation(
+    async def start_investigation(
         request: dict[str, Any],
         actor: dict[str, object] = Depends(auth_dependency(["investigations:write"])),
     ) -> dict[str, object]:
@@ -830,6 +831,50 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "/project_id",
             )
         run = store.start_investigation(request)
+        try:
+            provider = model_provider_from_settings(settings)
+            traces = [
+                trace
+                for trace_id in run["result"]["evidence_trace_ids"]
+                if (trace := store.get_trace(request["project_id"], trace_id)) is not None
+            ]
+            spans_by_trace = {
+                trace["trace_id"]: store.list_spans(request["project_id"], trace["trace_id"])
+                for trace in traces
+            }
+            issue_id = request.get("issue_id_nullable")
+            issue = store.get_issue(request["project_id"], issue_id) if issue_id else None
+            assistance = await assist_investigation(
+                provider,
+                issue=issue,
+                traces=traces,
+                spans_by_trace=spans_by_trace,
+                impact_report=run["result"]["impact_report"],
+            )
+            run["result"]["model_assistance"] = assistance
+            if assistance["suspected_root_causes"]:
+                run["result"]["suspected_root_causes"] = assistance["suspected_root_causes"]
+            if assistance["recommended_next_actions"]:
+                run["result"]["recommended_next_actions"] = assistance["recommended_next_actions"]
+            run = store.update_investigation_result(
+                request["project_id"],
+                run["investigation_run_id"],
+                run["result"],
+            )
+        except ModelCallsDisabled:
+            run["result"]["model_assistance"] = {"status": "model_disabled"}
+            run = store.update_investigation_result(
+                request["project_id"],
+                run["investigation_run_id"],
+                run["result"],
+            )
+        except ModelConfigurationError as exc:
+            run["result"]["model_assistance"] = {"status": "model_unavailable", "reason": str(exc)}
+            run = store.update_investigation_result(
+                request["project_id"],
+                run["investigation_run_id"],
+                run["result"],
+            )
         store.append_audit(
             "start_investigation",
             "investigation_run",

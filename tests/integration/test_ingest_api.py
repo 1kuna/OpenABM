@@ -395,6 +395,77 @@ def test_v1_context_pack_cites_source_trace_and_span(tmp_path, monkeypatch) -> N
     ]
 
 
+def test_v1_investigation_adds_model_assistance_with_citations(tmp_path, monkeypatch) -> None:
+    class StubProvider:
+        async def structured_completion(self, request, schema):
+            del request, schema
+            return {
+                "status": "succeeded",
+                "value": {
+                    "suspected_root_causes": [
+                        {
+                            "hypothesis": (
+                                "Refund workflow selected order lookup instead of policy lookup."
+                            ),
+                            "evidence_trace_ids": ["trace_wrong_tool"],
+                            "evidence_span_ids": ["span_wrong_tool_order_lookup"],
+                            "confidence_or_uncertainty": "single trace fixture",
+                        }
+                    ],
+                    "behavior_drafts": [
+                        {
+                            "name": "wrong_tool_for_refund",
+                            "description": "Refund task uses an unrelated order lookup.",
+                            "positive_trace_ids": ["trace_wrong_tool"],
+                            "negative_trace_ids": [],
+                        }
+                    ],
+                    "rubric_drafts": [
+                        {
+                            "name": "Wrong refund tool",
+                            "pass": "Refund policy lookup or no lookup is appropriate.",
+                            "fail": "Order lookup is used as the decisive refund tool.",
+                            "unsure": "Trace lacks enough tool evidence.",
+                            "evidence_trace_ids": ["trace_wrong_tool"],
+                        }
+                    ],
+                    "recommended_next_actions": ["backtest wrong_tool_for_refund"],
+                    "confidence_or_uncertainty": "single fixture trace",
+                },
+                "provider": "stub",
+                "model": "stub-model",
+                "usage": None,
+                "repaired": False,
+            }
+
+    monkeypatch.setattr(
+        "openabm_api.main.model_provider_from_settings",
+        lambda settings: StubProvider(),
+    )
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    response = client.post(
+        "/v1/investigations",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "seed_trace_id_nullable": "trace_wrong_tool",
+            "filters": {"status": "error"},
+        },
+    )
+    assert response.status_code == 201
+    assistance = response.json()["result"]["model_assistance"]
+    assert assistance["suspected_root_causes"][0]["evidence_span_ids"] == [
+        "span_wrong_tool_order_lookup"
+    ]
+    assert assistance["behavior_drafts"][0]["positive_trace_ids"] == ["trace_wrong_tool"]
+
+
 def _wrong_tool_judge() -> dict[str, object]:
     return {
         "judge_id": "judge_wrong_tool_for_refund",

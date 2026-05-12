@@ -2,6 +2,7 @@ import asyncio
 import json
 
 import httpx
+from openabm_worker.investigation import assist_investigation
 from openabm_worker.judges import run_rubric_judge
 from openabm_worker.model_runtime import OpenAICompatibleModelProvider
 
@@ -94,3 +95,68 @@ def test_rubric_judge_requires_preserved_span_citations() -> None:
     assert score["status"] == "succeeded"
     assert score["evidence_span_ids"] == ["span_tool"]
     assert score["cost"]["model"] == "stub-model"
+
+
+def test_investigation_assistance_drops_invented_citations() -> None:
+    class StubProvider:
+        async def structured_completion(self, request, schema):
+            del request, schema
+            return {
+                "status": "succeeded",
+                "value": {
+                    "suspected_root_causes": [
+                        {
+                            "hypothesis": "The cited tool span chose the wrong workflow.",
+                            "evidence_trace_ids": ["trace_1", "trace_missing"],
+                            "evidence_span_ids": ["span_tool", "span_missing"],
+                            "confidence_or_uncertainty": "one cited span",
+                        },
+                        {
+                            "hypothesis": "This candidate has only invented citations.",
+                            "evidence_trace_ids": ["trace_missing"],
+                            "evidence_span_ids": ["span_missing"],
+                            "confidence_or_uncertainty": "unsupported",
+                        },
+                    ],
+                    "behavior_drafts": [
+                        {
+                            "name": "wrong_tool",
+                            "description": "A trace uses an unrelated tool.",
+                            "positive_trace_ids": ["trace_1", "trace_missing"],
+                            "negative_trace_ids": ["trace_missing"],
+                        }
+                    ],
+                    "rubric_drafts": [
+                        {
+                            "name": "Wrong tool",
+                            "pass": "Uses the expected tool.",
+                            "fail": "Uses an unrelated tool.",
+                            "unsure": "Tool evidence is absent.",
+                            "evidence_trace_ids": ["trace_1", "trace_missing"],
+                        }
+                    ],
+                    "recommended_next_actions": ["backtest wrong_tool"],
+                    "confidence_or_uncertainty": "single fixture trace",
+                },
+                "provider": "stub",
+                "model": "stub-model",
+                "usage": None,
+                "repaired": False,
+            }
+
+    result = asyncio.run(
+        assist_investigation(
+            StubProvider(),
+            issue=None,
+            traces=[{"trace_id": "trace_1"}],
+            spans_by_trace={"trace_1": [{"span_id": "span_tool"}]},
+            impact_report={},
+        )
+    )
+
+    assert len(result["suspected_root_causes"]) == 1
+    assert result["suspected_root_causes"][0]["evidence_trace_ids"] == ["trace_1"]
+    assert result["suspected_root_causes"][0]["evidence_span_ids"] == ["span_tool"]
+    assert result["behavior_drafts"][0]["positive_trace_ids"] == ["trace_1"]
+    assert result["behavior_drafts"][0]["negative_trace_ids"] == []
+    assert result["rubric_drafts"][0]["evidence_trace_ids"] == ["trace_1"]

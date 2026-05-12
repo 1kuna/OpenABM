@@ -242,6 +242,12 @@ Done:
 - Added agent context pack generation and persistence with model-backed
   summaries, citation validation, deterministic fallback when a model provider is
   unavailable, and `/v1/context-packs` API coverage.
+- Added model-assisted investigation drafts for cited root-cause hypotheses,
+  candidate behaviors, rubric drafts, uncertainty, and next actions, with
+  citation filtering before model output becomes canonical.
+- Verified a live LM Studio investigation canary with `openabm-qwen35-9b`; the
+  prompt revision produced a cited root cause, behavior draft, and rubric draft
+  as valid unrepaired JSON with reasoning-token usage.
 - Added web UI sections for judge runtime, behavior monitoring, datasets/evals,
   prompt registry, MCP, and ops status so unfinished surfaces are visible
   without pretending LLM-dependent capabilities exist.
@@ -344,5 +350,10 @@ Implemented in this pass:
 - Added deterministic impact report generation from trace search results and
   trace dimensions, with LLM-only narrative/root-cause work explicitly marked as
   deferred in the run result.
+- Added model-assisted investigation output for cited root-cause hypotheses,
+  behavior drafts, rubric drafts, uncertainty, and recommended next actions;
+  citation filters prevent invented trace/span IDs from becoming canonical, and
+  the live 9B prompt was tightened after the first canary skipped behavior
+  drafts.
 - Added an Issues/Investigations scaffold view in the web app so the v2 surface
   is visible without pretending the LLM-backed pieces are ready.

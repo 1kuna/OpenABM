@@ -1021,6 +1021,33 @@ class SQLiteStore:
         run["result"]["impact_report"] = report
         return run
 
+    def update_investigation_result(
+        self,
+        project_id: str,
+        investigation_run_id: str,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE investigation_runs
+                SET result_json = ?, updated_at = ?
+                WHERE project_id = ? AND investigation_run_id = ?
+                """,
+                (encode_json(result), now, project_id, investigation_run_id),
+            )
+            row = conn.execute(
+                """
+                SELECT * FROM investigation_runs
+                WHERE project_id = ? AND investigation_run_id = ?
+                """,
+                (project_id, investigation_run_id),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"investigation run not found: {investigation_run_id}")
+        return self._investigation_run_from_row(row)
+
     def persist_impact_report(
         self,
         report: dict[str, Any],
@@ -1403,6 +1430,24 @@ class SQLiteStore:
             "content": decode_json(row["content_json"], {}),
             "classification": row["classification"],
             "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _investigation_run_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "investigation_run_id": row["investigation_run_id"],
+            "project_id": row["project_id"],
+            "issue_id_nullable": row["issue_id_nullable"],
+            "seed_trace_id_nullable": row["seed_trace_id_nullable"],
+            "seed_session_id_nullable": row["seed_session_id_nullable"],
+            "natural_language_problem_nullable": row["natural_language_problem_nullable"],
+            "time_window": decode_json(row["time_window_json"], {}),
+            "filters": decode_json(row["filters_json"], {}),
+            "allowed_tools": decode_json(row["allowed_tools_json"], []),
+            "status": row["status"],
+            "result": decode_json(row["result_json"], {}),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
         }
 
     @staticmethod
