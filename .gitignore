@@ -6,6 +6,7 @@ openabm_implementation_spec.md
 node_modules/
 dist/
 build/
+*.tsbuildinfo
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
