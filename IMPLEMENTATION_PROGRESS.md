@@ -118,7 +118,7 @@ Done:
 
 ## Phase 4: Model Runtime And Judge Runtime
 
-Status: planned
+Status: in progress
 
 Target for this pass:
 
@@ -136,6 +136,17 @@ LLM-dependent deferrals:
 - Embeddings and reranking.
 - Judge calibration against model outputs.
 
+Done:
+
+- Added disabled chat/structured/embedding provider adapters that fail closed.
+- Added judge output validation for verdicts and span citations.
+- Added deterministic rule judge scaffold.
+- Added development-only code judge sandbox with scrubbed environment,
+  temporary inputs/outputs, timeout handling, stdout/stderr capture, and explicit
+  `dev_only` isolation status.
+- Added tests for disabled model mode, citation validation, deterministic rule
+  judge execution, and code judge environment scrubbing.
+
 ## Phase 5: Datasets And Offline Evals
 
 Status: planned
@@ -152,7 +163,7 @@ LLM-dependent deferrals:
 
 ## Phase 6: Behaviors And Automations
 
-Status: planned
+Status: in progress
 
 Target for this pass:
 
@@ -164,9 +175,14 @@ LLM-dependent deferrals:
 - Cluster/embedding behavior discovery.
 - Judge-backed behavior detector execution when the judge requires a model.
 
+Done:
+
+- Added deterministic condition grammar evaluator for automation/rule-detector
+  style conditions with nested groups and the spec's core operators.
+
 ## Phase 7: Prompt Registry, MCP, And Investigation Agent
 
-Status: planned
+Status: in progress
 
 Target for this pass:
 
@@ -177,6 +193,13 @@ LLM-dependent deferrals:
 
 - Investigation chat agent.
 - Drafting judges from natural-language user requests.
+
+Done:
+
+- Added prompt commit hashing, deterministic variable rendering, secret
+  interpolation rejection, and text diff helper.
+- Added MCP tool contract registry covering all required tool names, including
+  side-effect and confirmation metadata.
 
 ## Phase 8: Security, Privacy, And Operations Hardening
 

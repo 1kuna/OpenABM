@@ -1,0 +1,136 @@
+import asyncio
+import textwrap
+
+import pytest
+from openabm_api.prompts import diff_prompt_text, prompt_commit_id, render_prompt
+from openabm_mcp.tools import REQUIRED_TOOL_NAMES, all_tool_definitions
+from openabm_worker.code_sandbox import run_code_judge_dev_sandbox
+from openabm_worker.conditions import evaluate_condition_group
+from openabm_worker.judges import run_deterministic_rule_judge, validate_judge_output
+from openabm_worker.model_runtime import DisabledModelProvider, ModelCallsDisabled
+
+
+def test_disabled_model_provider_fails_closed() -> None:
+    provider = DisabledModelProvider()
+    health = provider.health_check()
+    assert health.status == "disabled"
+    with pytest.raises(ModelCallsDisabled):
+        asyncio.run(provider.structured_completion({}, {}, 1))
+
+
+def test_condition_grammar_supports_nested_groups() -> None:
+    context = {"trace": {"status": "error"}, "cost": {"total": 3.5}}
+    result = evaluate_condition_group(
+        {
+            "combine": "all",
+            "items": [
+                {"field": "trace.status", "op": "eq", "value": "error"},
+                {"field": "cost.total", "op": "gt", "value": 2.0},
+            ],
+        },
+        context,
+    )
+    assert result["passed"] is True
+
+
+def test_deterministic_rule_judge_cites_matching_spans() -> None:
+    trace = {"trace_id": "trace_wrong_tool"}
+    spans = [
+        {
+            "span_id": "span_order_lookup",
+            "attributes": {"tool": {"name": "order_lookup"}},
+        }
+    ]
+    score = run_deterministic_rule_judge(
+        trace,
+        spans,
+        {
+            "judge_id": "judge_wrong_tool",
+            "rule": {
+                "match_semantics": "any_match_is_pass",
+                "conditions": {
+                    "combine": "all",
+                    "items": [
+                        {"field": "attributes.tool.name", "op": "eq", "value": "order_lookup"}
+                    ],
+                },
+            },
+        },
+    )
+    assert score["status"] == "succeeded"
+    assert score["evidence_span_ids"] == ["span_order_lookup"]
+
+
+def test_judge_output_validation_rejects_missing_or_invalid_citations() -> None:
+    invalid = validate_judge_output(
+        {"verdict": "fail", "score": 0, "evidence_span_ids": []},
+        trace_id="trace_1",
+        judge_id="judge_1",
+        judge_version_id="judge_version_1",
+        preserved_span_ids={"span_1"},
+        require_span_citations=True,
+    )
+    assert invalid["status"] == "invalid_output"
+    assert invalid["failure_mode"] == "missing_citations"
+
+    valid = validate_judge_output(
+        {"verdict": "fail", "score": 0, "evidence_span_ids": ["span_1"]},
+        trace_id="trace_1",
+        judge_id="judge_1",
+        judge_version_id="judge_version_1",
+        preserved_span_ids={"span_1"},
+        require_span_citations=True,
+    )
+    assert valid["status"] == "succeeded"
+
+
+def test_code_judge_dev_sandbox_scrubs_environment(monkeypatch) -> None:
+    monkeypatch.setenv("OPENABM_SECRET_SHOULD_NOT_LEAK", "hidden")
+    code = textwrap.dedent(
+        """
+        import json
+        import os
+
+        output = {
+            "status": "succeeded",
+            "saw_secret": os.getenv("OPENABM_SECRET_SHOULD_NOT_LEAK") is not None,
+        }
+        with open(os.environ["OPENABM_CODE_JUDGE_OUTPUT"], "w") as handle:
+            json.dump(output, handle)
+        """
+    )
+    result = run_code_judge_dev_sandbox(code, {"trace_id": "trace_1"})
+    assert result["status"] == "succeeded"
+    assert result["result"]["saw_secret"] is False
+    assert result["isolation_level"] == "dev_only"
+
+
+def test_prompt_commit_render_and_diff_are_deterministic() -> None:
+    commit_a = prompt_commit_id(
+        template_text="Hello {{name}}",
+        variables_schema={"type": "object", "required": ["name"]},
+        parent_commit_id=None,
+    )
+    commit_b = prompt_commit_id(
+        template_text="Hello {{name}}",
+        variables_schema={"type": "object", "required": ["name"]},
+        parent_commit_id=None,
+    )
+    assert commit_a == commit_b
+    assert render_prompt("Hello {{name}}", {"name": "OpenABM"}) == "Hello OpenABM"
+    assert "-Hello {{name}}" in diff_prompt_text("Hello {{name}}", "Hi {{name}}")
+    with pytest.raises(ValueError):
+        render_prompt("Use {{secret:api_key}}", {})
+
+
+def test_mcp_tool_contracts_cover_required_names() -> None:
+    tools = all_tool_definitions()
+    by_name = {tool["name"]: tool for tool in tools}
+    assert set(REQUIRED_TOOL_NAMES) == set(by_name)
+    for tool in tools:
+        assert tool["description"]
+        assert "input_schema" in tool
+        assert "output_schema" in tool
+        assert "required_scopes" in tool
+        assert "confirmation_required" in tool
+
