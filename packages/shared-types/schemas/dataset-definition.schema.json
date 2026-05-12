@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/dataset-definition.json",
+  "title": "DatasetDefinition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["dataset_id", "project_id", "name", "created_at"],
+  "properties": {
+    "dataset_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "name": {"type": "string"},
+    "description": {"type": ["string", "null"]},
+    "status": {"enum": ["draft", "active", "archived"], "default": "draft"},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}
+

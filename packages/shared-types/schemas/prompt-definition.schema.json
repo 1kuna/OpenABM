@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/prompt-definition.json",
+  "title": "PromptDefinition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["prompt_id", "project_id", "name", "created_at"],
+  "properties": {
+    "prompt_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "name": {"type": "string"},
+    "description": {"type": ["string", "null"]},
+    "tags": {"type": "object", "additionalProperties": {"type": "string"}, "default": {}},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}
+

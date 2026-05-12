@@ -1,0 +1,286 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "OpenABM API",
+    "version": "0.0.0",
+    "description": "Contract skeleton for OpenABM ingest, trace search, scoring, datasets, behaviors, prompts, automations, and MCP-adjacent read APIs."
+  },
+  "servers": [
+    {"url": "http://127.0.0.1:8787", "description": "Local reference API"}
+  ],
+  "security": [{"ApiKeyAuth": []}],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Report API process liveness.",
+        "security": [],
+        "responses": {"200": {"description": "API is alive.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HealthResponse"}}}}}
+      }
+    },
+    "/ready": {
+      "get": {
+        "operationId": "getReadiness",
+        "summary": "Report dependency readiness.",
+        "security": [],
+        "responses": {"200": {"description": "API dependencies are ready.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HealthResponse"}}}}}
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "getMetrics",
+        "summary": "Expose local reference metrics in text form.",
+        "security": [],
+        "responses": {"200": {"description": "Metrics text.", "content": {"text/plain": {"schema": {"type": "string"}}}}}
+      }
+    },
+    "/api/ingest/traces": {
+      "post": {
+        "operationId": "ingestTrace",
+        "summary": "Ingest one trace envelope.",
+        "x-required-scopes": ["traces:write"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "../schemas/trace-envelope.schema.json"}}}},
+        "responses": {
+          "202": {"description": "Trace accepted.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/IngestItemResponse"}}}},
+          "400": {"description": "Validation error.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}}},
+          "401": {"description": "Authentication error.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}}},
+          "429": {"description": "Backpressure response.", "headers": {"Retry-After": {"schema": {"type": "integer"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}}}
+        }
+      }
+    },
+    "/api/ingest/spans": {
+      "post": {
+        "operationId": "ingestSpan",
+        "summary": "Ingest one span envelope.",
+        "x-required-scopes": ["traces:write"],
+        "parameters": [{"name": "Idempotency-Key", "in": "header", "required": false, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "../schemas/span-envelope.schema.json"}}}},
+        "responses": {
+          "202": {"description": "Span accepted.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/IngestItemResponse"}}}},
+          "400": {"description": "Validation error.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}}}
+        }
+      }
+    },
+    "/api/ingest/events": {
+      "post": {
+        "operationId": "ingestEvent",
+        "summary": "Ingest one span event.",
+        "x-required-scopes": ["traces:write"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["trace_id", "span_id", "event"], "properties": {"trace_id": {"type": "string"}, "span_id": {"type": "string"}, "event": {"$ref": "../schemas/trace-event.schema.json"}}}}}},
+        "responses": {"202": {"description": "Event accepted.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/IngestItemResponse"}}}}}
+      }
+    },
+    "/api/ingest/feedback": {
+      "post": {
+        "operationId": "ingestFeedback",
+        "summary": "Ingest feedback associated with a trace or span.",
+        "x-required-scopes": ["feedback:write"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["project_id", "trace_id", "feedback_type"], "properties": {"project_id": {"type": "string"}, "trace_id": {"type": "string"}, "span_id": {"type": ["string", "null"]}, "feedback_type": {"type": "string"}, "payload": {"type": "object"}}}}}},
+        "responses": {"202": {"description": "Feedback accepted.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/IngestItemResponse"}}}}}
+      }
+    },
+    "/api/ingest/payloads": {
+      "post": {
+        "operationId": "ingestPayload",
+        "summary": "Store a payload object or payload metadata marker.",
+        "x-required-scopes": ["payloads:write"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["payload", "body"], "properties": {"payload": {"$ref": "../schemas/payload-object.schema.json"}, "body": {}}}}}},
+        "responses": {"202": {"description": "Payload accepted.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/IngestItemResponse"}}}}}
+      }
+    },
+    "/api/ingest/batch": {
+      "post": {
+        "operationId": "ingestBatch",
+        "summary": "Ingest traces, spans, events, feedback, and payloads with partial success.",
+        "x-required-scopes": ["traces:write"],
+        "parameters": [{"name": "Idempotency-Key", "in": "header", "required": false, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BatchIngestRequest"}}}},
+        "responses": {
+          "207": {"description": "Batch accepted with per-item statuses.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BatchIngestResponse"}}}},
+          "400": {"description": "Envelope validation error.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}}}
+        }
+      }
+    },
+    "/api/projects": {
+      "get": {
+        "operationId": "listProjects",
+        "summary": "List projects visible to the caller.",
+        "x-required-scopes": ["projects:read"],
+        "responses": {"200": {"description": "Project list.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PaginatedProjects"}}}}}
+      }
+    },
+    "/api/traces": {
+      "get": {
+        "operationId": "listTraces",
+        "summary": "List traces with structured filters and pagination.",
+        "x-required-scopes": ["traces:read"],
+        "parameters": [
+          {"name": "project_id", "in": "query", "required": true, "schema": {"type": "string"}},
+          {"name": "environment", "in": "query", "required": false, "schema": {"type": "string"}},
+          {"name": "status", "in": "query", "required": false, "schema": {"type": "string"}},
+          {"name": "from", "in": "query", "required": false, "schema": {"type": "string", "format": "date-time"}},
+          {"name": "to", "in": "query", "required": false, "schema": {"type": "string", "format": "date-time"}},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}},
+          {"name": "cursor", "in": "query", "required": false, "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "Trace page.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PaginatedTraces"}}}}}
+      }
+    },
+    "/api/traces/{trace_id}": {
+      "get": {
+        "operationId": "getTrace",
+        "summary": "Get reconstructed trace detail.",
+        "x-required-scopes": ["traces:read"],
+        "parameters": [{"name": "trace_id", "in": "path", "required": true, "schema": {"type": "string"}}, {"name": "project_id", "in": "query", "required": true, "schema": {"type": "string"}}],
+        "responses": {"200": {"description": "Trace detail.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TraceDetail"}}}}, "404": {"description": "Trace not found.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}}}}
+      }
+    },
+    "/api/traces/{trace_id}/spans": {
+      "get": {
+        "operationId": "listTraceSpans",
+        "summary": "List spans for a trace.",
+        "x-required-scopes": ["traces:read"],
+        "parameters": [{"name": "trace_id", "in": "path", "required": true, "schema": {"type": "string"}}, {"name": "project_id", "in": "query", "required": true, "schema": {"type": "string"}}],
+        "responses": {"200": {"description": "Trace spans.", "content": {"application/json": {"schema": {"type": "object", "required": ["data"], "properties": {"data": {"type": "array", "items": {"$ref": "../schemas/span-envelope.schema.json"}}}}}}}}
+      }
+    },
+    "/api/spans/{span_id}": {
+      "get": {
+        "operationId": "getSpan",
+        "summary": "Get one span by ID.",
+        "x-required-scopes": ["traces:read"],
+        "parameters": [{"name": "span_id", "in": "path", "required": true, "schema": {"type": "string"}}, {"name": "project_id", "in": "query", "required": true, "schema": {"type": "string"}}],
+        "responses": {"200": {"description": "Span detail.", "content": {"application/json": {"schema": {"$ref": "../schemas/span-envelope.schema.json"}}}}}
+      }
+    },
+    "/api/sessions": {
+      "get": {
+        "operationId": "listSessions",
+        "summary": "List sessions inferred from traces.",
+        "x-required-scopes": ["traces:read"],
+        "parameters": [{"name": "project_id", "in": "query", "required": true, "schema": {"type": "string"}}],
+        "responses": {"200": {"description": "Session page.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PaginationEnvelope"}}}}}
+      }
+    },
+    "/api/search/traces": {
+      "post": {
+        "operationId": "searchTraces",
+        "summary": "Search traces with structured and text filters.",
+        "x-required-scopes": ["traces:read"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TraceSearchRequest"}}}},
+        "responses": {"200": {"description": "Trace search results.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PaginatedTraces"}}}}}
+      }
+    },
+    "/api/search/spans": {
+      "post": {
+        "operationId": "searchSpans",
+        "summary": "Search spans with structured and text filters.",
+        "x-required-scopes": ["traces:read"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TraceSearchRequest"}}}},
+        "responses": {"200": {"description": "Span search results.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PaginationEnvelope"}}}}}
+      }
+    },
+    "/api/search/similar": {
+      "post": {
+        "operationId": "searchSimilar",
+        "summary": "Search similar traces or spans when a similarity index is configured.",
+        "x-required-scopes": ["traces:read"],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["project_id", "source_id"], "properties": {"project_id": {"type": "string"}, "source_id": {"type": "string"}, "source_type": {"enum": ["trace", "span"]}, "limit": {"type": "integer", "default": 20}}}}}},
+        "responses": {"200": {"description": "Similarity results or disabled-mode explanation.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PaginationEnvelope"}}}}}
+      }
+    },
+    "/api/scores": {
+      "get": {
+        "operationId": "listScores",
+        "summary": "List score results.",
+        "x-required-scopes": ["scores:read"],
+        "parameters": [{"name": "project_id", "in": "query", "required": true, "schema": {"type": "string"}}, {"name": "trace_id", "in": "query", "required": false, "schema": {"type": "string"}}],
+        "responses": {"200": {"description": "Scores.", "content": {"application/json": {"schema": {"type": "object", "required": ["data"], "properties": {"data": {"type": "array", "items": {"$ref": "../schemas/score-result.schema.json"}}}}}}}}
+      }
+    },
+    "/api/behaviors": {
+      "get": {
+        "operationId": "listBehaviors",
+        "summary": "List behavior definitions.",
+        "x-required-scopes": ["behaviors:read"],
+        "parameters": [{"name": "project_id", "in": "query", "required": true, "schema": {"type": "string"}}],
+        "responses": {"200": {"description": "Behaviors.", "content": {"application/json": {"schema": {"type": "object", "required": ["data"], "properties": {"data": {"type": "array", "items": {"$ref": "../schemas/behavior-definition.schema.json"}}}}}}}}
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {"type": "apiKey", "in": "header", "name": "Authorization", "description": "Use `Bearer <api-key>`."}
+    },
+    "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "required": ["status", "service"],
+        "properties": {"status": {"type": "string"}, "service": {"type": "string"}, "details": {"type": "object"}}
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {"error": {"type": "object", "required": ["code", "message", "request_id", "retryable"], "properties": {"code": {"type": "string"}, "message": {"type": "string"}, "path": {"type": ["string", "null"]}, "request_id": {"type": "string"}, "retryable": {"type": "boolean"}}}}
+      },
+      "IngestItemResponse": {
+        "type": "object",
+        "required": ["status", "server_id"],
+        "properties": {"status": {"enum": ["accepted", "duplicate", "rejected"]}, "server_id": {"type": ["string", "null"]}}
+      },
+      "BatchIngestRequest": {
+        "type": "object",
+        "properties": {
+          "traces": {"type": "array", "items": {"$ref": "../schemas/trace-envelope.schema.json"}, "default": []},
+          "spans": {"type": "array", "items": {"$ref": "../schemas/span-envelope.schema.json"}, "default": []},
+          "events": {"type": "array", "items": {"type": "object"}, "default": []},
+          "feedback": {"type": "array", "items": {"type": "object"}, "default": []},
+          "payloads": {"type": "array", "items": {"type": "object"}, "default": []}
+        }
+      },
+      "BatchIngestResponse": {
+        "type": "object",
+        "required": ["status", "accepted", "rejected", "items"],
+        "properties": {
+          "status": {"enum": ["success", "partial_success", "failed"]},
+          "accepted": {"type": "integer"},
+          "rejected": {"type": "integer"},
+          "items": {"type": "array", "items": {"type": "object", "required": ["client_item_id", "status"], "properties": {"client_item_id": {"type": "string"}, "status": {"enum": ["accepted", "duplicate", "rejected"]}, "server_id": {"type": ["string", "null"]}, "error": {"type": ["object", "null"]}}}}
+        }
+      },
+      "PaginationEnvelope": {
+        "type": "object",
+        "required": ["data", "page"],
+        "properties": {"data": {"type": "array", "items": {}}, "page": {"type": "object", "required": ["limit", "next_cursor", "has_more"], "properties": {"limit": {"type": "integer"}, "next_cursor": {"type": ["string", "null"]}, "has_more": {"type": "boolean"}}}}
+      },
+      "PaginatedProjects": {
+        "allOf": [{"$ref": "#/components/schemas/PaginationEnvelope"}]
+      },
+      "PaginatedTraces": {
+        "allOf": [{"$ref": "#/components/schemas/PaginationEnvelope"}]
+      },
+      "TraceSearchRequest": {
+        "type": "object",
+        "required": ["project_id"],
+        "properties": {
+          "project_id": {"type": "string"},
+          "filters": {"type": "object", "default": {}},
+          "full_text_query": {"type": ["string", "null"]},
+          "semantic_query": {"type": ["string", "null"]},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+          "cursor": {"type": ["string", "null"]}
+        }
+      },
+      "TraceDetail": {
+        "type": "object",
+        "required": ["trace", "spans", "reconstruction"],
+        "properties": {
+          "trace": {"$ref": "../schemas/trace-envelope.schema.json"},
+          "spans": {"type": "array", "items": {"$ref": "../schemas/span-envelope.schema.json"}},
+          "reconstruction": {"type": "object"}
+        }
+      }
+    }
+  }
+}
+

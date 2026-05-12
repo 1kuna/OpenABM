@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/score-result.json",
+  "title": "ScoreResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["score_id", "trace_id", "judge_id", "status", "value"],
+  "properties": {
+    "score_id": {"type": "string"},
+    "trace_id": {"type": "string"},
+    "span_id": {"type": ["string", "null"]},
+    "judge_id": {"type": "string"},
+    "judge_version_id": {"type": ["string", "null"]},
+    "status": {"enum": ["succeeded", "failed", "timeout", "invalid_output", "skipped"]},
+    "value": {},
+    "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "reasoning": {"type": ["string", "null"]},
+    "evidence_span_ids": {"type": "array", "items": {"type": "string"}, "default": []},
+    "failure_mode": {"type": ["string", "null"]},
+    "cost": {"type": ["object", "null"]},
+    "latency_ms": {"type": ["integer", "null"], "minimum": 0},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}
+

@@ -37,7 +37,7 @@ Skipped or deferred:
 
 ## Phase 1: Contracts And Fixtures
 
-Status: planned
+Status: in progress
 
 Target for this pass:
 
@@ -45,6 +45,17 @@ Target for this pass:
 - OpenAPI skeleton under `packages/shared-types/openapi/`.
 - Synthetic fixture corpus and reconstruction expectations.
 - Contract tests that validate fixtures and schemas.
+
+Done:
+
+- Added required schema files for traces, spans, events, payloads, scores,
+  judges, behaviors, automations, datasets, evals, prompts, secrets, and MCP
+  request/response envelopes.
+- Added operation-level OpenAPI skeleton for health, ingest, query, search,
+  scores, and behavior list APIs.
+- Added initial synthetic trace fixtures for happy path, wrong tool, missing
+  parent, and clock skew cases.
+- Added contract tests and verified them with `make contracts`.
 
 LLM-dependent deferrals:
 
@@ -171,4 +182,3 @@ Blocked:
 
 - Use `SPEC_EDIT_SUGGESTIONS.md` for any recommended spec changes.
 - Keep the spec itself unmodified.
-

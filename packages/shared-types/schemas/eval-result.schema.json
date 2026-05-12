@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/eval-result.json",
+  "title": "EvalResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eval_result_id", "eval_run_id", "dataset_example_id", "status", "created_at"],
+  "properties": {
+    "eval_result_id": {"type": "string"},
+    "eval_run_id": {"type": "string"},
+    "dataset_example_id": {"type": "string"},
+    "offline_trace_id": {"type": ["string", "null"]},
+    "status": {"enum": ["succeeded", "failed", "timeout", "cancelled", "skipped"]},
+    "scores": {"type": "array", "items": {"$ref": "score-result.schema.json"}, "default": []},
+    "cost": {"type": ["object", "null"]},
+    "latency_ms": {"type": ["integer", "null"], "minimum": 0},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}
+

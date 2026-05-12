@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/mcp-tool-response.json",
+  "title": "McpToolResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tool", "status"],
+  "properties": {
+    "tool": {"type": "string"},
+    "status": {"enum": ["succeeded", "failed", "confirmation_required"]},
+    "output": {"type": ["object", "null"]},
+    "error": {"type": ["object", "null"]},
+    "citations": {"type": "array", "items": {"type": "string"}, "default": []}
+  }
+}
+

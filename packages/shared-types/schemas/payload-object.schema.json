@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/payload-object.json",
+  "title": "PayloadObject",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["payload_id", "content_type", "redaction_state", "created_at"],
+  "properties": {
+    "payload_id": {"type": "string", "minLength": 1},
+    "project_id": {"type": "string"},
+    "trace_id": {"type": ["string", "null"]},
+    "span_id": {"type": ["string", "null"]},
+    "content_type": {"type": "string"},
+    "byte_size_nullable": {"type": ["integer", "null"], "minimum": 0},
+    "sha256_nullable": {"type": ["string", "null"]},
+    "redaction_state": {"enum": ["raw", "redacted", "masked", "omitted", "deleted", "unavailable"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "storage_uri": {"type": ["string", "null"]}
+  }
+}
+

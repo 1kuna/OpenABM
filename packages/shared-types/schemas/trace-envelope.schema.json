@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/trace-envelope.json",
+  "title": "TraceEnvelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["trace_id", "project_id", "started_at"],
+  "properties": {
+    "trace_id": {"type": "string", "minLength": 1},
+    "project_id": {"type": "string", "minLength": 1},
+    "session_id": {"type": ["string", "null"]},
+    "user_external_id": {"type": ["string", "null"]},
+    "root_span_id": {"type": ["string", "null"]},
+    "environment": {"type": "string", "default": "default"},
+    "status": {
+      "enum": ["ok", "error", "cancelled", "timeout", "incomplete", "unknown"],
+      "default": "unknown"
+    },
+    "started_at": {"type": "string", "format": "date-time"},
+    "ended_at": {"type": ["string", "null"], "format": "date-time"},
+    "tags": {"type": "array", "items": {"type": "string"}, "default": []},
+    "attributes": {"type": "object", "default": {}},
+    "summary": {"type": ["string", "null"]}
+  }
+}
+

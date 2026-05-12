@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/judge-definition.json",
+  "title": "JudgeDefinition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["judge_id", "project_id", "name", "judge_type", "created_at"],
+  "properties": {
+    "judge_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "name": {"type": "string"},
+    "description": {"type": ["string", "null"]},
+    "judge_type": {"enum": ["rubric_judge", "code_judge", "deterministic_rule", "human_review_label"]},
+    "status": {"enum": ["draft", "active", "archived"], "default": "draft"},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}
+

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/prompt-version.json",
+  "title": "PromptVersion",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["prompt_version_id", "prompt_id", "commit_id", "template_text", "variables_schema", "created_at"],
+  "properties": {
+    "prompt_version_id": {"type": "string"},
+    "prompt_id": {"type": "string"},
+    "commit_id": {"type": "string"},
+    "parent_commit_id": {"type": ["string", "null"]},
+    "template_text": {"type": "string"},
+    "variables_schema": {"type": "object"},
+    "metadata": {"type": "object", "default": {}},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}
+

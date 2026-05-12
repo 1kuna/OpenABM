@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/eval-run-config.json",
+  "title": "EvalRunConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eval_run_id", "project_id", "dataset_version_id", "runner", "created_at"],
+  "properties": {
+    "eval_run_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "dataset_version_id": {"type": "string"},
+    "baseline_eval_run_id": {"type": ["string", "null"]},
+    "runner": {"type": "object", "required": ["type"], "properties": {"type": {"enum": ["in_process_function", "command", "http_endpoint"]}}, "additionalProperties": true},
+    "judges": {"type": "array", "items": {"type": "string"}, "default": []},
+    "prompt_version_id": {"type": ["string", "null"]},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}
+

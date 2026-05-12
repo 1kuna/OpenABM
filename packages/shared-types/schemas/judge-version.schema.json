@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/judge-version.json",
+  "title": "JudgeVersion",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["judge_version_id", "judge_id", "version", "definition", "created_at"],
+  "properties": {
+    "judge_version_id": {"type": "string"},
+    "judge_id": {"type": "string"},
+    "version": {"type": "integer", "minimum": 1},
+    "definition": {"type": "object"},
+    "created_by": {"type": ["string", "null"]},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}
+

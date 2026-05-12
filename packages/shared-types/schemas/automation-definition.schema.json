@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/automation-definition.json",
+  "title": "AutomationDefinition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["automation_id", "project_id", "name", "trigger", "conditions", "actions", "created_at"],
+  "properties": {
+    "automation_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "name": {"type": "string"},
+    "trigger": {"type": "object", "required": ["type"], "additionalProperties": true},
+    "conditions": {"type": "object", "additionalProperties": true},
+    "actions": {"type": "array", "items": {"type": "object"}},
+    "cooldown": {"type": ["object", "null"]},
+    "status": {"enum": ["draft", "active", "paused", "archived"], "default": "draft"},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}
+

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/behavior-definition.json",
+  "title": "BehaviorDefinition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["behavior_id", "project_id", "name", "detector", "created_at"],
+  "properties": {
+    "behavior_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "name": {"type": "string"},
+    "description": {"type": ["string", "null"]},
+    "severity": {"enum": ["low", "medium", "high", "critical"], "default": "medium"},
+    "detector": {"type": "object", "required": ["type"], "properties": {"type": {"enum": ["manual_label", "rule", "judge", "cluster_experiment", "external_signal"]}}, "additionalProperties": true},
+    "status": {"enum": ["draft", "active", "archived"], "default": "draft"},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}
+

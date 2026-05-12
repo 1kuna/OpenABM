@@ -1,0 +1,253 @@
+{
+  "fixture_version": "2026-05-12.initial",
+  "fixtures": [
+    {
+      "name": "happy_path_support_trace",
+      "trace": {
+        "trace_id": "trace_happy_support",
+        "project_id": "proj_demo",
+        "session_id": "session_001",
+        "user_external_id": "user_synthetic_001",
+        "root_span_id": "span_happy_root",
+        "environment": "fixture",
+        "status": "ok",
+        "started_at": "2026-05-12T10:00:00Z",
+        "ended_at": "2026-05-12T10:00:07Z",
+        "tags": ["support", "fixture"],
+        "attributes": {"channel": "chat"},
+        "summary": "Support agent answered a refund policy question successfully."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_happy_support",
+          "span_id": "span_happy_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "refund_agent",
+          "span_type": "agent",
+          "status": "ok",
+          "started_at": "2026-05-12T10:00:00Z",
+          "ended_at": "2026-05-12T10:00:07Z",
+          "input": {"mode": "inline", "value": "Can I get a refund?", "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": "Refund eligibility depends on purchase age.", "redaction_state": "raw"},
+          "attributes": {"openabm.environment": "fixture", "openabm.sdk.name": "fixture"},
+          "events": [],
+          "links": []
+        },
+        {
+          "trace_id": "trace_happy_support",
+          "span_id": "span_happy_tool",
+          "parent_span_id": "span_happy_root",
+          "project_id": "proj_demo",
+          "name": "lookup_policy",
+          "span_type": "tool",
+          "status": "ok",
+          "started_at": "2026-05-12T10:00:01Z",
+          "ended_at": "2026-05-12T10:00:02Z",
+          "input": {"mode": "inline", "value": {"policy": "refunds"}, "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": {"eligible_days": 30}, "redaction_state": "raw"},
+          "attributes": {"tool.name": "policy_lookup", "tool.success": true},
+          "events": [],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_happy_root"],
+        "warnings": [],
+        "searchable_fields": {"tool_name": "policy_lookup", "has_error": false},
+        "payload_states": ["raw"],
+        "behavior_labels": []
+      }
+    },
+    {
+      "name": "wrong_tool_failure_trace",
+      "trace": {
+        "trace_id": "trace_wrong_tool",
+        "project_id": "proj_demo",
+        "session_id": "session_002",
+        "user_external_id": "user_synthetic_002",
+        "root_span_id": "span_wrong_tool_root",
+        "environment": "fixture",
+        "status": "error",
+        "started_at": "2026-05-12T10:05:00Z",
+        "ended_at": "2026-05-12T10:05:10Z",
+        "tags": ["support", "fixture", "failure"],
+        "attributes": {"channel": "chat"},
+        "summary": "Agent used an order lookup tool for a refund decision that required policy lookup."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_wrong_tool",
+          "span_id": "span_wrong_tool_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "refund_agent",
+          "span_type": "agent",
+          "status": "error",
+          "started_at": "2026-05-12T10:05:00Z",
+          "ended_at": "2026-05-12T10:05:10Z",
+          "input": {"mode": "inline", "value": "Refund my damaged order.", "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": "I cannot find your order status.", "redaction_state": "raw"},
+          "attributes": {"error.type": "wrong_tool", "openabm.environment": "fixture"},
+          "events": [{"name": "feedback.user_correction", "time": "2026-05-12T10:05:11Z", "attributes": {"message": "You should have checked the refund policy."}}],
+          "links": []
+        },
+        {
+          "trace_id": "trace_wrong_tool",
+          "span_id": "span_wrong_tool_order_lookup",
+          "parent_span_id": "span_wrong_tool_root",
+          "project_id": "proj_demo",
+          "name": "lookup_order",
+          "span_type": "tool",
+          "status": "ok",
+          "started_at": "2026-05-12T10:05:02Z",
+          "ended_at": "2026-05-12T10:05:03Z",
+          "input": {"mode": "inline", "value": {"order_id": "synthetic"}, "redaction_state": "masked"},
+          "output": {"mode": "inline", "value": {"status": "delivered"}, "redaction_state": "raw"},
+          "attributes": {"tool.name": "order_lookup", "tool.success": true},
+          "events": [],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_wrong_tool_root"],
+        "warnings": [],
+        "searchable_fields": {"tool_name": "order_lookup", "has_error": true},
+        "payload_states": ["raw", "masked"],
+        "behavior_labels": ["wrong_tool_for_refund"]
+      }
+    },
+    {
+      "name": "missing_parent_trace",
+      "trace": {
+        "trace_id": "trace_missing_parent",
+        "project_id": "proj_demo",
+        "session_id": "session_003",
+        "user_external_id": null,
+        "root_span_id": null,
+        "environment": "fixture",
+        "status": "incomplete",
+        "started_at": "2026-05-12T10:10:00Z",
+        "ended_at": null,
+        "tags": ["fixture", "malformed"],
+        "attributes": {},
+        "summary": "A child span arrived without its parent."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_missing_parent",
+          "span_id": "span_orphan_tool",
+          "parent_span_id": "span_missing_parent",
+          "project_id": "proj_demo",
+          "name": "lookup_policy",
+          "span_type": "tool",
+          "status": "ok",
+          "started_at": "2026-05-12T10:10:01Z",
+          "ended_at": "2026-05-12T10:10:02Z",
+          "input": {"mode": "omitted", "redaction_state": "omitted"},
+          "output": {"mode": "omitted", "redaction_state": "omitted"},
+          "attributes": {"tool.name": "policy_lookup"},
+          "events": [],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": [],
+        "missing_parent_ids": ["span_orphan_tool"],
+        "warnings": ["missing_parent"],
+        "payload_states": ["omitted"],
+        "behavior_labels": []
+      }
+    },
+    {
+      "name": "clock_skew_trace",
+      "trace": {
+        "trace_id": "trace_clock_skew",
+        "project_id": "proj_demo",
+        "session_id": "session_004",
+        "user_external_id": null,
+        "root_span_id": "span_clock_root",
+        "environment": "fixture",
+        "status": "ok",
+        "started_at": "2026-05-12T10:15:00Z",
+        "ended_at": "2026-05-12T10:15:05Z",
+        "tags": ["fixture", "malformed"],
+        "attributes": {},
+        "summary": "Child time range exceeds parent range."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_clock_skew",
+          "span_id": "span_clock_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "agent",
+          "span_type": "agent",
+          "status": "ok",
+          "started_at": "2026-05-12T10:15:00Z",
+          "ended_at": "2026-05-12T10:15:05Z",
+          "input": {"mode": "redacted", "redaction_state": "redacted"},
+          "output": {"mode": "redacted", "redaction_state": "redacted"},
+          "attributes": {},
+          "events": [],
+          "links": []
+        },
+        {
+          "trace_id": "trace_clock_skew",
+          "span_id": "span_clock_child",
+          "parent_span_id": "span_clock_root",
+          "project_id": "proj_demo",
+          "name": "slow_tool",
+          "span_type": "tool",
+          "status": "ok",
+          "started_at": "2026-05-12T10:14:59Z",
+          "ended_at": "2026-05-12T10:15:06Z",
+          "input": {"mode": "redacted", "redaction_state": "redacted"},
+          "output": {"mode": "redacted", "redaction_state": "redacted"},
+          "attributes": {"tool.name": "slow_tool"},
+          "events": [],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_clock_root"],
+        "warnings": ["clock_skew"],
+        "payload_states": ["redacted"],
+        "behavior_labels": []
+      }
+    }
+  ],
+  "required_fixture_names": [
+    "happy_path_support_trace",
+    "wrong_tool_failure_trace",
+    "missed_escalation_trace",
+    "tool_loop_trace",
+    "retrieval_miss_trace",
+    "hallucinated_final_answer_trace",
+    "malformed_partial_trace",
+    "late_arriving_span_trace",
+    "duplicate_span_update_trace",
+    "large_payload_trace",
+    "redacted_payload_trace",
+    "offline_eval_trace",
+    "external_feedback_trace",
+    "multi_root_trace",
+    "missing_parent_trace",
+    "clock_skew_trace"
+  ],
+  "deferred_fixture_names": [
+    "missed_escalation_trace",
+    "tool_loop_trace",
+    "retrieval_miss_trace",
+    "hallucinated_final_answer_trace",
+    "malformed_partial_trace",
+    "late_arriving_span_trace",
+    "duplicate_span_update_trace",
+    "large_payload_trace",
+    "redacted_payload_trace",
+    "offline_eval_trace",
+    "external_feedback_trace",
+    "multi_root_trace"
+  ]
+}
+

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/automation-run.json",
+  "title": "AutomationRun",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["automation_run_id", "automation_id", "project_id", "status", "started_at"],
+  "properties": {
+    "automation_run_id": {"type": "string"},
+    "automation_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "trace_id": {"type": ["string", "null"]},
+    "status": {"enum": ["succeeded", "failed", "partial_failure", "skipped", "dead_lettered"]},
+    "condition_results": {"type": "array", "items": {"type": "object"}, "default": []},
+    "action_results": {"type": "array", "items": {"type": "object"}, "default": []},
+    "started_at": {"type": "string", "format": "date-time"},
+    "ended_at": {"type": ["string", "null"], "format": "date-time"}
+  }
+}
+

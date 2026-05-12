@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/span-envelope.json",
+  "title": "SpanEnvelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["trace_id", "span_id", "project_id", "name", "span_type", "started_at"],
+  "properties": {
+    "trace_id": {"type": "string", "minLength": 1},
+    "span_id": {"type": "string", "minLength": 1},
+    "parent_span_id": {"type": ["string", "null"]},
+    "project_id": {"type": "string", "minLength": 1},
+    "name": {"type": "string", "minLength": 1},
+    "span_type": {
+      "enum": ["agent", "model_call", "tool", "retriever", "memory", "guardrail", "function", "workflow", "other"]
+    },
+    "status": {
+      "enum": ["ok", "error", "cancelled", "timeout", "incomplete", "unknown"],
+      "default": "unknown"
+    },
+    "started_at": {"type": "string", "format": "date-time"},
+    "ended_at": {"type": ["string", "null"], "format": "date-time"},
+    "input": {"$ref": "#/$defs/payload_ref_or_inline"},
+    "output": {"$ref": "#/$defs/payload_ref_or_inline"},
+    "attributes": {"type": "object", "default": {}},
+    "events": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/trace_event"},
+      "default": []
+    },
+    "links": {"type": "array", "items": {"type": "object"}, "default": []},
+    "server_received_at": {"type": ["string", "null"], "format": "date-time"}
+  },
+  "$defs": {
+    "payload_ref_or_inline": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "mode": {"enum": ["inline", "ref", "redacted", "omitted", "deleted", "unavailable"]},
+        "value": {},
+        "payload_id": {"type": "string"},
+        "redaction_state": {"type": "string"}
+      }
+    },
+    "trace_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "time"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "time": {"type": "string", "format": "date-time"},
+        "attributes": {"type": "object", "default": {}}
+      }
+    }
+  }
+}

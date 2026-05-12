@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/dataset-example.json",
+  "title": "DatasetExample",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["dataset_example_id", "dataset_id", "dataset_version_id", "created_at"],
+  "properties": {
+    "dataset_example_id": {"type": "string"},
+    "dataset_id": {"type": "string"},
+    "dataset_version_id": {"type": "string"},
+    "source_trace_id": {"type": ["string", "null"]},
+    "source_span_id": {"type": ["string", "null"]},
+    "input": {},
+    "expected_output": {},
+    "expected_scores": {"type": "array", "items": {"type": "object"}, "default": []},
+    "labels": {"type": "array", "items": {"type": "string"}, "default": []},
+    "metadata": {"type": "object", "default": {}},
+    "split": {"enum": ["train", "validation", "test", "unspecified"], "default": "unspecified"},
+    "created_from": {"enum": ["automation", "manual", "import", "eval"], "default": "manual"},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}
+

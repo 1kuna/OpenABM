@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/mcp-tool-request.json",
+  "title": "McpToolRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tool", "input"],
+  "properties": {
+    "tool": {"type": "string"},
+    "input": {"type": "object"},
+    "request_id": {"type": ["string", "null"]},
+    "actor": {"type": ["object", "null"]}
+  }
+}
+
