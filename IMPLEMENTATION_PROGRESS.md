@@ -115,6 +115,11 @@ Done:
   parents, incomplete spans, payload states, timeline ordering, and clock-skew
   warnings.
 - Added reconstruction unit tests for missing-parent and clock-skew fixtures.
+- Added React/Vite trace explorer UI with API connection controls, trace table,
+  status filtering, full-text search trigger, trace detail, timeline, payload
+  state summary, span inspector, and scaffolded actions.
+- Verified the web app with `npm --prefix apps/web run build` and headless
+  Chrome screenshots at desktop and mobile widths.
 
 ## Phase 4: Model Runtime And Judge Runtime
 
@@ -200,6 +205,9 @@ Done:
   interpolation rejection, and text diff helper.
 - Added MCP tool contract registry covering all required tool names, including
   side-effect and confirmation metadata.
+- Added web UI sections for judge runtime, behavior monitoring, datasets/evals,
+  prompt registry, MCP, and ops status so unfinished surfaces are visible
+  without pretending LLM-dependent capabilities exist.
 
 ## Phase 8: Security, Privacy, And Operations Hardening
 

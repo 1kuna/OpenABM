@@ -1,0 +1,79 @@
+import type { Project, TraceDetail, TraceEnvelope } from "./types";
+
+export interface OpenAbmClientConfig {
+  baseUrl: string;
+  apiKey: string;
+}
+
+export class OpenAbmClient {
+  private readonly baseUrl: string;
+  private readonly apiKey: string;
+
+  constructor(config: OpenAbmClientConfig) {
+    this.baseUrl = config.baseUrl.replace(/\/$/, "");
+    this.apiKey = config.apiKey;
+  }
+
+  async listProjects(): Promise<Project[]> {
+    const body = await this.get<{ data: Project[] }>("/api/projects");
+    return body.data;
+  }
+
+  async listTraces(projectId: string, status?: string, environment?: string): Promise<TraceEnvelope[]> {
+    const params = new URLSearchParams({ project_id: projectId, limit: "100" });
+    if (status) params.set("status", status);
+    if (environment) params.set("environment", environment);
+    const body = await this.get<{ data: TraceEnvelope[] }>(`/api/traces?${params.toString()}`);
+    return body.data;
+  }
+
+  async searchTraces(projectId: string, query: string): Promise<TraceEnvelope[]> {
+    const body = await this.post<{ data: TraceEnvelope[] }>("/api/search/traces", {
+      project_id: projectId,
+      full_text_query: query || null,
+      limit: 100
+    });
+    return body.data;
+  }
+
+  async getTrace(projectId: string, traceId: string): Promise<TraceDetail> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<TraceDetail>(`/api/traces/${traceId}?${params.toString()}`);
+  }
+
+  async searchSimilar(projectId: string, sourceId: string): Promise<{ disabled: boolean; reason?: string }> {
+    return this.post("/api/search/similar", {
+      project_id: projectId,
+      source_id: sourceId,
+      source_type: "trace"
+    });
+  }
+
+  private async get<T>(path: string): Promise<T> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      headers: this.headers()
+    });
+    return this.parse<T>(response);
+  }
+
+  private async post<T>(path: string, body: unknown): Promise<T> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    return this.parse<T>(response);
+  }
+
+  private headers(): Record<string, string> {
+    return { Authorization: `Bearer ${this.apiKey}` };
+  }
+
+  private async parse<T>(response: Response): Promise<T> {
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
+    return response.json() as Promise<T>;
+  }
+}
+
