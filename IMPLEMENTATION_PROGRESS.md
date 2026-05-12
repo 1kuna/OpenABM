@@ -299,6 +299,38 @@ Blocked:
 - Use `SPEC_EDIT_SUGGESTIONS.md` for any recommended spec changes.
 - Keep the spec itself unmodified.
 
+## Acceptance Pass: 2026-05-12
+
+Verified after the latest implementation slices:
+
+- `make lint && make test`: passed, 33 tests.
+- `npm --prefix apps/web run build`: passed.
+- `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
+  and one expected fail verdict for the wrong-tool fixture.
+- MCP stdio smoke: `tools/list` returned 35 tools and
+  `resources/templates/list` returned 14 resource templates.
+- Live LM Studio canaries completed for structured rubric output, semantic trace
+  similarity, and investigation drafting with `openabm-qwen35-9b`.
+
+Known remaining gaps before calling the whole spec complete:
+
+- Prompt registry and agent runtime configuration registry have schemas and
+  deterministic helper functions, but not full storage/API/UI/MCP-backed
+  lifecycle flows.
+- Automation definitions and condition grammar exist, but the automation runner,
+  cooldown/idempotency execution history, notification delivery, and
+  dead-letter handling still need implementation.
+- Passive novelty detection has contract/schema coverage, but the recurring
+  unknown-failure discovery run is not implemented yet.
+- Grounding/fabricated-value checks have schema coverage only; model-backed
+  claim extraction and evidence mapping still need a real implementation.
+- Screenshot issue intake and ChatOps are still contract/scaffold level.
+- UI pages are useful scaffolds rather than full spec-complete workspaces for
+  behavior detail, automation builder, impact report, review queue, prompt
+  registry, and agent configuration history.
+- Production-grade auth/session/API-key management, secret vault integration,
+  and retention execution scheduling remain beyond the local reference scaffold.
+
 ## Spec V2 Delta Incorporated
 
 Status: in progress
