@@ -323,6 +323,52 @@ def test_v1_eval_runs_are_queryable(tmp_path) -> None:
     assert results.json()["data"][0]["scores"][0]["failure_mode"] == "wrong_tool_for_refund"
 
 
+def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    trace_id = fixture["trace"]["trace_id"]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    policy = client.post(
+        "/v1/retention-policies",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "name": "short lived traces",
+            "rules": [{"entity": "traces", "ttl_days": 30}],
+        },
+    )
+    assert policy.status_code == 201
+
+    export = client.post(
+        "/v1/exports/project",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "include_payloads": False},
+    )
+    assert export.status_code == 200
+    manifest = export.json()["manifest"]
+    assert manifest["sections"]["traces"]["count"] == 1
+    assert manifest["sections"]["spans"]["sha256"]
+
+    delete = client.delete(
+        f"/v1/traces/{trace_id}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert delete.status_code == 200
+    assert delete.json()["status"] == "tombstoned"
+    detail = client.get(
+        f"/v1/traces/{trace_id}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert detail.json()["trace"]["status"] == "deleted"
+    assert detail.json()["spans"] == []
+
+
 def test_v1_rubric_judge_run_persists_cited_score(tmp_path, monkeypatch) -> None:
     class StubProvider:
         async def structured_completion(self, request, schema):

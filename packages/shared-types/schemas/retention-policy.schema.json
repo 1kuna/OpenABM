@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/retention-policy.json",
+  "title": "RetentionPolicy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["retention_policy_id", "project_id", "name", "rules", "status", "created_at", "updated_at"],
+  "properties": {
+    "retention_policy_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "name": {"type": "string"},
+    "rules": {"type": "array", "items": {"type": "object"}},
+    "status": {"enum": ["draft", "active", "paused", "archived"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

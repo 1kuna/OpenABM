@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/export-manifest.json",
+  "title": "ExportManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["export_id", "project_id", "created_at", "include_payloads", "included_classifications", "sections"],
+  "properties": {
+    "export_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "include_payloads": {"type": "boolean"},
+    "included_classifications": {"type": "array", "items": {"type": "string"}},
+    "sections": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["count", "sha256"],
+        "properties": {
+          "count": {"type": "integer", "minimum": 0},
+          "sha256": {"type": "string"}
+        }
+      }
+    }
+  }
+}

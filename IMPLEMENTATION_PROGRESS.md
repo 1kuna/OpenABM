@@ -281,6 +281,10 @@ Done:
 - Added data classification policy storage/API, deterministic payload
   classification, and redaction when payload classification exceeds caller
   allowance.
+- Added retention policy records, project export bundles with per-section SHA256
+  manifests, included-classification summaries, and trace tombstone/delete flow
+  that removes spans/scores/behavior matches/search rows while preserving an
+  audit-friendly trace tombstone.
 
 ## Phase 9: Real-World Pilot And Revisit Decisions
 
@@ -370,5 +374,7 @@ Implemented in this pass:
 - Added stable `/v1` get/list paths for sessions, datasets, issues,
   investigations, impact reports, and context packs so MCP and UI clients can
   link back to canonical artifacts.
+- Added retention/export/delete scaffolds: retention policies, project export
+  manifests with hashes, and trace tombstones with derived-data cleanup.
 - Added an Issues/Investigations scaffold view in the web app so the v2 surface
   is visible without pretending the LLM-backed pieces are ready.

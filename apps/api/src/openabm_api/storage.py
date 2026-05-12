@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from collections.abc import Iterable
@@ -21,6 +22,28 @@ def decode_json(value: str | None, default: Any) -> Any:
     if value is None:
         return default
     return json.loads(value)
+
+
+def _payload_metadata_only(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            key: value
+            for key, value in payload.items()
+            if key not in {"storage_uri"}
+        }
+        for payload in payloads
+    ]
+
+
+def _included_classifications(sections: dict[str, Any]) -> list[str]:
+    classifications = set()
+    for item in sections.get("context_packs", []):
+        if item.get("classification"):
+            classifications.add(item["classification"])
+    for item in sections.get("payloads", []):
+        if item.get("redaction_state"):
+            classifications.add(str(item["redaction_state"]))
+    return sorted(classifications or {"unspecified"})
 
 
 class SQLiteStore:
@@ -981,6 +1004,52 @@ class SQLiteStore:
             ).fetchall()
         return [self._data_classification_policy_from_row(row) for row in rows]
 
+    def create_retention_policy(self, request: dict[str, Any]) -> dict[str, Any]:
+        self.ensure_project(request["project_id"])
+        now = utc_now()
+        policy = {
+            "retention_policy_id": request.get("retention_policy_id")
+            or new_id("retention_policy"),
+            "project_id": request["project_id"],
+            "name": request["name"],
+            "rules": request.get("rules") or [],
+            "status": request.get("status") or "draft",
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO retention_policies(
+                  retention_policy_id, project_id, name, rules_json, status,
+                  created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    policy["retention_policy_id"],
+                    policy["project_id"],
+                    policy["name"],
+                    encode_json(policy["rules"]),
+                    policy["status"],
+                    policy["created_at"],
+                    policy["updated_at"],
+                ),
+            )
+        return policy
+
+    def list_retention_policies(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM retention_policies
+                WHERE project_id = ?
+                ORDER BY updated_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._retention_policy_from_row(row) for row in rows]
+
     def create_review_task(self, request: dict[str, Any]) -> dict[str, Any]:
         self.ensure_project(request["project_id"])
         now = utc_now()
@@ -1395,6 +1464,116 @@ class SQLiteStore:
             ).fetchone()
         return self._impact_report_from_row(row) if row else None
 
+    def export_project_bundle(
+        self,
+        project_id: str,
+        *,
+        include_payloads: bool = False,
+    ) -> dict[str, Any]:
+        traces = self.search_traces(project_id, limit=10000)
+        trace_ids = [trace["trace_id"] for trace in traces]
+        spans = [span for trace_id in trace_ids for span in self.list_spans(project_id, trace_id)]
+        payloads = self._list_payload_objects(project_id)
+        sections: dict[str, Any] = {
+            "traces": traces,
+            "spans": spans,
+            "payloads": payloads if include_payloads else _payload_metadata_only(payloads),
+            "scores": self.list_scores(project_id),
+            "behaviors": self.list_behaviors(project_id),
+            "datasets": self.list_datasets(project_id),
+            "issues": self.list_issues(project_id),
+            "investigations": self.list_investigation_runs(project_id),
+            "impact_reports": self.list_impact_reports(project_id),
+            "context_packs": self.list_agent_context_packs(project_id),
+            "review_tasks": self.list_review_tasks(project_id),
+        }
+        manifest = {
+            "export_id": new_id("export"),
+            "project_id": project_id,
+            "created_at": utc_now(),
+            "include_payloads": include_payloads,
+            "included_classifications": _included_classifications(sections),
+            "sections": {
+                name: {
+                    "count": len(value) if isinstance(value, list) else 1,
+                    "sha256": hashlib.sha256(encode_json(value).encode()).hexdigest(),
+                }
+                for name, value in sections.items()
+            },
+        }
+        return {"metadata": {"project_id": project_id}, "manifest": manifest, **sections}
+
+    def tombstone_trace(self, project_id: str, trace_id: str) -> dict[str, Any]:
+        trace = self.get_trace(project_id, trace_id)
+        if trace is None:
+            raise KeyError(f"trace not found: {trace_id}")
+        now = utc_now()
+        effects: dict[str, int] = {}
+        with self.connect() as conn:
+            for table, column in [
+                ("trace_spans", "trace_id"),
+                ("scores", "trace_id"),
+                ("behavior_matches", "trace_id"),
+            ]:
+                cursor = conn.execute(
+                    f"DELETE FROM {table} WHERE project_id = ? AND {column} = ?",
+                    (project_id, trace_id),
+                )
+                effects[table] = cursor.rowcount
+            cursor = conn.execute(
+                """
+                UPDATE payload_objects
+                SET storage_uri = NULL, redaction_state = 'deleted', deleted_at = ?
+                WHERE project_id = ? AND trace_id = ?
+                """,
+                (now, project_id, trace_id),
+            )
+            effects["payload_objects"] = cursor.rowcount
+            cursor = conn.execute(
+                """
+                UPDATE trace_metadata
+                SET status = 'deleted',
+                    tags_json = ?,
+                    attributes_json = ?,
+                    summary = ?,
+                    updated_at = ?
+                WHERE project_id = ? AND trace_id = ?
+                """,
+                (
+                    encode_json([]),
+                    encode_json({"deleted_at": now}),
+                    "Trace tombstoned by delete flow.",
+                    now,
+                    project_id,
+                    trace_id,
+                ),
+            )
+            effects["trace_metadata_tombstones"] = cursor.rowcount
+            cursor = conn.execute(
+                "DELETE FROM trace_search_fts WHERE project_id = ? AND trace_id = ?",
+                (project_id, trace_id),
+            )
+            effects["trace_search_fts"] = cursor.rowcount
+        return {
+            "status": "tombstoned",
+            "project_id": project_id,
+            "trace_id": trace_id,
+            "deleted_at": now,
+            "effects": effects,
+        }
+
+    def _list_payload_objects(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM payload_objects
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def _build_impact_report(
         self,
         project_id: str,
@@ -1730,6 +1909,18 @@ class SQLiteStore:
             "project_id": row["project_id"],
             "default_classification": row["default_classification"],
             "rules": decode_json(row["rules_json"], []),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _retention_policy_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "retention_policy_id": row["retention_policy_id"],
+            "project_id": row["project_id"],
+            "name": row["name"],
+            "rules": decode_json(row["rules_json"], []),
+            "status": row["status"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }

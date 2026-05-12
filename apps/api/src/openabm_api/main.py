@@ -257,6 +257,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
         }
 
+    @app.delete("/api/traces/{trace_id}")
+    def delete_trace(
+        trace_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["traces:delete"])),
+    ) -> dict[str, object]:
+        del actor
+        try:
+            result = store.tombstone_trace(project_id, trace_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Trace not found."),
+            ) from exc
+        store.append_audit(
+            "tombstone_trace",
+            "trace",
+            project_id,
+            trace_id,
+            {"effects": result["effects"]},
+        )
+        return result
+
     @app.get("/api/traces/{trace_id}/spans")
     def list_trace_spans(
         trace_id: str,
@@ -874,6 +897,62 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             item["policy_id"],
         )
         return item
+
+    @app.get("/api/retention-policies")
+    def list_retention_policies(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["policies:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_retention_policies(project_id)}
+
+    @app.post("/api/retention-policies", status_code=201)
+    def create_retention_policy(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["policies:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "name", "rules"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        item = store.create_retention_policy(request)
+        store.append_audit(
+            "create_retention_policy",
+            "retention_policy",
+            request["project_id"],
+            item["retention_policy_id"],
+        )
+        return item
+
+    @app.post("/api/exports/project")
+    def export_project(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["exports:read"])),
+    ) -> dict[str, object]:
+        del actor
+        project_id = request.get("project_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        bundle = store.export_project_bundle(
+            project_id,
+            include_payloads=bool(request.get("include_payloads", False)),
+        )
+        store.append_audit(
+            "export_project",
+            "project",
+            project_id,
+            project_id,
+            {"export_id": bundle["manifest"]["export_id"]},
+        )
+        return bundle
 
     @app.post("/api/data-classification/classify")
     def classify_data(

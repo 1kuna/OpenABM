@@ -477,6 +477,91 @@
         }
       }
     },
+    "/v1/retention-policies": {
+      "get": {
+        "operationId": "listRetentionPolicies",
+        "summary": "List retention policies for a project.",
+        "x-required-scopes": [
+          "policies:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retention policies."
+          }
+        }
+      },
+      "post": {
+        "operationId": "createRetentionPolicy",
+        "summary": "Create a retention policy record.",
+        "x-required-scopes": [
+          "policies:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "../schemas/retention-policy.schema.json"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Retention policy created."
+          }
+        }
+      }
+    },
+    "/v1/exports/project": {
+      "post": {
+        "operationId": "exportProject",
+        "summary": "Export project data with a hash manifest.",
+        "x-required-scopes": [
+          "exports:read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Project export bundle.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "manifest"
+                  ],
+                  "properties": {
+                    "manifest": {
+                      "$ref": "../schemas/export-manifest.schema.json"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/data-classification/classify": {
       "post": {
         "operationId": "classifyDataPayload",
@@ -2373,6 +2458,36 @@
                 }
               }
             }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteTrace",
+        "summary": "Tombstone a trace and remove derived payload.",
+        "x-required-scopes": [
+          "traces:delete"
+        ],
+        "parameters": [
+          {
+            "name": "trace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trace tombstoned."
           }
         }
       }
