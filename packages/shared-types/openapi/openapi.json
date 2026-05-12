@@ -720,6 +720,124 @@
         }
       }
     },
+    "/v1/notification-targets": {
+      "get": {
+        "operationId": "listNotificationTargets",
+        "summary": "List notification and workflow targets.",
+        "x-required-scopes": [
+          "notifications:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notification targets."
+          }
+        }
+      },
+      "post": {
+        "operationId": "createNotificationTarget",
+        "summary": "Create a notification or workflow target using secret refs.",
+        "x-required-scopes": [
+          "notifications:write"
+        ],
+        "responses": {
+          "201": {
+            "description": "Notification target created."
+          }
+        }
+      }
+    },
+    "/v1/automations": {
+      "get": {
+        "operationId": "listAutomations",
+        "summary": "List automation definitions.",
+        "x-required-scopes": [
+          "automations:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Automations."
+          }
+        }
+      },
+      "post": {
+        "operationId": "createAutomation",
+        "summary": "Create an automation definition.",
+        "x-required-scopes": [
+          "automations:write"
+        ],
+        "responses": {
+          "201": {
+            "description": "Automation created."
+          }
+        }
+      }
+    },
+    "/v1/automations/{automation_id}": {
+      "get": {
+        "operationId": "getAutomation",
+        "summary": "Fetch an automation definition.",
+        "x-required-scopes": [
+          "automations:read"
+        ],
+        "parameters": [
+          {
+            "name": "automation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Automation."
+          }
+        }
+      }
+    },
+    "/v1/automations/{automation_id}/run": {
+      "post": {
+        "operationId": "runAutomation",
+        "summary": "Run an automation once against a trigger entity.",
+        "x-required-scopes": [
+          "automations:write"
+        ],
+        "responses": {
+          "201": {
+            "description": "Automation run recorded."
+          }
+        }
+      }
+    },
     "/v1/datasets": {
       "get": {
         "operationId": "listDatasets",

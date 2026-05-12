@@ -14,8 +14,6 @@ UNSUPPORTED_TOOLS = {
     "create_judge_draft": "Judge draft storage is not implemented yet.",
     "run_eval": "Eval runs are currently launched through the local runner, not MCP.",
     "compare_eval_runs": "Eval comparison storage is not implemented yet.",
-    "list_automations": "Automation registry API is not implemented yet.",
-    "get_automation": "Automation registry API is not implemented yet.",
     "search_docs": "Documentation search index is not implemented yet.",
 }
 
@@ -223,6 +221,18 @@ def call_tool(
             "POST",
             f"/v1/agent-configs/{arguments['agent_config_id']}/compare",
             json_body=arguments,
+        )
+    if name == "list_automations":
+        return client.request(
+            "GET",
+            "/v1/automations",
+            params={"project_id": arguments["project_id"]},
+        )
+    if name == "get_automation":
+        return client.request(
+            "GET",
+            f"/v1/automations/{arguments['automation_id']}",
+            params={"project_id": arguments["project_id"]},
         )
     return {
         "status": "unsupported",

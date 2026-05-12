@@ -461,6 +461,76 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
     assert '"tools":["lookup"]' in compare.json()["content_diff"]
 
 
+def test_v1_automation_run_creates_review_task_and_notification_preview(tmp_path) -> None:
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    trace_id = fixture["trace"]["trace_id"]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    target = client.post(
+        "/v1/notification-targets",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "type": "webhook",
+            "display_name": "Local preview",
+            "config_secret_refs": ["secret_webhook_url"],
+        },
+    )
+    assert target.status_code == 201
+    automation = client.post(
+        "/v1/automations",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "name": "review refund errors",
+            "trigger": {"type": "trace_completed"},
+            "conditions": {
+                "combine": "all",
+                "items": [{"field": "trace.status", "op": "eq", "value": "error"}],
+            },
+            "actions": [
+                {"type": "create_review_task", "task_type": "behavior_candidate"},
+                {
+                    "type": "send_notification",
+                    "target_id": target.json()["target_id"],
+                    "message": "Refund error needs review",
+                },
+            ],
+        },
+    )
+    assert automation.status_code == 201
+    run = client.post(
+        f"/v1/automations/{automation.json()['automation_id']}/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": trace_id,
+            "idempotency_key": "auto-test-1",
+        },
+    )
+    assert run.status_code == 201
+    body = run.json()
+    assert body["status"] == "succeeded"
+    assert body["condition_result"]["passed"] is True
+    assert body["action_results"][0]["status"] == "succeeded"
+    assert body["action_results"][1]["delivery_status"] == "preview_only"
+
+    duplicate = client.post(
+        f"/v1/automations/{automation.json()['automation_id']}/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": trace_id,
+            "idempotency_key": "auto-test-1",
+        },
+    )
+    assert duplicate.json()["duplicate"] is True
+
+
 def test_v1_rubric_judge_run_persists_cited_score(tmp_path, monkeypatch) -> None:
     class StubProvider:
         async def structured_completion(self, request, schema):

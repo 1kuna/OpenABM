@@ -215,6 +215,12 @@ Done:
 
 - Added deterministic condition grammar evaluator for automation/rule-detector
   style conditions with nested groups and the spec's core operators.
+- Added automation definitions, automation run records, idempotency-key replay
+  protection, deterministic condition evaluation over trace context, and action
+  execution for dataset additions, review-task creation, and preview-only
+  notifications.
+- Added notification/workflow target registry storage/API using secret refs
+  instead of hardcoded destinations.
 - Added trajectory assertion evaluator coverage for required/forbidden tools,
   retrieval sources, behavior IDs, span types, cost, duration, retry count, and
   grounding evidence counts.
@@ -265,6 +271,7 @@ Done:
   implemented read/draft paths with explicit unsupported responses for gaps.
 - Connected MCP handlers for prompt list/get/commit and agent config
   list/get/compare now that those APIs exist.
+- Connected MCP handlers for automation list/get now that automation APIs exist.
 - Added web UI sections for judge runtime, behavior monitoring, datasets/evals,
   prompt registry, MCP, and ops status so unfinished surfaces are visible
   without pretending LLM-dependent capabilities exist.
@@ -325,9 +332,9 @@ Known remaining gaps before calling the whole spec complete:
 - Prompt registry and agent runtime configuration registry now have storage/API
   and MCP-backed lifecycle flows, but the web UI still needs full version
   history, tag movement, and eval-linked comparison views.
-- Automation definitions and condition grammar exist, but the automation runner,
-  cooldown/idempotency execution history, notification delivery, and
-  dead-letter handling still need implementation.
+- Automation definitions and local run execution exist, but full cooldown timing,
+  retries, dead-letter handling, and real external notification delivery still
+  need implementation beyond preview/audit mode.
 - Passive novelty detection has contract/schema coverage, but the recurring
   unknown-failure discovery run is not implemented yet.
 - Grounding/fabricated-value checks have schema coverage only; model-backed
@@ -418,5 +425,8 @@ Implemented in this pass:
   manifests with hashes, and trace tombstones with derived-data cleanup.
 - Added `/v1/prompts` and `/v1/agent-configs` lifecycle paths with immutable
   version commits and diff/render/compare helpers.
+- Added `/v1/notification-targets` and `/v1/automations` lifecycle/run paths
+  with deterministic condition evaluation, idempotency, review-task actions, and
+  preview-only notification action audits.
 - Added an Issues/Investigations scaffold view in the web app so the v2 surface
   is visible without pretending the LLM-backed pieces are ready.

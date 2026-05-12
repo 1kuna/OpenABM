@@ -1558,6 +1558,175 @@ class SQLiteStore:
             ).fetchone()
         return self._review_task_from_row(row) if row else None
 
+    def create_notification_target(self, request: dict[str, Any]) -> dict[str, Any]:
+        self.ensure_project(request["project_id"])
+        now = utc_now()
+        target = {
+            "target_id": request.get("target_id") or new_id("notification_target"),
+            "project_id": request["project_id"],
+            "type": request["type"],
+            "display_name": request["display_name"],
+            "config_secret_refs": request.get("config_secret_refs") or [],
+            "created_by": request.get("created_by"),
+            "status": request.get("status") or "active",
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO notification_targets(
+                  target_id, project_id, type, display_name, config_secret_refs_json,
+                  created_by, status, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    target["target_id"],
+                    target["project_id"],
+                    target["type"],
+                    target["display_name"],
+                    encode_json(target["config_secret_refs"]),
+                    target["created_by"],
+                    target["status"],
+                    target["created_at"],
+                    target["updated_at"],
+                ),
+            )
+        return target
+
+    def list_notification_targets(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM notification_targets
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._notification_target_from_row(row) for row in rows]
+
+    def get_notification_target(
+        self,
+        project_id: str,
+        target_id: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM notification_targets
+                WHERE project_id = ? AND target_id = ?
+                """,
+                (project_id, target_id),
+            ).fetchone()
+        return self._notification_target_from_row(row) if row else None
+
+    def create_automation(self, request: dict[str, Any]) -> dict[str, Any]:
+        self.ensure_project(request["project_id"])
+        now = utc_now()
+        automation = {
+            "automation_id": request.get("automation_id") or new_id("automation"),
+            "project_id": request["project_id"],
+            "name": request["name"],
+            "trigger": request["trigger"],
+            "conditions": request.get("conditions") or {"combine": "all", "items": []},
+            "actions": request.get("actions") or [],
+            "cooldown": request.get("cooldown"),
+            "status": request.get("status") or "draft",
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO automations(
+                  automation_id, project_id, name, trigger_json, conditions_json,
+                  actions_json, cooldown_json, status, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    automation["automation_id"],
+                    automation["project_id"],
+                    automation["name"],
+                    encode_json(automation["trigger"]),
+                    encode_json(automation["conditions"]),
+                    encode_json(automation["actions"]),
+                    encode_json(automation["cooldown"]),
+                    automation["status"],
+                    automation["created_at"],
+                    automation["updated_at"],
+                ),
+            )
+        return automation
+
+    def list_automations(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM automations
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._automation_from_row(row) for row in rows]
+
+    def get_automation(self, project_id: str, automation_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM automations
+                WHERE project_id = ? AND automation_id = ?
+                """,
+                (project_id, automation_id),
+            ).fetchone()
+        return self._automation_from_row(row) if row else None
+
+    def get_automation_run_by_idempotency(
+        self,
+        project_id: str,
+        automation_id: str,
+        idempotency_key: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM automation_runs
+                WHERE project_id = ? AND automation_id = ? AND idempotency_key = ?
+                """,
+                (project_id, automation_id, idempotency_key),
+            ).fetchone()
+        return self._automation_run_from_row(row) if row else None
+
+    def record_automation_run(self, run: dict[str, Any]) -> dict[str, Any]:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO automation_runs(
+                  automation_run_id, automation_id, project_id, trigger_entity_type,
+                  trigger_entity_id, idempotency_key, status, condition_result_json,
+                  action_results_json, started_at, completed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run["automation_run_id"],
+                    run["automation_id"],
+                    run["project_id"],
+                    run.get("trigger_entity_type"),
+                    run.get("trigger_entity_id"),
+                    run.get("idempotency_key"),
+                    run["status"],
+                    encode_json(run["condition_result"]),
+                    encode_json(run["action_results"]),
+                    run["started_at"],
+                    run.get("completed_at"),
+                ),
+            )
+        return run
+
     def get_issue(self, project_id: str, issue_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:
             row = conn.execute(
@@ -2223,6 +2392,51 @@ class SQLiteStore:
             "evidence_ids": decode_json(row["evidence_ids_json"], []),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _notification_target_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "target_id": row["target_id"],
+            "project_id": row["project_id"],
+            "type": row["type"],
+            "display_name": row["display_name"],
+            "config_secret_refs": decode_json(row["config_secret_refs_json"], []),
+            "created_by": row["created_by"],
+            "status": row["status"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _automation_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "automation_id": row["automation_id"],
+            "project_id": row["project_id"],
+            "name": row["name"],
+            "trigger": decode_json(row["trigger_json"], {}),
+            "conditions": decode_json(row["conditions_json"], {}),
+            "actions": decode_json(row["actions_json"], []),
+            "cooldown": decode_json(row["cooldown_json"], None),
+            "status": row["status"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _automation_run_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "automation_run_id": row["automation_run_id"],
+            "automation_id": row["automation_id"],
+            "project_id": row["project_id"],
+            "trigger_entity_type": row["trigger_entity_type"],
+            "trigger_entity_id": row["trigger_entity_id"],
+            "idempotency_key": row["idempotency_key"],
+            "status": row["status"],
+            "condition_result": decode_json(row["condition_result_json"], {}),
+            "action_results": decode_json(row["action_results_json"], []),
+            "started_at": row["started_at"],
+            "completed_at": row["completed_at"],
         }
 
     @staticmethod

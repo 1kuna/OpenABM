@@ -167,9 +167,11 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
 
     prompt_result = call_tool("list_prompts", {"project_id": "proj_demo"}, client=client)
     assert prompt_result["path"] == "/v1/prompts"
-    unsupported = call_tool("list_automations", {"project_id": "proj_demo"}, client=client)
+    automation_result = call_tool("list_automations", {"project_id": "proj_demo"}, client=client)
+    assert automation_result["path"] == "/v1/automations"
+    unsupported = call_tool("search_docs", {"project_id": "proj_demo"}, client=client)
     assert unsupported["status"] == "unsupported"
-    assert "Automation registry" in unsupported["reason"]
+    assert "Documentation search" in unsupported["reason"]
     assert "trace://{trace_id}" in tool_manifest()["resource_templates"]
 
 

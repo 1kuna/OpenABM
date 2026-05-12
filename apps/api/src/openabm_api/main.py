@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.routing import APIRoute
+from openabm_worker.automations import evaluate_automation_conditions, planned_automation_actions
 from openabm_worker.behaviors import backtest_behavior
 from openabm_worker.context_packs import build_agent_context_pack_content
 from openabm_worker.investigation import assist_investigation
@@ -27,6 +28,7 @@ from openabm_api.reconstruction import reconstruct_trace
 from openabm_api.schemas import SchemaValidationFailure, validate_payload
 from openabm_api.settings import Settings
 from openabm_api.storage import SQLiteStore
+from openabm_api.time import utc_now
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -1288,6 +1290,147 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return task
 
+    @app.get("/api/notification-targets")
+    def list_notification_targets(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["notifications:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_notification_targets(project_id)}
+
+    @app.post("/api/notification-targets", status_code=201)
+    def create_notification_target(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["notifications:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "type", "display_name"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        target = store.create_notification_target(request)
+        store.append_audit(
+            "create_notification_target",
+            "notification_target",
+            target["project_id"],
+            target["target_id"],
+        )
+        return target
+
+    @app.get("/api/automations")
+    def list_automations(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["automations:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_automations(project_id)}
+
+    @app.post("/api/automations", status_code=201)
+    def create_automation(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["automations:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "name", "trigger", "actions"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        automation = store.create_automation(request)
+        store.append_audit(
+            "create_automation",
+            "automation",
+            request["project_id"],
+            automation["automation_id"],
+        )
+        return automation
+
+    @app.get("/api/automations/{automation_id}")
+    def get_automation(
+        automation_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["automations:read"])),
+    ) -> dict[str, object]:
+        del actor
+        automation = store.get_automation(project_id, automation_id)
+        if automation is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Automation not found."),
+            )
+        return automation
+
+    @app.post("/api/automations/{automation_id}/run", status_code=201)
+    def run_automation(
+        automation_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["automations:write"])),
+    ) -> dict[str, object]:
+        del actor
+        project_id = request.get("project_id")
+        trace_id = request.get("trace_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        automation = store.get_automation(project_id, automation_id)
+        if automation is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Automation not found."),
+            )
+        idempotency_key = request.get("idempotency_key") or (
+            f"{automation_id}:{trace_id}" if trace_id else None
+        )
+        if idempotency_key:
+            existing = store.get_automation_run_by_idempotency(
+                project_id,
+                automation_id,
+                idempotency_key,
+            )
+            if existing is not None:
+                return {**existing, "duplicate": True}
+        trace = store.get_trace(project_id, trace_id) if trace_id else None
+        spans = store.list_spans(project_id, trace_id) if trace_id else []
+        condition_result = evaluate_automation_conditions(automation, trace, spans)
+        planned = planned_automation_actions(automation, trace_id=trace_id)
+        action_results = (
+            _execute_automation_actions(store, project_id, planned, trace_id)
+            if condition_result["passed"]
+            else []
+        )
+        now = utc_now()
+        run = store.record_automation_run(
+            {
+                "automation_run_id": new_id("automation_run"),
+                "automation_id": automation_id,
+                "project_id": project_id,
+                "trigger_entity_type": "trace" if trace_id else None,
+                "trigger_entity_id": trace_id,
+                "idempotency_key": idempotency_key,
+                "status": "succeeded" if condition_result["passed"] else "skipped_conditions",
+                "condition_result": condition_result,
+                "action_results": action_results,
+                "started_at": now,
+                "completed_at": now,
+            }
+        )
+        store.append_audit(
+            "run_automation",
+            "automation",
+            project_id,
+            automation_id,
+            {"automation_run_id": run["automation_run_id"], "status": run["status"]},
+        )
+        return run
+
     @app.get("/api/context-packs")
     def list_context_packs(
         project_id: str,
@@ -1562,6 +1705,76 @@ def _create_investigation_review_tasks(
             )
         )
     return tasks
+
+
+def _execute_automation_actions(
+    store: SQLiteStore,
+    project_id: str,
+    planned_actions: list[dict[str, Any]],
+    trace_id: str | None,
+) -> list[dict[str, Any]]:
+    results = []
+    for planned in planned_actions:
+        action = planned["action"]
+        action_type = planned["type"]
+        if action_type == "add_to_dataset":
+            if not trace_id or not action.get("dataset_id"):
+                results.append(
+                    {
+                        **planned,
+                        "status": "skipped",
+                        "reason": "missing trace or dataset",
+                    }
+                )
+                continue
+            example = store.add_trace_to_dataset(
+                project_id,
+                action["dataset_id"],
+                trace_id,
+                labels=action.get("labels"),
+                created_from="automation",
+            )
+            results.append({**planned, "status": "succeeded", "result": example})
+        elif action_type == "create_review_task":
+            task = store.create_review_task(
+                {
+                    "project_id": project_id,
+                    "task_type": action.get("task_type", "behavior_candidate"),
+                    "source_entity_type": action.get("source_entity_type", "trace"),
+                    "source_entity_id": action.get("source_entity_id") or trace_id or "unknown",
+                    "evidence_ids": [trace_id] if trace_id else [],
+                    "notes_nullable": action.get("notes"),
+                }
+            )
+            results.append({**planned, "status": "succeeded", "result": task})
+        elif action_type == "send_notification":
+            target_id = action.get("target_id")
+            target = (
+                store.get_notification_target(project_id, target_id)
+                if isinstance(target_id, str)
+                else None
+            )
+            if target is None:
+                results.append({**planned, "status": "failed", "reason": "target not found"})
+                continue
+            audit_id = store.append_audit(
+                "preview_notification",
+                "notification_target",
+                project_id,
+                target_id,
+                {"trace_id": trace_id, "message": action.get("message")},
+            )
+            results.append(
+                {
+                    **planned,
+                    "status": "succeeded",
+                    "delivery_status": "preview_only",
+                    "audit_id": audit_id,
+                }
+            )
+        else:
+            results.append({**planned, "status": "unsupported"})
+    return results
 
 
 def _candidate_evidence_ids(candidate: dict[str, Any]) -> list[str]:
