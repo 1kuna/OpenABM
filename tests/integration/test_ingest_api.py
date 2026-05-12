@@ -67,3 +67,35 @@ def test_search_similar_fails_closed_without_embeddings(tmp_path) -> None:
     )
     assert response.status_code == 200
     assert response.json()["disabled"] is True
+
+
+def test_trace_can_be_added_to_dataset_with_provenance(tmp_path) -> None:
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    client.post(
+        "/api/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    dataset = client.post(
+        "/api/datasets",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "name": "Refund failures"},
+    )
+    assert dataset.status_code == 201
+    dataset_id = dataset.json()["dataset_id"]
+
+    example = client.post(
+        f"/api/datasets/{dataset_id}/examples/from-trace",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": fixture["trace"]["trace_id"],
+            "labels": ["wrong_tool_for_refund"],
+        },
+    )
+    assert example.status_code == 201
+    body = example.json()
+    assert body["source_trace_id"] == fixture["trace"]["trace_id"]
+    assert body["source_span_id"] == fixture["trace"]["root_span_id"]
+    assert body["labels"] == ["wrong_tool_for_refund"]

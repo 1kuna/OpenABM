@@ -370,6 +370,78 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         del actor
         return {"data": store.list_behaviors(project_id)}
 
+    @app.get("/api/datasets")
+    def list_datasets(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["datasets:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_datasets(project_id)}
+
+    @app.post("/api/datasets", status_code=201)
+    def create_dataset(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["datasets:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "name"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        dataset = store.create_dataset(
+            request["project_id"],
+            request["name"],
+            request.get("description"),
+        )
+        store.append_audit(
+            "create_dataset",
+            "dataset",
+            request["project_id"],
+            dataset["dataset_id"],
+        )
+        return dataset
+
+    @app.get("/api/datasets/{dataset_id}/examples")
+    def list_dataset_examples(
+        dataset_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["datasets:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_dataset_examples(project_id, dataset_id)}
+
+    @app.post("/api/datasets/{dataset_id}/examples/from-trace", status_code=201)
+    def add_trace_to_dataset(
+        dataset_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["datasets:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "trace_id"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        example = store.add_trace_to_dataset(
+            request["project_id"],
+            dataset_id,
+            request["trace_id"],
+            labels=request.get("labels") or [],
+        )
+        store.append_audit(
+            "add_trace_to_dataset",
+            "dataset_example",
+            request["project_id"],
+            example["dataset_example_id"],
+            {"dataset_id": dataset_id, "trace_id": request["trace_id"]},
+        )
+        return example
+
     return app
 
 

@@ -307,6 +307,140 @@ class SQLiteStore:
             ).fetchall()
         return [self._behavior_from_row(row) for row in rows]
 
+    def create_dataset(
+        self,
+        project_id: str,
+        name: str,
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        self.ensure_project(project_id)
+        dataset_id = new_id("dataset")
+        dataset_version_id = new_id("dataset_version")
+        now = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO datasets(dataset_id, project_id, name, description, status, created_at)
+                VALUES (?, ?, ?, ?, 'draft', ?)
+                """,
+                (dataset_id, project_id, name, description, now),
+            )
+            conn.execute(
+                """
+                INSERT INTO dataset_versions(
+                  dataset_version_id, dataset_id, version, immutable, created_at
+                )
+                VALUES (?, ?, 1, 1, ?)
+                """,
+                (dataset_version_id, dataset_id, now),
+            )
+        return {
+            "dataset_id": dataset_id,
+            "project_id": project_id,
+            "name": name,
+            "description": description,
+            "status": "draft",
+            "created_at": now,
+            "latest_version_id": dataset_version_id,
+        }
+
+    def list_datasets(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT d.*, dv.dataset_version_id AS latest_version_id
+                FROM datasets d
+                LEFT JOIN dataset_versions dv ON dv.dataset_id = d.dataset_id
+                WHERE d.project_id = ?
+                ORDER BY d.created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def add_trace_to_dataset(
+        self,
+        project_id: str,
+        dataset_id: str,
+        trace_id: str,
+        labels: list[str] | None = None,
+        created_from: str = "manual",
+    ) -> dict[str, Any]:
+        trace = self.get_trace(project_id, trace_id)
+        if trace is None:
+            raise KeyError(f"trace not found: {trace_id}")
+        with self.connect() as conn:
+            version = conn.execute(
+                """
+                SELECT dataset_version_id FROM dataset_versions
+                WHERE dataset_id = ?
+                ORDER BY version DESC
+                LIMIT 1
+                """,
+                (dataset_id,),
+            ).fetchone()
+            if version is None:
+                raise KeyError(f"dataset not found: {dataset_id}")
+            dataset_version_id = version["dataset_version_id"]
+            example_id = new_id("dataset_example")
+            now = utc_now()
+            example = {
+                "dataset_example_id": example_id,
+                "project_id": project_id,
+                "dataset_id": dataset_id,
+                "dataset_version_id": dataset_version_id,
+                "source_trace_id": trace_id,
+                "source_span_id": trace.get("root_span_id"),
+                "input": None,
+                "expected_output": None,
+                "expected_scores": [],
+                "labels": labels or [],
+                "metadata": {"trace_summary": trace.get("summary")},
+                "split": "unspecified",
+                "created_from": created_from,
+                "created_at": now,
+            }
+            conn.execute(
+                """
+                INSERT INTO dataset_examples(
+                  dataset_example_id, project_id, dataset_id, dataset_version_id,
+                  source_trace_id, source_span_id, input_json, expected_output_json,
+                  expected_scores_json, labels_json, metadata_json, split,
+                  created_from, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    example_id,
+                    project_id,
+                    dataset_id,
+                    dataset_version_id,
+                    trace_id,
+                    trace.get("root_span_id"),
+                    encode_json(None),
+                    encode_json(None),
+                    encode_json([]),
+                    encode_json(labels or []),
+                    encode_json(example["metadata"]),
+                    "unspecified",
+                    created_from,
+                    now,
+                ),
+            )
+        return example
+
+    def list_dataset_examples(self, project_id: str, dataset_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM dataset_examples
+                WHERE project_id = ? AND dataset_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id, dataset_id),
+            ).fetchall()
+        return [self._dataset_example_from_row(row) for row in rows]
+
     def append_audit(
         self,
         action: str,
@@ -479,6 +613,24 @@ class SQLiteStore:
             "severity": row["severity"],
             "detector": decode_json(row["detector_json"], {}),
             "status": row["status"],
+            "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _dataset_example_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "dataset_example_id": row["dataset_example_id"],
+            "dataset_id": row["dataset_id"],
+            "dataset_version_id": row["dataset_version_id"],
+            "source_trace_id": row["source_trace_id"],
+            "source_span_id": row["source_span_id"],
+            "input": decode_json(row["input_json"], None),
+            "expected_output": decode_json(row["expected_output_json"], None),
+            "expected_scores": decode_json(row["expected_scores_json"], []),
+            "labels": decode_json(row["labels_json"], []),
+            "metadata": decode_json(row["metadata_json"], {}),
+            "split": row["split"],
+            "created_from": row["created_from"],
             "created_at": row["created_at"],
         }
 

@@ -154,7 +154,7 @@ Done:
 
 ## Phase 5: Datasets And Offline Evals
 
-Status: planned
+Status: in progress
 
 Target for this pass:
 
@@ -165,6 +165,14 @@ Target for this pass:
 LLM-dependent deferrals:
 
 - Model-backed judge scoring during evals.
+
+Done:
+
+- Added dataset creation API and storage support.
+- Added trace-to-dataset example API preserving source trace/root-span
+  provenance and labels.
+- Added OpenAPI contract entries and integration coverage for the trace-to-
+  dataset path.
 
 ## Phase 6: Behaviors And Automations
 

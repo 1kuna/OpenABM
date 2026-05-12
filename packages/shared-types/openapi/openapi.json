@@ -206,6 +206,71 @@
         "parameters": [{"name": "project_id", "in": "query", "required": true, "schema": {"type": "string"}}],
         "responses": {"200": {"description": "Behaviors.", "content": {"application/json": {"schema": {"type": "object", "required": ["data"], "properties": {"data": {"type": "array", "items": {"$ref": "../schemas/behavior-definition.schema.json"}}}}}}}}
       }
+    },
+    "/api/datasets": {
+      "get": {
+        "operationId": "listDatasets",
+        "summary": "List datasets for a project.",
+        "x-required-scopes": ["datasets:read"],
+        "parameters": [{"name": "project_id", "in": "query", "required": true, "schema": {"type": "string"}}],
+        "responses": {"200": {"description": "Datasets.", "content": {"application/json": {"schema": {"type": "object", "required": ["data"], "properties": {"data": {"type": "array", "items": {"$ref": "../schemas/dataset-definition.schema.json"}}}}}}}}
+      },
+      "post": {
+        "operationId": "createDataset",
+        "summary": "Create a draft dataset and first immutable version.",
+        "x-required-scopes": ["datasets:write"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["project_id", "name"],
+                "properties": {
+                  "project_id": {"type": "string"},
+                  "name": {"type": "string"},
+                  "description": {"type": ["string", "null"]}
+                }
+              }
+            }
+          }
+        },
+        "responses": {"201": {"description": "Dataset created.", "content": {"application/json": {"schema": {"$ref": "../schemas/dataset-definition.schema.json"}}}}, "400": {"description": "Validation error.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}}}}
+      }
+    },
+    "/api/datasets/{dataset_id}/examples": {
+      "get": {
+        "operationId": "listDatasetExamples",
+        "summary": "List examples for a dataset.",
+        "x-required-scopes": ["datasets:read"],
+        "parameters": [{"name": "dataset_id", "in": "path", "required": true, "schema": {"type": "string"}}, {"name": "project_id", "in": "query", "required": true, "schema": {"type": "string"}}],
+        "responses": {"200": {"description": "Dataset examples.", "content": {"application/json": {"schema": {"type": "object", "required": ["data"], "properties": {"data": {"type": "array", "items": {"$ref": "../schemas/dataset-example.schema.json"}}}}}}}}
+      }
+    },
+    "/api/datasets/{dataset_id}/examples/from-trace": {
+      "post": {
+        "operationId": "addTraceToDataset",
+        "summary": "Create a dataset example from a source trace.",
+        "x-required-scopes": ["datasets:write"],
+        "parameters": [{"name": "dataset_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["project_id", "trace_id"],
+                "properties": {
+                  "project_id": {"type": "string"},
+                  "trace_id": {"type": "string"},
+                  "labels": {"type": "array", "items": {"type": "string"}}
+                }
+              }
+            }
+          }
+        },
+        "responses": {"201": {"description": "Dataset example created.", "content": {"application/json": {"schema": {"$ref": "../schemas/dataset-example.schema.json"}}}}, "400": {"description": "Validation error.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}}}}
+      }
     }
   },
   "components": {
@@ -283,4 +348,3 @@
     }
   }
 }
-
