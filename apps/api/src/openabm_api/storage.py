@@ -441,6 +441,438 @@ class SQLiteStore:
             ).fetchall()
         return [self._dataset_example_from_row(row) for row in rows]
 
+    def add_trace_dimension(
+        self,
+        project_id: str,
+        trace_id: str,
+        key: str,
+        value: str,
+        value_type: str = "string",
+        source: str = "manual",
+    ) -> dict[str, Any]:
+        if self.get_trace(project_id, trace_id) is None:
+            raise KeyError(f"trace not found: {trace_id}")
+        item = {
+            "trace_dimension_id": new_id("trace_dimension"),
+            "trace_id": trace_id,
+            "project_id": project_id,
+            "key": key,
+            "value": value,
+            "value_type": value_type,
+            "source": source,
+            "created_at": utc_now(),
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO trace_dimensions(
+                  trace_dimension_id, trace_id, project_id, key, value, value_type,
+                  source, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["trace_dimension_id"],
+                    trace_id,
+                    project_id,
+                    key,
+                    value,
+                    value_type,
+                    source,
+                    item["created_at"],
+                ),
+            )
+        return item
+
+    def list_trace_dimensions(
+        self,
+        project_id: str,
+        trace_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses = ["project_id = ?"]
+        params: list[Any] = [project_id]
+        if trace_id:
+            clauses.append("trace_id = ?")
+            params.append(trace_id)
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM trace_dimensions WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY created_at DESC",
+                params,
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def create_saved_search(
+        self,
+        project_id: str,
+        name: str,
+        query: dict[str, Any],
+        owner_user_id: str | None = None,
+        visibility: str = "project",
+    ) -> dict[str, Any]:
+        self.ensure_project(project_id)
+        now = utc_now()
+        item = {
+            "saved_search_id": new_id("saved_search"),
+            "project_id": project_id,
+            "name": name,
+            "query": query,
+            "owner_user_id": owner_user_id,
+            "visibility": visibility,
+            "query_contract_version": "v1",
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO saved_searches(
+                  saved_search_id, project_id, name, query_json, owner_user_id,
+                  visibility, query_contract_version, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["saved_search_id"],
+                    project_id,
+                    name,
+                    encode_json(query),
+                    owner_user_id,
+                    visibility,
+                    "v1",
+                    now,
+                    now,
+                ),
+            )
+        return item
+
+    def list_saved_searches(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM saved_searches WHERE project_id = ? ORDER BY updated_at DESC",
+                (project_id,),
+            ).fetchall()
+        return [self._saved_search_from_row(row) for row in rows]
+
+    def get_saved_search(self, project_id: str, saved_search_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM saved_searches
+                WHERE project_id = ? AND saved_search_id = ?
+                """,
+                (project_id, saved_search_id),
+            ).fetchone()
+        return self._saved_search_from_row(row) if row else None
+
+    def create_issue(self, request: dict[str, Any]) -> dict[str, Any]:
+        project_id = request["project_id"]
+        self.ensure_project(project_id)
+        now = utc_now()
+        item = {
+            "issue_id": new_id("issue"),
+            "project_id": project_id,
+            "source_type": request.get("source_type", "manual"),
+            "source_ref_nullable": request.get("source_ref_nullable"),
+            "reporter_nullable": request.get("reporter_nullable"),
+            "title": request["title"],
+            "description": request.get("description", ""),
+            "screenshot_payload_id_nullable": request.get("screenshot_payload_id_nullable"),
+            "seed_trace_id_nullable": request.get("seed_trace_id_nullable"),
+            "seed_session_id_nullable": request.get("seed_session_id_nullable"),
+            "status": "open",
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO issues(
+                  issue_id, project_id, source_type, source_ref_nullable,
+                  reporter_nullable, title, description,
+                  screenshot_payload_id_nullable, seed_trace_id_nullable,
+                  seed_session_id_nullable, status, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["issue_id"],
+                    project_id,
+                    item["source_type"],
+                    item["source_ref_nullable"],
+                    item["reporter_nullable"],
+                    item["title"],
+                    item["description"],
+                    item["screenshot_payload_id_nullable"],
+                    item["seed_trace_id_nullable"],
+                    item["seed_session_id_nullable"],
+                    item["status"],
+                    now,
+                    now,
+                ),
+            )
+        return item
+
+    def list_issues(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM issues WHERE project_id = ? ORDER BY updated_at DESC",
+                (project_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def create_data_classification_policy(self, request: dict[str, Any]) -> dict[str, Any]:
+        project_id = request["project_id"]
+        self.ensure_project(project_id)
+        now = utc_now()
+        item = {
+            "policy_id": new_id("classification_policy"),
+            "project_id": project_id,
+            "default_classification": request.get("default_classification", "internal"),
+            "rules": request.get("rules") or [],
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO data_classification_policies(
+                  policy_id, project_id, default_classification, rules_json,
+                  created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["policy_id"],
+                    project_id,
+                    item["default_classification"],
+                    encode_json(item["rules"]),
+                    now,
+                    now,
+                ),
+            )
+        return item
+
+    def list_data_classification_policies(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM data_classification_policies
+                WHERE project_id = ?
+                ORDER BY updated_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._data_classification_policy_from_row(row) for row in rows]
+
+    def start_investigation(self, request: dict[str, Any]) -> dict[str, Any]:
+        project_id = request["project_id"]
+        query = request.get("natural_language_problem_nullable") or request.get("query") or ""
+        filters = request.get("filters") or {}
+        seed_trace_id = request.get("seed_trace_id_nullable")
+        traces = self.search_traces(
+            project_id,
+            filters=filters,
+            full_text_query=query or None,
+            limit=int(request.get("limit", 50)),
+        )
+        if seed_trace_id and all(trace["trace_id"] != seed_trace_id for trace in traces):
+            seed = self.get_trace(project_id, seed_trace_id)
+            if seed is not None:
+                traces.insert(0, seed)
+        report = self._build_impact_report(
+            project_id=project_id,
+            issue_id=request.get("issue_id_nullable"),
+            investigation_run_id=None,
+            traces=traces,
+            time_window=request.get("time_window") or {},
+        )
+        now = utc_now()
+        run = {
+            "investigation_run_id": new_id("investigation_run"),
+            "project_id": project_id,
+            "issue_id_nullable": request.get("issue_id_nullable"),
+            "seed_trace_id_nullable": seed_trace_id,
+            "seed_session_id_nullable": request.get("seed_session_id_nullable"),
+            "natural_language_problem_nullable": query or None,
+            "time_window": request.get("time_window") or {},
+            "filters": filters,
+            "allowed_tools": request.get("allowed_tools")
+            or ["structured_search", "full_text_search"],
+            "status": "completed",
+            "result": {
+                "impact_report": report,
+                "evidence_trace_ids": [trace["trace_id"] for trace in traces],
+                "suspected_root_causes": report["suspected_root_causes"],
+                "recommended_next_actions": [
+                    "review representative traces",
+                    "create or backtest a behavior detector",
+                    "add confirmed examples to a dataset",
+                ],
+                "llm_deferred": [
+                    "semantic similarity",
+                    "natural-language root-cause narrative",
+                    "model-drafted judge or behavior",
+                ],
+            },
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO investigation_runs(
+                  investigation_run_id, project_id, issue_id_nullable,
+                  seed_trace_id_nullable, seed_session_id_nullable,
+                  natural_language_problem_nullable, time_window_json, filters_json,
+                  allowed_tools_json, status, result_json, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run["investigation_run_id"],
+                    project_id,
+                    run["issue_id_nullable"],
+                    seed_trace_id,
+                    run["seed_session_id_nullable"],
+                    run["natural_language_problem_nullable"],
+                    encode_json(run["time_window"]),
+                    encode_json(filters),
+                    encode_json(run["allowed_tools"]),
+                    "completed",
+                    encode_json(run["result"]),
+                    now,
+                    now,
+                ),
+            )
+        report = self.persist_impact_report(report, run["investigation_run_id"])
+        run["result"]["impact_report"] = report
+        return run
+
+    def persist_impact_report(
+        self,
+        report: dict[str, Any],
+        investigation_run_id: str | None,
+    ) -> dict[str, Any]:
+        report = {**report, "investigation_run_id": investigation_run_id}
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO impact_reports(
+                  report_id, project_id, issue_id, investigation_run_id,
+                  time_window_json, matching_trace_count, affected_session_count,
+                  affected_entity_count, affected_entities_json,
+                  task_type_distribution_json, dimension_distribution_json,
+                  behavior_distribution_json, deployment_distribution_json,
+                  suspected_root_causes_json, representative_trace_ids_json,
+                  generated_summary, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    report["report_id"],
+                    report["project_id"],
+                    report.get("issue_id"),
+                    investigation_run_id,
+                    encode_json(report["time_window"]),
+                    report["matching_trace_count"],
+                    report["affected_session_count"],
+                    report["affected_entity_count"],
+                    encode_json(report["affected_entities"]),
+                    encode_json(report["task_type_distribution"]),
+                    encode_json(report["dimension_distribution"]),
+                    encode_json(report["behavior_distribution"]),
+                    encode_json(report["deployment_distribution"]),
+                    encode_json(report["suspected_root_causes"]),
+                    encode_json(report["representative_trace_ids"]),
+                    report["generated_summary"],
+                    report["created_at"],
+                ),
+            )
+        return report
+
+    def list_impact_reports(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM impact_reports WHERE project_id = ? ORDER BY created_at DESC",
+                (project_id,),
+            ).fetchall()
+        return [self._impact_report_from_row(row) for row in rows]
+
+    def _build_impact_report(
+        self,
+        project_id: str,
+        issue_id: str | None,
+        investigation_run_id: str | None,
+        traces: list[dict[str, Any]],
+        time_window: dict[str, Any],
+    ) -> dict[str, Any]:
+        dimensions = self.list_trace_dimensions(project_id)
+        dimensions_by_trace: dict[str, list[dict[str, Any]]] = {}
+        for dimension in dimensions:
+            dimensions_by_trace.setdefault(dimension["trace_id"], []).append(dimension)
+        trace_ids = [trace["trace_id"] for trace in traces]
+        sessions = {trace.get("session_id") for trace in traces if trace.get("session_id")}
+        dimension_distribution: dict[str, dict[str, int]] = {}
+        affected_entities: dict[str, dict[str, Any]] = {}
+        for trace_id in trace_ids:
+            for dimension in dimensions_by_trace.get(trace_id, []):
+                key = dimension["key"]
+                value = dimension["value"]
+                dimension_distribution.setdefault(key, {})
+                dimension_distribution[key][value] = dimension_distribution[key].get(value, 0) + 1
+                if key in {"account_id", "user_id", "external_ticket_id", "external_case_id"}:
+                    entity_key = f"{key}:{value}"
+                    affected_entities.setdefault(
+                        entity_key,
+                        {
+                            "entity_type": key,
+                            "entity_id": value,
+                            "trace_ids": [],
+                            "status": "needs_review",
+                        },
+                    )
+                    affected_entities[entity_key]["trace_ids"].append(trace_id)
+        suspected = []
+        status_counts: dict[str, int] = {}
+        for trace in traces:
+            status = str(trace.get("status", "unknown"))
+            status_counts[status] = status_counts.get(status, 0) + 1
+        if status_counts:
+            suspected.append(
+                {
+                    "candidate_id": new_id("root_cause_candidate"),
+                    "hypothesis": "Trace cohort status distribution is overrepresented.",
+                    "evidence_summary": status_counts,
+                    "representative_trace_ids": trace_ids[:5],
+                    "confidence_or_uncertainty": "deterministic_cohort_signal_only",
+                }
+            )
+        now = utc_now()
+        return {
+            "report_id": new_id("impact_report"),
+            "project_id": project_id,
+            "issue_id": issue_id,
+            "investigation_run_id": investigation_run_id,
+            "time_window": time_window,
+            "matching_trace_count": len(traces),
+            "affected_session_count": len(sessions),
+            "affected_entity_count": len(affected_entities),
+            "affected_entities": list(affected_entities.values()),
+            "task_type_distribution": dimension_distribution.get("task_type", {}),
+            "dimension_distribution": dimension_distribution,
+            "behavior_distribution": {},
+            "deployment_distribution": {},
+            "suspected_root_causes": suspected,
+            "representative_trace_ids": trace_ids[:10],
+            "generated_summary": (
+                f"Deterministic investigation found {len(traces)} matching traces "
+                f"across {len(sessions)} sessions."
+            ),
+            "created_at": now,
+        }
+
     def append_audit(
         self,
         action: str,
@@ -631,6 +1063,53 @@ class SQLiteStore:
             "metadata": decode_json(row["metadata_json"], {}),
             "split": row["split"],
             "created_from": row["created_from"],
+            "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _saved_search_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "saved_search_id": row["saved_search_id"],
+            "project_id": row["project_id"],
+            "name": row["name"],
+            "query": decode_json(row["query_json"], {}),
+            "owner_user_id": row["owner_user_id"],
+            "visibility": row["visibility"],
+            "query_contract_version": row["query_contract_version"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _data_classification_policy_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "policy_id": row["policy_id"],
+            "project_id": row["project_id"],
+            "default_classification": row["default_classification"],
+            "rules": decode_json(row["rules_json"], []),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _impact_report_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "report_id": row["report_id"],
+            "project_id": row["project_id"],
+            "issue_id": row["issue_id"],
+            "investigation_run_id": row["investigation_run_id"],
+            "time_window": decode_json(row["time_window_json"], {}),
+            "matching_trace_count": row["matching_trace_count"],
+            "affected_session_count": row["affected_session_count"],
+            "affected_entity_count": row["affected_entity_count"],
+            "affected_entities": decode_json(row["affected_entities_json"], []),
+            "task_type_distribution": decode_json(row["task_type_distribution_json"], {}),
+            "dimension_distribution": decode_json(row["dimension_distribution_json"], {}),
+            "behavior_distribution": decode_json(row["behavior_distribution_json"], {}),
+            "deployment_distribution": decode_json(row["deployment_distribution_json"], {}),
+            "suspected_root_causes": decode_json(row["suspected_root_causes_json"], []),
+            "representative_trace_ids": decode_json(row["representative_trace_ids_json"], []),
+            "generated_summary": row["generated_summary"],
             "created_at": row["created_at"],
         }
 

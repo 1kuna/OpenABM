@@ -29,29 +29,53 @@ REQUIRED_SCHEMAS = {
     "secret-reference.schema.json",
     "mcp-tool-request.schema.json",
     "mcp-tool-response.schema.json",
+    "trace-dimension.schema.json",
+    "deployment-context.schema.json",
+    "code-context.schema.json",
+    "saved-search.schema.json",
+    "review-task.schema.json",
+    "notification-target.schema.json",
+    "data-classification-policy.schema.json",
+    "agent-config.schema.json",
+    "agent-config-version.schema.json",
+    "tool-definition.schema.json",
+    "tool-version.schema.json",
+    "retrieval-config.schema.json",
+    "guardrail-config.schema.json",
+    "memory-config.schema.json",
+    "runtime-routing-config.schema.json",
+    "issue-definition.schema.json",
+    "investigation-run.schema.json",
+    "impact-report.schema.json",
+    "affected-entity.schema.json",
+    "agent-context-pack.schema.json",
+    "grounding-check.schema.json",
+    "novel-behavior-detection-run.schema.json",
 }
 
 REQUIRED_INGEST_PATHS = {
-    "/api/ingest/traces",
-    "/api/ingest/spans",
-    "/api/ingest/events",
-    "/api/ingest/feedback",
-    "/api/ingest/payloads",
-    "/api/ingest/batch",
+    "/v1/ingest/traces",
+    "/v1/ingest/spans",
+    "/v1/ingest/events",
+    "/v1/ingest/feedback",
+    "/v1/ingest/payloads",
+    "/v1/ingest/batch",
 }
 
 REQUIRED_QUERY_PATHS = {
-    "/api/projects",
-    "/api/traces",
-    "/api/traces/{trace_id}",
-    "/api/traces/{trace_id}/spans",
-    "/api/spans/{span_id}",
-    "/api/sessions",
-    "/api/search/traces",
-    "/api/search/spans",
-    "/api/search/similar",
-    "/api/scores",
-    "/api/behaviors",
+    "/v1/projects",
+    "/v1/traces",
+    "/v1/traces/{trace_id}",
+    "/v1/traces/{trace_id}/spans",
+    "/v1/spans/{span_id}",
+    "/v1/sessions",
+    "/v1/search/traces",
+    "/v1/search/spans",
+    "/v1/search/similar",
+    "/v1/scores",
+    "/v1/behaviors",
+    "/v1/data-classification-policies",
+    "/v1/data-classification/classify",
 }
 
 
@@ -103,4 +127,3 @@ def test_openapi_has_required_operation_level_contracts() -> None:
             assert operation.get("operationId"), f"{method.upper()} {path} missing operationId"
             assert operation.get("summary"), f"{method.upper()} {path} missing summary"
             assert operation.get("responses"), f"{method.upper()} {path} missing responses"
-

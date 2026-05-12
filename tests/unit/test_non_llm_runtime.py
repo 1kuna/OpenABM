@@ -2,10 +2,12 @@ import asyncio
 import textwrap
 
 import pytest
+from openabm_api.classification import classify_payload, redact_if_needed
 from openabm_api.prompts import diff_prompt_text, prompt_commit_id, render_prompt
 from openabm_mcp.tools import REQUIRED_TOOL_NAMES, all_tool_definitions
 from openabm_worker.code_sandbox import run_code_judge_dev_sandbox
 from openabm_worker.conditions import evaluate_condition_group
+from openabm_worker.eval_assertions import evaluate_trace_assertions
 from openabm_worker.judges import run_deterministic_rule_judge, validate_judge_output
 from openabm_worker.model_runtime import DisabledModelProvider, ModelCallsDisabled
 
@@ -134,3 +136,60 @@ def test_mcp_tool_contracts_cover_required_names() -> None:
         assert "required_scopes" in tool
         assert "confirmation_required" in tool
 
+
+def test_trajectory_assertions_cite_failing_tool_spans() -> None:
+    spans = [
+        {
+            "span_id": "span_order_lookup",
+            "span_type": "tool",
+            "duration_ms": 800,
+            "attributes": {
+                "tool.name": "order_lookup",
+                "cost.estimated_usd": 0.2,
+                "retry.count": 2,
+                "retrieval.source_ids": ["orders_index"],
+            },
+        }
+    ]
+    result = evaluate_trace_assertions(
+        spans,
+        {
+            "required_tools": ["refund_policy_lookup"],
+            "forbidden_tools": ["order_lookup"],
+            "forbidden_retrieval_sources": ["orders_index"],
+            "max_cost": 0.1,
+            "max_total_duration_ms": 500,
+            "max_retries": 1,
+            "min_grounding_evidence_span_count": 1,
+        },
+    )
+    assert result["status"] == "failed"
+    assert {
+        "type": "forbidden_tool_used",
+        "tool": "order_lookup",
+        "span_ids": ["span_order_lookup"],
+    } in result["failures"]
+    assert result["observed"]["retrieval_sources"] == ["orders_index"]
+
+
+def test_data_classification_rules_redact_above_access_level() -> None:
+    result = classify_payload(
+        {"customer": {"email": "zach@example.com"}, "note": "internal workflow"},
+        {
+            "default_classification": "internal",
+            "rules": [
+                {
+                    "rule_id": "email",
+                    "path": "customer.email",
+                    "classification": "confidential",
+                    "contains": "@",
+                }
+            ],
+        },
+    )
+    assert result["classification"] == "confidential"
+    assert redact_if_needed(
+        {"customer": {"email": "zach@example.com"}},
+        result["classification"],
+        "internal",
+    )["redacted"] is True

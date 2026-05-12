@@ -6,8 +6,10 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.routing import APIRoute
 
 from openabm_api.auth import require_api_key
+from openabm_api.classification import classify_payload, normalize_classification, redact_if_needed
 from openabm_api.ids import new_id
 from openabm_api.metrics import Metrics
 from openabm_api.reconstruction import reconstruct_trace
@@ -442,7 +444,238 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return example
 
+    @app.get("/api/saved-searches")
+    def list_saved_searches(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["traces:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_saved_searches(project_id)}
+
+    @app.post("/api/saved-searches", status_code=201)
+    def create_saved_search(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["traces:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "name", "query"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        item = store.create_saved_search(
+            request["project_id"],
+            request["name"],
+            request["query"],
+            owner_user_id=request.get("owner_user_id"),
+            visibility=request.get("visibility", "project"),
+        )
+        store.append_audit(
+            "create_saved_search",
+            "saved_search",
+            request["project_id"],
+            item["saved_search_id"],
+        )
+        return item
+
+    @app.get("/api/saved-searches/{saved_search_id}")
+    def get_saved_search(
+        saved_search_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["traces:read"])),
+    ) -> dict[str, object]:
+        del actor
+        item = store.get_saved_search(project_id, saved_search_id)
+        if item is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Saved search not found."),
+            )
+        return item
+
+    @app.get("/api/trace-dimensions")
+    def list_trace_dimensions(
+        project_id: str,
+        trace_id: str | None = None,
+        actor: dict[str, object] = Depends(auth_dependency(["traces:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_trace_dimensions(project_id, trace_id)}
+
+    @app.post("/api/trace-dimensions", status_code=201)
+    def create_trace_dimension(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["traces:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "trace_id", "key", "value"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        item = store.add_trace_dimension(
+            request["project_id"],
+            request["trace_id"],
+            request["key"],
+            str(request["value"]),
+            value_type=request.get("value_type", "string"),
+            source=request.get("source", "manual"),
+        )
+        store.append_audit(
+            "create_trace_dimension",
+            "trace_dimension",
+            request["project_id"],
+            item["trace_dimension_id"],
+        )
+        return item
+
+    @app.get("/api/issues")
+    def list_issues(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["issues:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_issues(project_id)}
+
+    @app.post("/api/issues", status_code=201)
+    def create_issue(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["issues:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "title"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        item = store.create_issue(request)
+        store.append_audit("create_issue", "issue", request["project_id"], item["issue_id"])
+        return item
+
+    @app.get("/api/data-classification-policies")
+    def list_data_classification_policies(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["policies:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_data_classification_policies(project_id)}
+
+    @app.post("/api/data-classification-policies", status_code=201)
+    def create_data_classification_policy(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["policies:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "default_classification", "rules"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        try:
+            normalize_classification(request["default_classification"])
+        except ValueError as exc:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                str(exc),
+                "/default_classification",
+            ) from exc
+        item = store.create_data_classification_policy(request)
+        store.append_audit(
+            "create_data_classification_policy",
+            "data_classification_policy",
+            request["project_id"],
+            item["policy_id"],
+        )
+        return item
+
+    @app.post("/api/data-classification/classify")
+    def classify_data(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["policies:read"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["payload", "policy"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        try:
+            result = classify_payload(request["payload"], request["policy"])
+        except ValueError as exc:
+            raise SchemaValidationFailure("schema_validation_failed", str(exc), "/policy") from exc
+        max_classification = request.get("max_classification")
+        if max_classification:
+            try:
+                result["payload"] = redact_if_needed(
+                    request["payload"],
+                    result["classification"],
+                    max_classification,
+                )
+            except ValueError as exc:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    str(exc),
+                    "/max_classification",
+                ) from exc
+        return result
+
+    @app.post("/api/investigations", status_code=201)
+    def start_investigation(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["investigations:write"])),
+    ) -> dict[str, object]:
+        del actor
+        if "project_id" not in request:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        run = store.start_investigation(request)
+        store.append_audit(
+            "start_investigation",
+            "investigation_run",
+            request["project_id"],
+            run["investigation_run_id"],
+        )
+        return run
+
+    @app.get("/api/impact-reports")
+    def list_impact_reports(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["investigations:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_impact_reports(project_id)}
+
+    _register_v1_aliases(app)
     return app
+
+
+def _register_v1_aliases(app: FastAPI) -> None:
+    routes = list(app.routes)
+    for route in routes:
+        if not isinstance(route, APIRoute) or not route.path.startswith("/api/"):
+            continue
+        app.add_api_route(
+            route.path.replace("/api", "/v1", 1),
+            route.endpoint,
+            methods=list(route.methods or []),
+            status_code=route.status_code,
+            response_class=route.response_class,
+            name=f"v1_{route.name}",
+            include_in_schema=True,
+        )
 
 
 def _error(

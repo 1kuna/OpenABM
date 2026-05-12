@@ -62,7 +62,7 @@ class HttpExporter:
         if not self._traces and not self._spans:
             return
         response = httpx.post(
-            f"{self.base_url}/api/ingest/batch",
+            f"{self.base_url}/v1/ingest/batch",
             headers={"Authorization": f"Bearer {self.api_key}"},
             json={"traces": self._traces, "spans": self._spans},
             timeout=self.timeout_seconds,
@@ -70,4 +70,3 @@ class HttpExporter:
         response.raise_for_status()
         self._traces.clear()
         self._spans.clear()
-

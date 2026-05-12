@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/agent-config-version.json",
+  "title": "AgentConfigVersion",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["agent_config_version_id", "agent_config_id", "version", "commit_id", "content", "metadata", "created_at"],
+  "properties": {
+    "agent_config_version_id": {"type": "string"},
+    "agent_config_id": {"type": "string"},
+    "version": {"type": "integer", "minimum": 1},
+    "commit_id": {"type": "string"},
+    "content": {"type": "object"},
+    "metadata": {"type": "object"},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}

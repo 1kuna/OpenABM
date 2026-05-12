@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/guardrail-config.json",
+  "title": "GuardrailConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["guardrail_config_id", "project_id", "content", "created_at"],
+  "properties": {
+    "guardrail_config_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "content": {"type": "object"},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}

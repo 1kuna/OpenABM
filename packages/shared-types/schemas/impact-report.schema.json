@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/impact-report.json",
+  "title": "ImpactReport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["report_id", "project_id", "matching_trace_count", "affected_session_count", "affected_entity_count", "representative_trace_ids", "generated_summary", "created_at"],
+  "properties": {
+    "report_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "issue_id": {"type": ["string", "null"]},
+    "investigation_run_id": {"type": ["string", "null"]},
+    "time_window": {"type": "object"},
+    "matching_trace_count": {"type": "integer", "minimum": 0},
+    "affected_session_count": {"type": "integer", "minimum": 0},
+    "affected_entity_count": {"type": "integer", "minimum": 0},
+    "affected_entities": {"type": "array", "items": {"type": "object"}},
+    "task_type_distribution": {"type": "object"},
+    "dimension_distribution": {"type": "object"},
+    "behavior_distribution": {"type": "object"},
+    "deployment_distribution": {"type": "object"},
+    "suspected_root_causes": {"type": "array", "items": {"type": "object"}},
+    "representative_trace_ids": {"type": "array", "items": {"type": "string"}},
+    "generated_summary": {"type": "string"},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/memory-config.json",
+  "title": "MemoryConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["memory_config_id", "project_id", "content", "created_at"],
+  "properties": {
+    "memory_config_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "content": {"type": "object"},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}

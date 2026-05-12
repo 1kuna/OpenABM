@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/data-classification-policy.json",
+  "title": "DataClassificationPolicy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["policy_id", "project_id", "default_classification", "rules", "created_at", "updated_at"],
+  "properties": {
+    "policy_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "default_classification": {"enum": ["public", "internal", "confidential", "restricted", "secret"]},
+    "rules": {"type": "array", "items": {"type": "object"}},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

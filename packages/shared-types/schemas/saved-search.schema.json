@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/saved-search.json",
+  "title": "SavedSearch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["saved_search_id", "project_id", "name", "query", "visibility", "query_contract_version", "created_at", "updated_at"],
+  "properties": {
+    "saved_search_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "name": {"type": "string"},
+    "query": {"type": "object"},
+    "owner_user_id": {"type": ["string", "null"]},
+    "visibility": {"enum": ["private", "project"]},
+    "query_contract_version": {"type": "string"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

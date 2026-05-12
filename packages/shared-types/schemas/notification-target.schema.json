@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/notification-target.json",
+  "title": "NotificationTarget",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target_id", "project_id", "type", "display_name", "config_secret_refs", "status", "created_at", "updated_at"],
+  "properties": {
+    "target_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "type": {"enum": ["chat", "email", "webhook", "issue_tracker", "custom"]},
+    "display_name": {"type": "string"},
+    "config_secret_refs": {"type": "array", "items": {"type": "string"}},
+    "created_by": {"type": ["string", "null"]},
+    "status": {"enum": ["active", "paused", "archived"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

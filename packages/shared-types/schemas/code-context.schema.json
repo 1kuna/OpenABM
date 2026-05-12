@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/code-context.json",
+  "title": "CodeContext",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["code_context_id", "project_id", "trace_id", "created_at"],
+  "properties": {
+    "code_context_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "trace_id": {"type": "string"},
+    "span_id_nullable": {"type": ["string", "null"]},
+    "file_path_nullable": {"type": ["string", "null"]},
+    "function_name_nullable": {"type": ["string", "null"]},
+    "line_start_nullable": {"type": ["integer", "null"]},
+    "line_end_nullable": {"type": ["integer", "null"]},
+    "stack_frame_hash_nullable": {"type": ["string", "null"]},
+    "source_url_nullable": {"type": ["string", "null"]},
+    "source_revision_nullable": {"type": ["string", "null"]},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}

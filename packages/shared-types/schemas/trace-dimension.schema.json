@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/trace-dimension.json",
+  "title": "TraceDimension",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["trace_id", "project_id", "key", "value", "value_type", "source", "created_at"],
+  "properties": {
+    "trace_dimension_id": {"type": "string"},
+    "trace_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "key": {"type": "string"},
+    "value": {"type": "string"},
+    "value_type": {"enum": ["string", "number", "boolean", "datetime", "json"]},
+    "source": {"type": "string"},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}

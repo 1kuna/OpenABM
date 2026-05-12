@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/issue-definition.json",
+  "title": "IssueDefinition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["issue_id", "project_id", "source_type", "title", "description", "status", "created_at", "updated_at"],
+  "properties": {
+    "issue_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "source_type": {"enum": ["manual", "chat", "screenshot", "support_ticket", "trace_link", "webhook", "alert"]},
+    "source_ref_nullable": {"type": ["string", "null"]},
+    "reporter_nullable": {"type": ["string", "null"]},
+    "title": {"type": "string"},
+    "description": {"type": "string"},
+    "screenshot_payload_id_nullable": {"type": ["string", "null"]},
+    "seed_trace_id_nullable": {"type": ["string", "null"]},
+    "seed_session_id_nullable": {"type": ["string", "null"]},
+    "status": {"enum": ["open", "investigating", "behavior_created", "fixed", "archived"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

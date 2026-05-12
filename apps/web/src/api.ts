@@ -15,7 +15,7 @@ export class OpenAbmClient {
   }
 
   async listProjects(): Promise<Project[]> {
-    const body = await this.get<{ data: Project[] }>("/api/projects");
+    const body = await this.get<{ data: Project[] }>("/v1/projects");
     return body.data;
   }
 
@@ -23,12 +23,12 @@ export class OpenAbmClient {
     const params = new URLSearchParams({ project_id: projectId, limit: "100" });
     if (status) params.set("status", status);
     if (environment) params.set("environment", environment);
-    const body = await this.get<{ data: TraceEnvelope[] }>(`/api/traces?${params.toString()}`);
+    const body = await this.get<{ data: TraceEnvelope[] }>(`/v1/traces?${params.toString()}`);
     return body.data;
   }
 
   async searchTraces(projectId: string, query: string): Promise<TraceEnvelope[]> {
-    const body = await this.post<{ data: TraceEnvelope[] }>("/api/search/traces", {
+    const body = await this.post<{ data: TraceEnvelope[] }>("/v1/search/traces", {
       project_id: projectId,
       full_text_query: query || null,
       limit: 100
@@ -38,11 +38,11 @@ export class OpenAbmClient {
 
   async getTrace(projectId: string, traceId: string): Promise<TraceDetail> {
     const params = new URLSearchParams({ project_id: projectId });
-    return this.get<TraceDetail>(`/api/traces/${traceId}?${params.toString()}`);
+    return this.get<TraceDetail>(`/v1/traces/${traceId}?${params.toString()}`);
   }
 
   async searchSimilar(projectId: string, sourceId: string): Promise<{ disabled: boolean; reason?: string }> {
-    return this.post("/api/search/similar", {
+    return this.post("/v1/search/similar", {
       project_id: projectId,
       source_id: sourceId,
       source_type: "trace"

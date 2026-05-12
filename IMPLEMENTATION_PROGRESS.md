@@ -192,6 +192,9 @@ Done:
 
 - Added deterministic condition grammar evaluator for automation/rule-detector
   style conditions with nested groups and the spec's core operators.
+- Added trajectory assertion evaluator coverage for required/forbidden tools,
+  retrieval sources, behavior IDs, span types, cost, duration, retry count, and
+  grounding evidence counts.
 
 ## Phase 7: Prompt Registry, MCP, And Investigation Agent
 
@@ -219,16 +222,24 @@ Done:
 
 ## Phase 8: Security, Privacy, And Operations Hardening
 
-Status: planned
+Status: in progress
 
 Target for this pass:
 
 - API key scopes, role matrix helpers, audit log model, retention/delete/export
   scaffolds, health/readiness/metrics endpoints, and admin status data.
+- Data classification policy and deterministic redaction helpers for payload
+  handling.
 
 LLM-dependent deferrals:
 
 - None expected for deterministic hardening scaffolds.
+
+Done:
+
+- Added data classification policy storage/API, deterministic payload
+  classification, and redaction when payload classification exceeds caller
+  allowance.
 
 ## Phase 9: Real-World Pilot And Revisit Decisions
 
@@ -242,3 +253,70 @@ Blocked:
 
 - Use `SPEC_EDIT_SUGGESTIONS.md` for any recommended spec changes.
 - Keep the spec itself unmodified.
+
+## Spec V2 Delta Incorporated
+
+Status: in progress
+
+Compared with the original spec, the temporary v2 spec revision added these
+implementation targets. The v2 contents have since replaced
+`openabm_implementation_spec.md`, and the spec remains ignored:
+
+- Public API prefix convention: stable external APIs move to `/v1/...`; web-only
+  unstable APIs belong under `/api/internal/...`.
+- Business-facing trace dimensions for filtering/grouping impact by account,
+  customer tier, task type, workflow, region, plan, ticket/case, and other
+  generic dimensions.
+- Deployment and code context entities so traces can preserve service version,
+  revision, branch, build/deploy IDs, function/file/line, source links, and
+  stack-frame hashes.
+- Saved searches as reusable product objects for behaviors, automations,
+  impact reports, datasets, and investigation inputs.
+- Human review queue for judge outputs, behavior candidates, grounding checks,
+  affected entities, and root-cause candidates.
+- Notification/workflow target registry using secret refs instead of hardcoded
+  vendor destinations.
+- Trajectory-level eval assertions over tool calls, retrieval sources,
+  behaviors, span patterns, cost, latency, retries, and grounding evidence.
+- Agent runtime configuration registry for immutable prompt/tool/retrieval/
+  memory/guardrail/routing/workflow/runtime versions.
+- Issue-led investigation workflow, issue entity, screenshot intake, auditable
+  investigation runs, impact reports, differential root-cause analysis, context
+  packs, passive novelty detection, ChatOps surface, grounding/fabrication
+  checks, and affected-entity remediation tracking.
+- Trace detail UI modes for conversation/thread, tool sequence, and code/error
+  views, plus issue/investigation and impact-report pages.
+- Data classification policy covering payloads, dimensions, business context,
+  code snippets, screenshots, context packs, exports, MCP, and ChatOps.
+- First runnable slice acceptance gate: local stack, SDK manual span, batch
+  ingest, trace list/detail, one rubric judge, one dataset from trace, and one
+  offline eval.
+
+Immediate deterministic implementation response:
+
+- Add `/v1` public API routes while keeping any temporary `/api` compatibility
+  only as non-contract local convenience.
+- Add schemas and storage tables for v2 metadata and investigation entities.
+- Implement saved searches, dimensions, issue intake, deterministic
+  investigation scaffolding, impact report scaffolding, data classification, and
+  trajectory assertion evaluation without using LLMs.
+- Keep model-backed screenshot extraction, semantic similarity, passive novelty,
+  ChatOps answer generation, rubric judge generation, and claim extraction
+  deferred until LLM/model work is explicitly enabled.
+
+Implemented in this pass:
+
+- Replaced the original ignored spec file with the v2 contents and kept it out
+  of git.
+- Switched public API contracts, SDK export, web client, and integration tests
+  to `/v1/...`.
+- Added v2 storage tables and JSON schemas for dimensions, saved searches,
+  review/notification/classification/config entities, issues, investigations,
+  impact reports, context packs, grounding checks, and novelty runs.
+- Added saved search, trace dimension, issue, investigation, impact report, and
+  data classification API/storage scaffolds.
+- Added deterministic impact report generation from trace search results and
+  trace dimensions, with LLM-only narrative/root-cause work explicitly marked as
+  deferred in the run result.
+- Added an Issues/Investigations scaffold view in the web app so the v2 surface
+  is visible without pretending the LLM-backed pieces are ready.

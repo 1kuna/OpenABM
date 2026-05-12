@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/affected-entity.json",
+  "title": "AffectedEntity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["affected_entity_id", "project_id", "issue_id", "entity_type", "entity_id", "trace_ids", "status", "created_at", "updated_at"],
+  "properties": {
+    "affected_entity_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "issue_id": {"type": "string"},
+    "entity_type": {"type": "string"},
+    "entity_id": {"type": "string"},
+    "display_name_nullable": {"type": ["string", "null"]},
+    "trace_ids": {"type": "array", "items": {"type": "string"}},
+    "status": {"enum": ["needs_review", "contacted", "fixed", "ignored", "false_positive"]},
+    "owner_nullable": {"type": ["string", "null"]},
+    "notes_nullable": {"type": ["string", "null"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

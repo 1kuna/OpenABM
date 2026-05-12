@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/investigation-run.json",
+  "title": "InvestigationRun",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["investigation_run_id", "project_id", "status", "result", "created_at", "updated_at"],
+  "properties": {
+    "investigation_run_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "issue_id_nullable": {"type": ["string", "null"]},
+    "seed_trace_id_nullable": {"type": ["string", "null"]},
+    "seed_session_id_nullable": {"type": ["string", "null"]},
+    "natural_language_problem_nullable": {"type": ["string", "null"]},
+    "time_window": {"type": "object"},
+    "filters": {"type": "object"},
+    "allowed_tools": {"type": "array", "items": {"type": "string"}},
+    "status": {"enum": ["queued", "running", "completed", "failed"]},
+    "result": {"type": "object"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

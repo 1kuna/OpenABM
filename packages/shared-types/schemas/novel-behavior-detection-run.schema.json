@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/novel-behavior-detection-run.json",
+  "title": "NovelBehaviorDetectionRun",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "project_id", "status", "created_at"],
+  "properties": {
+    "run_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "status": {"enum": ["disabled_no_embeddings", "queued", "running", "completed", "failed"]},
+    "new_behavior_candidates": {"type": "array", "items": {"type": "object"}, "default": []},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}

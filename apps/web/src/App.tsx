@@ -25,7 +25,15 @@ const DEFAULT_BASE_URL = "http://127.0.0.1:8787";
 const DEFAULT_API_KEY = "dev-openabm-key";
 
 type ConnectionState = "connecting" | "live" | "fixture";
-type ViewKey = "traces" | "judges" | "behaviors" | "datasets" | "prompts" | "mcp" | "ops";
+type ViewKey =
+  | "traces"
+  | "issues"
+  | "judges"
+  | "behaviors"
+  | "datasets"
+  | "prompts"
+  | "mcp"
+  | "ops";
 
 export function App() {
   const [baseUrl, setBaseUrl] = useState(localStorage.getItem("openabm.baseUrl") ?? DEFAULT_BASE_URL);
@@ -133,6 +141,7 @@ export function App() {
         </div>
         <nav className="nav">
           <NavButton icon={<FileSearch />} label="Traces" active={activeView === "traces"} onClick={() => setActiveView("traces")} />
+          <NavButton icon={<AlertTriangle />} label="Issues" active={activeView === "issues"} onClick={() => setActiveView("issues")} />
           <NavButton icon={<Braces />} label="Judges" active={activeView === "judges"} onClick={() => setActiveView("judges")} />
           <NavButton icon={<GitBranch />} label="Behaviors" active={activeView === "behaviors"} onClick={() => setActiveView("behaviors")} />
           <NavButton icon={<Database />} label="Datasets" active={activeView === "datasets"} onClick={() => setActiveView("datasets")} />
@@ -391,7 +400,12 @@ function scaffoldRows(view: ViewKey) {
       { icon: <Shield />, title: "RBAC and secrets", status: "scaffold pending", phase: "Phase 8" },
       { icon: <Database />, title: "Retention/export/delete", status: "storage hooks pending", phase: "Phase 8" }
     ],
-    traces: []
+    traces: [],
+    issues: [
+      { icon: <AlertTriangle />, title: "Issue intake", status: "API and storage available", phase: "Spec v2" },
+      { icon: <FileSearch />, title: "Deterministic investigation", status: "structured search and impact scaffold available", phase: "Spec v2" },
+      { icon: <Database />, title: "Affected entities", status: "computed from trace dimensions", phase: "Spec v2" }
+    ],
   };
   return shared[view];
 }
@@ -436,6 +450,7 @@ function connectionLabel(connection: ConnectionState) {
 function viewTitle(view: ViewKey) {
   const labels: Record<ViewKey, string> = {
     traces: "Trace explorer",
+    issues: "Issues and investigations",
     judges: "Judge runtime",
     behaviors: "Behavior monitoring",
     datasets: "Datasets and evals",
@@ -453,4 +468,3 @@ function formatTime(value: string) {
     second: "2-digit"
   }).format(new Date(value));
 }
-

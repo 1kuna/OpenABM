@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/deployment-context.json",
+  "title": "DeploymentContext",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["deployment_context_id", "project_id", "service_name", "service_version", "source_revision", "environment", "created_at"],
+  "properties": {
+    "deployment_context_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "service_name": {"type": "string"},
+    "service_version": {"type": "string"},
+    "source_revision": {"type": "string"},
+    "branch_nullable": {"type": ["string", "null"]},
+    "build_id_nullable": {"type": ["string", "null"]},
+    "deploy_id_nullable": {"type": ["string", "null"]},
+    "runtime_nullable": {"type": ["string", "null"]},
+    "environment": {"type": "string"},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}

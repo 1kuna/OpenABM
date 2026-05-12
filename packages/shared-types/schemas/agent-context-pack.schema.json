@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/agent-context-pack.json",
+  "title": "AgentContextPack",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["context_pack_id", "project_id", "source_trace_ids", "content", "classification", "created_at"],
+  "properties": {
+    "context_pack_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "issue_id_nullable": {"type": ["string", "null"]},
+    "source_trace_ids": {"type": "array", "items": {"type": "string"}},
+    "content": {"type": "object"},
+    "classification": {"enum": ["public", "internal", "confidential", "restricted", "secret"]},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}

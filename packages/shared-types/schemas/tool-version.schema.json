@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/tool-version.json",
+  "title": "ToolVersion",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tool_version_id", "tool_id", "version", "schema_json", "created_at"],
+  "properties": {
+    "tool_version_id": {"type": "string"},
+    "tool_id": {"type": "string"},
+    "version": {"type": "integer", "minimum": 1},
+    "schema_json": {"type": "object"},
+    "metadata": {"type": "object", "default": {}},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}
