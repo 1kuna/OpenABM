@@ -1,4 +1,4 @@
 # OpenABM
 
-OpenABM is a workspace for building an open agent-based modeling toolkit.
-
+OpenABM is a self-hostable, open-source platform for monitoring, evaluating,
+debugging, and improving production AI agents from trace data.
