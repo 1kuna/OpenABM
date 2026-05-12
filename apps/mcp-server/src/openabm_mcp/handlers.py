@@ -14,12 +14,6 @@ UNSUPPORTED_TOOLS = {
     "create_judge_draft": "Judge draft storage is not implemented yet.",
     "run_eval": "Eval runs are currently launched through the local runner, not MCP.",
     "compare_eval_runs": "Eval comparison storage is not implemented yet.",
-    "list_prompts": "Prompt registry storage is not implemented yet.",
-    "get_prompt": "Prompt registry storage is not implemented yet.",
-    "commit_prompt": "Prompt registry storage is not implemented yet.",
-    "list_agent_configs": "Agent config registry API is not implemented yet.",
-    "get_agent_config": "Agent config registry API is not implemented yet.",
-    "compare_agent_configs": "Agent config comparison is not implemented yet.",
     "list_automations": "Automation registry API is not implemented yet.",
     "get_automation": "Automation registry API is not implemented yet.",
     "search_docs": "Documentation search index is not implemented yet.",
@@ -194,6 +188,42 @@ def call_tool(
         )
     if name == "run_judge":
         return client.request("POST", "/v1/judges/rubric/run", json_body=arguments)
+    if name == "list_prompts":
+        return client.request(
+            "GET",
+            "/v1/prompts",
+            params={"project_id": arguments["project_id"]},
+        )
+    if name == "get_prompt":
+        return client.request(
+            "GET",
+            f"/v1/prompts/{arguments['prompt_id']}",
+            params={"project_id": arguments["project_id"]},
+        )
+    if name == "commit_prompt":
+        return client.request(
+            "POST",
+            f"/v1/prompts/{arguments['prompt_id']}/versions",
+            json_body=arguments,
+        )
+    if name == "list_agent_configs":
+        return client.request(
+            "GET",
+            "/v1/agent-configs",
+            params={"project_id": arguments["project_id"]},
+        )
+    if name == "get_agent_config":
+        return client.request(
+            "GET",
+            f"/v1/agent-configs/{arguments['agent_config_id']}",
+            params={"project_id": arguments["project_id"]},
+        )
+    if name == "compare_agent_configs":
+        return client.request(
+            "POST",
+            f"/v1/agent-configs/{arguments['agent_config_id']}/compare",
+            json_body=arguments,
+        )
     return {
         "status": "unsupported",
         "tool": name,

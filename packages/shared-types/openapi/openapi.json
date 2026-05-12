@@ -2216,6 +2216,242 @@
         }
       }
     },
+    "/v1/prompts": {
+      "get": {
+        "operationId": "listPrompts",
+        "summary": "List prompt definitions.",
+        "x-required-scopes": [
+          "prompts:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prompts."
+          }
+        }
+      },
+      "post": {
+        "operationId": "createPrompt",
+        "summary": "Create a prompt definition.",
+        "x-required-scopes": [
+          "prompts:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "../schemas/prompt-definition.schema.json"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Prompt created."
+          }
+        }
+      }
+    },
+    "/v1/prompts/{prompt_id}": {
+      "get": {
+        "operationId": "getPrompt",
+        "summary": "Fetch a prompt and its versions.",
+        "x-required-scopes": [
+          "prompts:read"
+        ],
+        "parameters": [
+          {
+            "name": "prompt_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prompt."
+          }
+        }
+      }
+    },
+    "/v1/prompts/{prompt_id}/versions": {
+      "post": {
+        "operationId": "commitPromptVersion",
+        "summary": "Commit an immutable prompt version.",
+        "x-required-scopes": [
+          "prompts:write"
+        ],
+        "parameters": [
+          {
+            "name": "prompt_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "../schemas/prompt-version.schema.json"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Prompt version committed."
+          }
+        }
+      }
+    },
+    "/v1/prompts/{prompt_id}/render": {
+      "post": {
+        "operationId": "renderPrompt",
+        "summary": "Render a prompt version deterministically.",
+        "x-required-scopes": [
+          "prompts:read"
+        ],
+        "responses": {
+          "200": {
+            "description": "Rendered prompt."
+          }
+        }
+      }
+    },
+    "/v1/prompts/{prompt_id}/diff": {
+      "post": {
+        "operationId": "diffPromptVersions",
+        "summary": "Diff two prompt versions.",
+        "x-required-scopes": [
+          "prompts:read"
+        ],
+        "responses": {
+          "200": {
+            "description": "Prompt diff."
+          }
+        }
+      }
+    },
+    "/v1/agent-configs": {
+      "get": {
+        "operationId": "listAgentConfigs",
+        "summary": "List agent runtime configuration records.",
+        "x-required-scopes": [
+          "agent_configs:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent configs."
+          }
+        }
+      },
+      "post": {
+        "operationId": "createAgentConfig",
+        "summary": "Create an agent runtime configuration record.",
+        "x-required-scopes": [
+          "agent_configs:write"
+        ],
+        "responses": {
+          "201": {
+            "description": "Agent config created."
+          }
+        }
+      }
+    },
+    "/v1/agent-configs/{agent_config_id}": {
+      "get": {
+        "operationId": "getAgentConfig",
+        "summary": "Fetch an agent config and its versions.",
+        "x-required-scopes": [
+          "agent_configs:read"
+        ],
+        "parameters": [
+          {
+            "name": "agent_config_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent config."
+          }
+        }
+      }
+    },
+    "/v1/agent-configs/{agent_config_id}/versions": {
+      "post": {
+        "operationId": "commitAgentConfigVersion",
+        "summary": "Commit an immutable agent config version.",
+        "x-required-scopes": [
+          "agent_configs:write"
+        ],
+        "responses": {
+          "201": {
+            "description": "Agent config version committed."
+          }
+        }
+      }
+    },
+    "/v1/agent-configs/{agent_config_id}/compare": {
+      "post": {
+        "operationId": "compareAgentConfigVersions",
+        "summary": "Compare two agent config versions.",
+        "x-required-scopes": [
+          "agent_configs:read"
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent config diff."
+          }
+        }
+      }
+    },
     "/v1/trace-dimensions": {
       "get": {
         "operationId": "listTraceDimensions",

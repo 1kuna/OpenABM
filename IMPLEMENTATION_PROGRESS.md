@@ -240,6 +240,12 @@ Done:
 
 - Added prompt commit hashing, deterministic variable rendering, secret
   interpolation rejection, and text diff helper.
+- Added prompt registry storage/API lifecycle: prompt definitions, immutable
+  prompt versions, content-addressed commit IDs, mutable tag pointers with tag
+  events, deterministic render, and version diff.
+- Added agent runtime configuration registry storage/API lifecycle: config
+  records, immutable config versions, content-addressed commit IDs, and
+  deterministic config diffs.
 - Added MCP tool contract registry covering all required tool names, including
   side-effect and confirmation metadata.
 - Added agent context pack generation and persistence with model-backed
@@ -257,6 +263,8 @@ Done:
 - Expanded the MCP tool contract registry to match the v2 required tool list,
   added resource templates, and added API-backed deterministic handlers for the
   implemented read/draft paths with explicit unsupported responses for gaps.
+- Connected MCP handlers for prompt list/get/commit and agent config
+  list/get/compare now that those APIs exist.
 - Added web UI sections for judge runtime, behavior monitoring, datasets/evals,
   prompt registry, MCP, and ops status so unfinished surfaces are visible
   without pretending LLM-dependent capabilities exist.
@@ -314,9 +322,9 @@ Verified after the latest implementation slices:
 
 Known remaining gaps before calling the whole spec complete:
 
-- Prompt registry and agent runtime configuration registry have schemas and
-  deterministic helper functions, but not full storage/API/UI/MCP-backed
-  lifecycle flows.
+- Prompt registry and agent runtime configuration registry now have storage/API
+  and MCP-backed lifecycle flows, but the web UI still needs full version
+  history, tag movement, and eval-linked comparison views.
 - Automation definitions and condition grammar exist, but the automation runner,
   cooldown/idempotency execution history, notification delivery, and
   dead-letter handling still need implementation.
@@ -408,5 +416,7 @@ Implemented in this pass:
   link back to canonical artifacts.
 - Added retention/export/delete scaffolds: retention policies, project export
   manifests with hashes, and trace tombstones with derived-data cleanup.
+- Added `/v1/prompts` and `/v1/agent-configs` lifecycle paths with immutable
+  version commits and diff/render/compare helpers.
 - Added an Issues/Investigations scaffold view in the web app so the v2 surface
   is visible without pretending the LLM-backed pieces are ready.

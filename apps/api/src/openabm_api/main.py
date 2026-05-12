@@ -22,6 +22,7 @@ from openabm_api.auth import require_api_key
 from openabm_api.classification import classify_payload, normalize_classification, redact_if_needed
 from openabm_api.ids import new_id
 from openabm_api.metrics import Metrics
+from openabm_api.prompts import render_prompt
 from openabm_api.reconstruction import reconstruct_trace
 from openabm_api.schemas import SchemaValidationFailure, validate_payload
 from openabm_api.settings import Settings
@@ -784,6 +785,250 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail=_error("not_found", "Saved search not found."),
             )
         return item
+
+    @app.get("/api/prompts")
+    def list_prompts(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["prompts:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_prompts(project_id)}
+
+    @app.post("/api/prompts", status_code=201)
+    def create_prompt(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["prompts:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "name"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        item = store.create_prompt(request)
+        store.append_audit("create_prompt", "prompt", request["project_id"], item["prompt_id"])
+        return item
+
+    @app.get("/api/prompts/{prompt_id}")
+    def get_prompt(
+        prompt_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["prompts:read"])),
+    ) -> dict[str, object]:
+        del actor
+        item = store.get_prompt(project_id, prompt_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail=_error("not_found", "Prompt not found."))
+        return item
+
+    @app.post("/api/prompts/{prompt_id}/versions", status_code=201)
+    def commit_prompt_version(
+        prompt_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["prompts:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "template_text", "variables_schema"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        try:
+            version = store.commit_prompt_version(
+                request["project_id"],
+                prompt_id,
+                template_text=request["template_text"],
+                variables_schema=request["variables_schema"],
+                metadata=request.get("metadata"),
+                parent_commit_id=request.get("parent_commit_id"),
+                tag=request.get("tag"),
+            )
+        except (KeyError, ValueError) as exc:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                str(exc),
+                "/template_text",
+            ) from exc
+        store.append_audit(
+            "commit_prompt_version",
+            "prompt",
+            request["project_id"],
+            prompt_id,
+            {"commit_id": version["commit_id"], "tag": request.get("tag")},
+        )
+        return version
+
+    @app.post("/api/prompts/{prompt_id}/render")
+    def render_prompt_endpoint(
+        prompt_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["prompts:read"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "commit_id", "variables"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        version = store.get_prompt_version_by_commit(
+            request["project_id"],
+            prompt_id,
+            request["commit_id"],
+        )
+        if version is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Prompt version not found."),
+            )
+        try:
+            rendered = render_prompt(version["template_text"], request["variables"])
+        except (KeyError, ValueError) as exc:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                str(exc),
+                "/variables",
+            ) from exc
+        return {"prompt_id": prompt_id, "commit_id": request["commit_id"], "rendered": rendered}
+
+    @app.post("/api/prompts/{prompt_id}/diff")
+    def diff_prompt_versions(
+        prompt_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["prompts:read"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "old_commit_id", "new_commit_id"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        try:
+            return store.diff_prompt_versions(
+                request["project_id"],
+                prompt_id,
+                request["old_commit_id"],
+                request["new_commit_id"],
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", str(exc)),
+            ) from exc
+
+    @app.get("/api/agent-configs")
+    def list_agent_configs(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["agent_configs:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_agent_configs(project_id)}
+
+    @app.post("/api/agent-configs", status_code=201)
+    def create_agent_config(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["agent_configs:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "name", "config_type"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        item = store.create_agent_config(request)
+        store.append_audit(
+            "create_agent_config",
+            "agent_config",
+            request["project_id"],
+            item["agent_config_id"],
+        )
+        return item
+
+    @app.get("/api/agent-configs/{agent_config_id}")
+    def get_agent_config(
+        agent_config_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["agent_configs:read"])),
+    ) -> dict[str, object]:
+        del actor
+        item = store.get_agent_config(project_id, agent_config_id)
+        if item is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Agent config not found."),
+            )
+        return item
+
+    @app.post("/api/agent-configs/{agent_config_id}/versions", status_code=201)
+    def commit_agent_config_version(
+        agent_config_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["agent_configs:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "content"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        try:
+            version = store.commit_agent_config_version(
+                request["project_id"],
+                agent_config_id,
+                content=request["content"],
+                metadata=request.get("metadata"),
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", str(exc)),
+            ) from exc
+        store.append_audit(
+            "commit_agent_config_version",
+            "agent_config",
+            request["project_id"],
+            agent_config_id,
+            {"commit_id": version["commit_id"]},
+        )
+        return version
+
+    @app.post("/api/agent-configs/{agent_config_id}/compare")
+    def compare_agent_configs(
+        agent_config_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["agent_configs:read"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "old_commit_id", "new_commit_id"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        try:
+            return store.compare_agent_config_versions(
+                request["project_id"],
+                agent_config_id,
+                request["old_commit_id"],
+                request["new_commit_id"],
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", str(exc)),
+            ) from exc
 
     @app.get("/api/trace-dimensions")
     def list_trace_dimensions(

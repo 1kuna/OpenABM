@@ -369,6 +369,98 @@ def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
     assert detail.json()["spans"] == []
 
 
+def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
+    client = make_client(tmp_path)
+    prompt = client.post(
+        "/v1/prompts",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "name": "Refund assistant"},
+    )
+    assert prompt.status_code == 201
+    prompt_id = prompt.json()["prompt_id"]
+    version_1 = client.post(
+        f"/v1/prompts/{prompt_id}/versions",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "template_text": "Hello {{name}}",
+            "variables_schema": {"type": "object", "required": ["name"]},
+            "tag": "prod",
+        },
+    )
+    assert version_1.status_code == 201
+    version_2 = client.post(
+        f"/v1/prompts/{prompt_id}/versions",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "template_text": "Hi {{name}}",
+            "variables_schema": {"type": "object", "required": ["name"]},
+            "parent_commit_id": version_1.json()["commit_id"],
+            "tag": "prod",
+        },
+    )
+    assert version_2.status_code == 201
+    rendered = client.post(
+        f"/v1/prompts/{prompt_id}/render",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "commit_id": version_2.json()["commit_id"],
+            "variables": {"name": "OpenABM"},
+        },
+    )
+    assert rendered.json()["rendered"] == "Hi OpenABM"
+    diff = client.post(
+        f"/v1/prompts/{prompt_id}/diff",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "old_commit_id": version_1.json()["commit_id"],
+            "new_commit_id": version_2.json()["commit_id"],
+        },
+    )
+    assert "-Hello {{name}}" in diff.json()["text_diff"]
+    fetched_prompt = client.get(
+        f"/v1/prompts/{prompt_id}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert fetched_prompt.json()["tags"]["prod"] == version_2.json()["commit_id"]
+
+    config = client.post(
+        "/v1/agent-configs",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "name": "Refund runtime",
+            "config_type": "runtime",
+        },
+    )
+    assert config.status_code == 201
+    config_id = config.json()["agent_config_id"]
+    cfg_v1 = client.post(
+        f"/v1/agent-configs/{config_id}/versions",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "content": {"model": "local-9b"}},
+    )
+    cfg_v2 = client.post(
+        f"/v1/agent-configs/{config_id}/versions",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "content": {"model": "local-9b", "tools": ["lookup"]}},
+    )
+    compare = client.post(
+        f"/v1/agent-configs/{config_id}/compare",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "old_commit_id": cfg_v1.json()["commit_id"],
+            "new_commit_id": cfg_v2.json()["commit_id"],
+        },
+    )
+    assert '"tools":["lookup"]' in compare.json()["content_diff"]
+
+
 def test_v1_rubric_judge_run_persists_cited_score(tmp_path, monkeypatch) -> None:
     class StubProvider:
         async def structured_completion(self, request, schema):

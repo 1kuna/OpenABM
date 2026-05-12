@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import sqlite3
@@ -8,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from openabm_api.ids import new_id
+from openabm_api.prompts import SECRET_REF_PATTERN, prompt_commit_id
 from openabm_api.time import utc_now
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -44,6 +46,17 @@ def _included_classifications(sections: dict[str, Any]) -> list[str]:
         if item.get("redaction_state"):
             classifications.add(str(item["redaction_state"]))
     return sorted(classifications or {"unspecified"})
+
+
+def _agent_config_commit_id(
+    *,
+    content: dict[str, Any],
+    metadata: dict[str, Any],
+    version: int,
+) -> str:
+    payload = {"content": content, "metadata": metadata, "version": version}
+    digest = hashlib.sha256(encode_json(payload).encode()).hexdigest()
+    return f"agent_config_{digest[:32]}"
 
 
 class SQLiteStore:
@@ -903,6 +916,379 @@ class SQLiteStore:
                 (project_id, saved_search_id),
             ).fetchone()
         return self._saved_search_from_row(row) if row else None
+
+    def create_prompt(self, request: dict[str, Any]) -> dict[str, Any]:
+        self.ensure_project(request["project_id"])
+        now = utc_now()
+        prompt = {
+            "prompt_id": request.get("prompt_id") or new_id("prompt"),
+            "project_id": request["project_id"],
+            "name": request["name"],
+            "description": request.get("description"),
+            "tags": request.get("tags") or {},
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO prompts(
+                  prompt_id, project_id, name, description, tags_json,
+                  created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    prompt["prompt_id"],
+                    prompt["project_id"],
+                    prompt["name"],
+                    prompt["description"],
+                    encode_json(prompt["tags"]),
+                    prompt["created_at"],
+                    prompt["updated_at"],
+                ),
+            )
+        return prompt
+
+    def list_prompts(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM prompts
+                WHERE project_id = ?
+                ORDER BY updated_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._prompt_from_row(row) for row in rows]
+
+    def get_prompt(self, project_id: str, prompt_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM prompts
+                WHERE project_id = ? AND prompt_id = ?
+                """,
+                (project_id, prompt_id),
+            ).fetchone()
+            versions = conn.execute(
+                """
+                SELECT * FROM prompt_versions
+                WHERE project_id = ? AND prompt_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id, prompt_id),
+            ).fetchall()
+        if row is None:
+            return None
+        prompt = self._prompt_from_row(row)
+        prompt["versions"] = [self._prompt_version_from_row(version) for version in versions]
+        return prompt
+
+    def commit_prompt_version(
+        self,
+        project_id: str,
+        prompt_id: str,
+        *,
+        template_text: str,
+        variables_schema: dict[str, Any],
+        metadata: dict[str, Any] | None = None,
+        parent_commit_id: str | None = None,
+        tag: str | None = None,
+    ) -> dict[str, Any]:
+        if SECRET_REF_PATTERN.search(template_text):
+            raise ValueError("Secret interpolation is disallowed in prompt templates.")
+        if self.get_prompt(project_id, prompt_id) is None:
+            raise KeyError(f"prompt not found: {prompt_id}")
+        commit_id = prompt_commit_id(
+            template_text=template_text,
+            variables_schema=variables_schema,
+            parent_commit_id=parent_commit_id,
+            metadata=metadata,
+        )
+        now = utc_now()
+        version = {
+            "prompt_version_id": new_id("prompt_version"),
+            "prompt_id": prompt_id,
+            "project_id": project_id,
+            "commit_id": commit_id,
+            "parent_commit_id": parent_commit_id,
+            "template_text": template_text,
+            "variables_schema": variables_schema,
+            "metadata": metadata or {},
+            "created_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO prompt_versions(
+                  prompt_version_id, prompt_id, project_id, commit_id,
+                  parent_commit_id, template_text, variables_schema_json,
+                  metadata_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    version["prompt_version_id"],
+                    prompt_id,
+                    project_id,
+                    commit_id,
+                    parent_commit_id,
+                    template_text,
+                    encode_json(variables_schema),
+                    encode_json(metadata or {}),
+                    now,
+                ),
+            )
+            if tag:
+                self._move_prompt_tag(conn, project_id, prompt_id, tag, commit_id, now)
+        return version
+
+    def get_prompt_version_by_commit(
+        self,
+        project_id: str,
+        prompt_id: str,
+        commit_id: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM prompt_versions
+                WHERE project_id = ? AND prompt_id = ? AND commit_id = ?
+                """,
+                (project_id, prompt_id, commit_id),
+            ).fetchone()
+        return self._prompt_version_from_row(row) if row else None
+
+    def diff_prompt_versions(
+        self,
+        project_id: str,
+        prompt_id: str,
+        old_commit_id: str,
+        new_commit_id: str,
+    ) -> dict[str, Any]:
+        old = self.get_prompt_version_by_commit(project_id, prompt_id, old_commit_id)
+        new = self.get_prompt_version_by_commit(project_id, prompt_id, new_commit_id)
+        if old is None or new is None:
+            raise KeyError("prompt version not found")
+        text_diff = "\n".join(
+            difflib.unified_diff(
+                old["template_text"].splitlines(),
+                new["template_text"].splitlines(),
+                fromfile=old_commit_id,
+                tofile=new_commit_id,
+                lineterm="",
+            )
+        )
+        return {
+            "prompt_id": prompt_id,
+            "old_commit_id": old_commit_id,
+            "new_commit_id": new_commit_id,
+            "text_diff": text_diff,
+            "variables_schema_changed": old["variables_schema"] != new["variables_schema"],
+        }
+
+    def _move_prompt_tag(
+        self,
+        conn: sqlite3.Connection,
+        project_id: str,
+        prompt_id: str,
+        tag: str,
+        commit_id: str,
+        now: str,
+    ) -> None:
+        row = conn.execute(
+            """
+            SELECT tags_json FROM prompts
+            WHERE project_id = ? AND prompt_id = ?
+            """,
+            (project_id, prompt_id),
+        ).fetchone()
+        tags = decode_json(row["tags_json"], {}) if row else {}
+        previous = tags.get(tag)
+        tags[tag] = commit_id
+        conn.execute(
+            """
+            UPDATE prompts
+            SET tags_json = ?, updated_at = ?
+            WHERE project_id = ? AND prompt_id = ?
+            """,
+            (encode_json(tags), now, project_id, prompt_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO prompt_tag_events(
+              prompt_tag_event_id, prompt_id, project_id, tag,
+              previous_commit_id, new_commit_id, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                new_id("prompt_tag_event"),
+                prompt_id,
+                project_id,
+                tag,
+                previous,
+                commit_id,
+                now,
+            ),
+        )
+
+    def create_agent_config(self, request: dict[str, Any]) -> dict[str, Any]:
+        self.ensure_project(request["project_id"])
+        now = utc_now()
+        config = {
+            "agent_config_id": request.get("agent_config_id") or new_id("agent_config"),
+            "project_id": request["project_id"],
+            "name": request["name"],
+            "config_type": request["config_type"],
+            "created_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_configs(
+                  agent_config_id, project_id, name, config_type, created_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    config["agent_config_id"],
+                    config["project_id"],
+                    config["name"],
+                    config["config_type"],
+                    config["created_at"],
+                ),
+            )
+        return config
+
+    def list_agent_configs(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM agent_configs
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._agent_config_from_row(row) for row in rows]
+
+    def get_agent_config(
+        self,
+        project_id: str,
+        agent_config_id: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM agent_configs
+                WHERE project_id = ? AND agent_config_id = ?
+                """,
+                (project_id, agent_config_id),
+            ).fetchone()
+            versions = conn.execute(
+                """
+                SELECT * FROM agent_config_versions
+                WHERE agent_config_id = ?
+                ORDER BY version DESC
+                """,
+                (agent_config_id,),
+            ).fetchall()
+        if row is None:
+            return None
+        config = self._agent_config_from_row(row)
+        config["versions"] = [
+            self._agent_config_version_from_row(version) for version in versions
+        ]
+        return config
+
+    def commit_agent_config_version(
+        self,
+        project_id: str,
+        agent_config_id: str,
+        *,
+        content: dict[str, Any],
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if self.get_agent_config(project_id, agent_config_id) is None:
+            raise KeyError(f"agent config not found: {agent_config_id}")
+        with self.connect() as conn:
+            latest = conn.execute(
+                """
+                SELECT COALESCE(MAX(version), 0) AS latest
+                FROM agent_config_versions
+                WHERE agent_config_id = ?
+                """,
+                (agent_config_id,),
+            ).fetchone()
+            version_number = int(latest["latest"]) + 1
+            commit_id = _agent_config_commit_id(
+                content=content,
+                metadata=metadata or {},
+                version=version_number,
+            )
+            now = utc_now()
+            version = {
+                "agent_config_version_id": new_id("agent_config_version"),
+                "agent_config_id": agent_config_id,
+                "version": version_number,
+                "commit_id": commit_id,
+                "content": content,
+                "metadata": metadata or {},
+                "created_at": now,
+            }
+            conn.execute(
+                """
+                INSERT INTO agent_config_versions(
+                  agent_config_version_id, agent_config_id, version, commit_id,
+                  content_json, metadata_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    version["agent_config_version_id"],
+                    agent_config_id,
+                    version_number,
+                    commit_id,
+                    encode_json(content),
+                    encode_json(metadata or {}),
+                    now,
+                ),
+            )
+        return version
+
+    def compare_agent_config_versions(
+        self,
+        project_id: str,
+        agent_config_id: str,
+        old_commit_id: str,
+        new_commit_id: str,
+    ) -> dict[str, Any]:
+        config = self.get_agent_config(project_id, agent_config_id)
+        if config is None:
+            raise KeyError(f"agent config not found: {agent_config_id}")
+        versions = {version["commit_id"]: version for version in config["versions"]}
+        old = versions.get(old_commit_id)
+        new = versions.get(new_commit_id)
+        if old is None or new is None:
+            raise KeyError("agent config version not found")
+        diff = "\n".join(
+            difflib.unified_diff(
+                encode_json(old["content"]).splitlines(),
+                encode_json(new["content"]).splitlines(),
+                fromfile=old_commit_id,
+                tofile=new_commit_id,
+                lineterm="",
+            )
+        )
+        return {
+            "agent_config_id": agent_config_id,
+            "old_commit_id": old_commit_id,
+            "new_commit_id": new_commit_id,
+            "content_diff": diff,
+            "metadata_changed": old["metadata"] != new["metadata"],
+        }
 
     def create_issue(self, request: dict[str, Any]) -> dict[str, Any]:
         project_id = request["project_id"]
@@ -1900,6 +2286,53 @@ class SQLiteStore:
             "query_contract_version": row["query_contract_version"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _prompt_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "prompt_id": row["prompt_id"],
+            "project_id": row["project_id"],
+            "name": row["name"],
+            "description": row["description"],
+            "tags": decode_json(row["tags_json"], {}),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _prompt_version_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "prompt_version_id": row["prompt_version_id"],
+            "prompt_id": row["prompt_id"],
+            "commit_id": row["commit_id"],
+            "parent_commit_id": row["parent_commit_id"],
+            "template_text": row["template_text"],
+            "variables_schema": decode_json(row["variables_schema_json"], {}),
+            "metadata": decode_json(row["metadata_json"], {}),
+            "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _agent_config_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "agent_config_id": row["agent_config_id"],
+            "project_id": row["project_id"],
+            "name": row["name"],
+            "config_type": row["config_type"],
+            "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _agent_config_version_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "agent_config_version_id": row["agent_config_version_id"],
+            "agent_config_id": row["agent_config_id"],
+            "version": row["version"],
+            "commit_id": row["commit_id"],
+            "content": decode_json(row["content_json"], {}),
+            "metadata": decode_json(row["metadata_json"], {}),
+            "created_at": row["created_at"],
         }
 
     @staticmethod
