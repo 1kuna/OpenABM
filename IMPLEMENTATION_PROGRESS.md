@@ -64,7 +64,7 @@ LLM-dependent deferrals:
 
 ## Phase 2: SDK, Ingest, And Storage Slice
 
-Status: planned
+Status: in progress
 
 Target for this pass:
 
@@ -79,9 +79,23 @@ LLM-dependent deferrals:
 
 - None expected for the deterministic SDK/ingest/storage path.
 
+Done:
+
+- Added SQLite migration for projects, API keys, traces, spans, payloads,
+  scores, behaviors, datasets, audit logs, ingest diagnostics, and FTS search.
+- Added FastAPI reference API with health/readiness/metrics, ingest endpoints,
+  partial-success batch ingest, trace/project/session query endpoints, score and
+  behavior list endpoints, and fail-closed similarity search.
+- Added local dev API-key auth mode using `OPENABM_DEV_API_KEY`.
+- Added Python SDK with manual spans, sync/async `observe`, nested context,
+  error events, payload capture controls, redaction hooks, offline JSONL export,
+  in-memory export, and HTTP batch export.
+- Added CLI commands for database initialization, fixture seeding, and status.
+- Verified `make test`, `make lint`, `make init-db`, and `make seed-fixtures`.
+
 ## Phase 3: Trace Explorer And Reconstruction
 
-Status: planned
+Status: in progress
 
 Target for this pass:
 
@@ -94,6 +108,13 @@ LLM-dependent deferrals:
 
 - Similar-trace semantic search is deferred unless backed by deterministic
   placeholder behavior clearly marked as non-semantic.
+
+Done:
+
+- Added deterministic trace reconstruction for roots, nested spans, missing
+  parents, incomplete spans, payload states, timeline ordering, and clock-skew
+  warnings.
+- Added reconstruction unit tests for missing-parent and clock-skew fixtures.
 
 ## Phase 4: Model Runtime And Judge Runtime
 

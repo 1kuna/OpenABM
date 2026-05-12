@@ -42,9 +42,11 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+"apps/api/src/openabm_api/main.py" = ["B008"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true
 warn_unused_ignores = true
 warn_redundant_casts = true
-

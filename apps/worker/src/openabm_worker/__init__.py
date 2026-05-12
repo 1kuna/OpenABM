@@ -1,0 +1,2 @@
+"""OpenABM worker scaffold."""
+

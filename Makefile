@@ -1,6 +1,7 @@
 PYTHON ?= 3.12
 UV ?= uv
-PY := $(UV) run --python $(PYTHON) --extra dev
+PYTHONPATH_DIRS := apps/api/src:apps/worker/src:apps/mcp-server/src:packages/python-sdk/src:packages/cli/src
+PY := PYTHONPATH=$(PYTHONPATH_DIRS) $(UV) run --python $(PYTHON) --extra dev
 
 .PHONY: test contracts lint format api worker web mcp init-db seed-fixtures reset-local
 
@@ -29,12 +30,11 @@ web:
 	npm --prefix apps/web run dev -- --host 127.0.0.1
 
 init-db:
-	$(PY) openabm init-db
+	$(PY) python -m openabm_cli.main init-db
 
 seed-fixtures:
-	$(PY) openabm seed-fixtures
+	$(PY) python -m openabm_cli.main seed-fixtures
 
 reset-local:
 	rm -rf .openabm
 	$(MAKE) init-db
-
