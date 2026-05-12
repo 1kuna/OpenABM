@@ -9,7 +9,12 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.routing import APIRoute
 from openabm_worker.context_packs import build_agent_context_pack_content
 from openabm_worker.judges import run_rubric_judge
-from openabm_worker.model_runtime import ModelConfigurationError, model_provider_from_settings
+from openabm_worker.model_runtime import (
+    ModelCallsDisabled,
+    ModelConfigurationError,
+    model_provider_from_settings,
+)
+from openabm_worker.similarity import rank_similar_traces
 
 from openabm_api.auth import require_api_key
 from openabm_api.classification import classify_payload, normalize_classification, redact_if_needed
@@ -340,22 +345,74 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
 
     @app.post("/api/search/similar")
-    def search_similar(
+    async def search_similar(
         request: dict[str, Any],
         actor: dict[str, object] = Depends(auth_dependency(["traces:read"])),
     ) -> dict[str, object]:
         del actor
+        project_id = request["project_id"]
+        source_id = request["source_id"]
+        source_type = request.get("source_type", "trace")
+        limit = int(request.get("limit", 20))
+        if source_type != "trace":
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "Only trace similarity is currently supported.",
+                "/source_type",
+            )
+        source_trace = store.get_trace(project_id, source_id)
+        if source_trace is None:
+            raise HTTPException(status_code=404, detail=_error("not_found", "Trace not found."))
+        try:
+            provider = model_provider_from_settings(settings)
+        except ModelConfigurationError as exc:
+            return {
+                "data": [],
+                "disabled": True,
+                "reason": str(exc),
+                "representation_version": None,
+                "request": request,
+                "page": {"limit": limit, "next_cursor": None, "has_more": False},
+            }
+        candidates = [
+            trace
+            for trace in store.search_traces(
+                project_id,
+                filters=request.get("filters") or {},
+                limit=50,
+            )
+            if trace["trace_id"] != source_id
+        ]
+        candidate_spans = {
+            trace["trace_id"]: store.list_spans(project_id, trace["trace_id"])
+            for trace in candidates
+        }
+        try:
+            result = await rank_similar_traces(
+                provider,
+                source_trace=source_trace,
+                source_spans=store.list_spans(project_id, source_id),
+                candidates=candidates,
+                candidate_spans=candidate_spans,
+                limit=limit,
+            )
+        except ModelCallsDisabled as exc:
+            return {
+                "data": [],
+                "disabled": True,
+                "reason": str(exc),
+                "representation_version": None,
+                "request": request,
+                "page": {"limit": limit, "next_cursor": None, "has_more": False},
+            }
         return {
-            "data": [],
-            "disabled": True,
-            "reason": "Similarity search is deferred until embeddings are enabled.",
-            "representation_version": None,
+            "data": result["matches"],
+            "disabled": False,
+            "reason": result.get("uncertainty"),
+            "representation_version": "model_semantic_similarity_v1",
+            "model_metadata": result["model_metadata"],
             "request": request,
-            "page": {
-                "limit": int(request.get("limit", 20)),
-                "next_cursor": None,
-                "has_more": False,
-            },
+            "page": {"limit": limit, "next_cursor": None, "has_more": False},
         }
 
     @app.get("/api/scores")

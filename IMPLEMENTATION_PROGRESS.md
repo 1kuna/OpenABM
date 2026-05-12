@@ -112,8 +112,9 @@ Target for this pass:
 
 LLM-dependent deferrals:
 
-- Similar-trace semantic search is deferred unless backed by deterministic
-  placeholder behavior clearly marked as non-semantic.
+- Embedding-index search remains configurable future work; current semantic
+  trace similarity uses the configured local chat model with cited candidate
+  span evidence.
 
 Done:
 
@@ -124,6 +125,12 @@ Done:
 - Added React/Vite trace explorer UI with API connection controls, trace table,
   status filtering, full-text search trigger, trace detail, timeline, payload
   state summary, span inspector, and scaffolded actions.
+- Replaced the old fail-closed similar-trace stub with model-backed semantic
+  similarity ranking over candidate traces, preserving cited candidate span
+  evidence and model metadata.
+- Verified a live LM Studio similarity canary with `openabm-qwen35-9b`; the
+  model returned a cited candidate match, unrepaired structured output, and
+  reasoning-token usage.
 - Verified the web app with `npm --prefix apps/web run build` and headless
   Chrome screenshots at desktop and mobile widths.
 

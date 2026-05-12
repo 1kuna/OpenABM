@@ -57,6 +57,12 @@ def test_invalid_span_gets_partial_success_rejection(tmp_path) -> None:
 
 def test_search_similar_fails_closed_without_embeddings(tmp_path) -> None:
     client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][2]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
     response = client.post(
         "/v1/search/similar",
         headers=auth_headers(),
@@ -68,6 +74,57 @@ def test_search_similar_fails_closed_without_embeddings(tmp_path) -> None:
     )
     assert response.status_code == 200
     assert response.json()["disabled"] is True
+
+
+def test_search_similar_uses_model_when_configured(tmp_path, monkeypatch) -> None:
+    class StubProvider:
+        async def structured_completion(self, request, schema):
+            del request, schema
+            return {
+                "status": "succeeded",
+                "value": {
+                    "matches": [
+                        {
+                            "trace_id": "trace_wrong_tool",
+                            "similarity_score": 0.91,
+                            "rationale": "Both traces are refund support tasks.",
+                            "evidence_span_ids": ["span_wrong_tool_order_lookup"],
+                        }
+                    ],
+                    "uncertainty": "fixture-sized candidate set",
+                },
+                "provider": "stub",
+                "model": "stub-model",
+                "usage": None,
+                "repaired": False,
+            }
+
+    monkeypatch.setattr(
+        "openabm_api.main.model_provider_from_settings",
+        lambda settings: StubProvider(),
+    )
+    client = make_client(tmp_path)
+    fixtures = json.loads(FIXTURE_PATH.read_text())["fixtures"][:2]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={
+            "traces": [fixture["trace"] for fixture in fixtures],
+            "spans": [span for fixture in fixtures for span in fixture["spans"]],
+        },
+    )
+    response = client.post(
+        "/v1/search/similar",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "source_id": "trace_happy_support",
+            "source_type": "trace",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["disabled"] is False
+    assert response.json()["data"][0]["trace_id"] == "trace_wrong_tool"
 
 
 def test_trace_can_be_added_to_dataset_with_provenance(tmp_path) -> None:
