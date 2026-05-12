@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 @dataclass(frozen=True)
@@ -12,7 +13,16 @@ class Settings:
     environment: str = "local"
     auth_mode: str = "local"
     dev_api_key: str = "dev-openabm-key"
+    model_mode: str = "disabled"
+    model_base_url: str = "http://127.0.0.1:1234/v1"
+    model_api_key: str | None = None
+    chat_model: str | None = None
+    embedding_model: str | None = None
+    model_context_length: int = 262144
     allow_external_model_calls: bool = False
+    judge_concurrency: int = 1
+    embedding_concurrency: int = 1
+    max_trace_tokens_for_judge: int = 262144
     incomplete_threshold_seconds: int = 300
 
     @classmethod
@@ -23,10 +33,30 @@ class Settings:
             environment=os.getenv("OPENABM_ENV", cls.environment),
             auth_mode=os.getenv("OPENABM_AUTH_MODE", cls.auth_mode),
             dev_api_key=os.getenv("OPENABM_DEV_API_KEY", cls.dev_api_key),
+            model_mode=os.getenv("OPENABM_MODEL_MODE", cls.model_mode),
+            model_base_url=os.getenv("OPENABM_MODEL_BASE_URL", cls.model_base_url),
+            model_api_key=os.getenv("OPENABM_MODEL_API_KEY") or None,
+            chat_model=os.getenv("OPENABM_CHAT_MODEL") or None,
+            embedding_model=os.getenv("OPENABM_EMBEDDING_MODEL") or None,
+            model_context_length=max(
+                32768,
+                int(os.getenv("OPENABM_MODEL_CONTEXT_LENGTH", str(cls.model_context_length))),
+            ),
             allow_external_model_calls=os.getenv(
                 "OPENABM_ALLOW_EXTERNAL_MODEL_CALLS", "false"
             ).lower()
             == "true",
+            judge_concurrency=int(os.getenv("OPENABM_JUDGE_CONCURRENCY", "1")),
+            embedding_concurrency=int(os.getenv("OPENABM_EMBEDDING_CONCURRENCY", "1")),
+            max_trace_tokens_for_judge=max(
+                32768,
+                int(
+                    os.getenv(
+                        "OPENABM_MAX_TRACE_TOKENS_FOR_JUDGE",
+                        str(cls.max_trace_tokens_for_judge),
+                    )
+                ),
+            ),
             incomplete_threshold_seconds=int(
                 os.getenv("OPENABM_INCOMPLETE_THRESHOLD_SECONDS", "300")
             ),
@@ -38,3 +68,7 @@ class Settings:
             raise ValueError("The local reference API currently supports sqlite:/// URLs only")
         return Path(self.database_url.removeprefix("sqlite:///"))
 
+    @property
+    def model_endpoint_is_local(self) -> bool:
+        parsed = urlparse(self.model_base_url)
+        return parsed.hostname in {"127.0.0.1", "localhost", "::1"}

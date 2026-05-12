@@ -7,8 +7,14 @@ work can resume from concrete state instead of memory.
 ## Guardrails
 
 - `openabm_implementation_spec.md` is the read-only SSOT.
-- No local or cloud LLM/model calls during this scaffold pass.
-- LLM-dependent features are deferred and noted here.
+- Local LLM calls are now allowed through LM Studio when semantic judgment is
+  required.
+- The current local model lane is `qwen3.5-9b-mlx`, loaded through LM Studio as
+  `openabm-qwen35-9b` for this implementation pass.
+- Do not disable reasoning, do not apply generation timeouts, and do not use
+  less than 32k context for model-backed work.
+- Defer to heavier models only after prompt/runtime tinkering shows an obvious
+  model capability gap.
 - Commit coherent slices as the scaffold becomes runnable.
 - Public artifacts must use original OpenABM language, schemas, examples, and UI.
 
@@ -136,7 +142,6 @@ Target for this pass:
 
 LLM-dependent deferrals:
 
-- Rubric judges that call a model.
 - Trace summarization by model.
 - Embeddings and reranking.
 - Judge calibration against model outputs.
@@ -144,7 +149,12 @@ LLM-dependent deferrals:
 Done:
 
 - Added disabled chat/structured/embedding provider adapters that fail closed.
+- Added OpenAI-compatible local model provider with strict JSON parsing,
+  bounded repair, no generation timeout, and a minimum 32k context guard.
 - Added judge output validation for verdicts and span citations.
+- Added model-backed rubric judge execution with context packets, preserved-span
+  citation validation, provider/model metadata, score persistence, and `/v1`
+  API coverage.
 - Added deterministic rule judge scaffold.
 - Added development-only code judge sandbox with scrubbed environment,
   temporary inputs/outputs, timeout handling, stdout/stderr capture, and explicit

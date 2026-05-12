@@ -7,6 +7,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.routing import APIRoute
+from openabm_worker.judges import run_rubric_judge
+from openabm_worker.model_runtime import ModelConfigurationError, model_provider_from_settings
 
 from openabm_api.auth import require_api_key
 from openabm_api.classification import classify_payload, normalize_classification, redact_if_needed
@@ -363,6 +365,47 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict[str, object]:
         del actor
         return {"data": store.list_scores(project_id, trace_id=trace_id)}
+
+    @app.post("/api/judges/rubric/run", status_code=201)
+    async def run_rubric_judge_endpoint(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["scores:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "trace_id", "judge"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        trace = store.get_trace(request["project_id"], request["trace_id"])
+        if trace is None:
+            raise HTTPException(status_code=404, detail=_error("not_found", "Trace not found."))
+        try:
+            provider = model_provider_from_settings(settings)
+        except ModelConfigurationError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=_error("model_unavailable", str(exc), retryable=True),
+            ) from exc
+        spans = store.list_spans(request["project_id"], request["trace_id"])
+        score = await run_rubric_judge(
+            provider,
+            trace,
+            spans,
+            request["judge"],
+            token_budget=settings.max_trace_tokens_for_judge,
+        )
+        store.record_score(request["project_id"], score)
+        store.append_audit(
+            "run_rubric_judge",
+            "score",
+            request["project_id"],
+            score["score_id"],
+            {"trace_id": request["trace_id"], "judge_id": request["judge"]["judge_id"]},
+        )
+        return score
 
     @app.get("/api/behaviors")
     def list_behaviors(

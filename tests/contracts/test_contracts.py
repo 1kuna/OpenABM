@@ -74,6 +74,7 @@ REQUIRED_QUERY_PATHS = {
     "/v1/search/similar",
     "/v1/evals",
     "/v1/evals/{eval_run_id}/results",
+    "/v1/judges/rubric/run",
     "/v1/scores",
     "/v1/behaviors",
     "/v1/data-classification-policies",

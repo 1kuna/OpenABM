@@ -299,6 +299,39 @@ class SQLiteStore:
             ).fetchall()
         return [self._score_from_row(row) for row in rows]
 
+    def record_score(self, project_id: str, score: dict[str, Any]) -> dict[str, Any]:
+        self.ensure_project(project_id)
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO scores(
+                  score_id, project_id, trace_id, span_id, judge_id,
+                  judge_version_id, status, value_json, confidence, reasoning,
+                  evidence_span_ids_json, failure_mode, cost_json, latency_ms,
+                  created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    score["score_id"],
+                    project_id,
+                    score["trace_id"],
+                    score.get("span_id"),
+                    score["judge_id"],
+                    score.get("judge_version_id"),
+                    score["status"],
+                    encode_json(score.get("value")),
+                    score.get("confidence"),
+                    score.get("reasoning"),
+                    encode_json(score.get("evidence_span_ids") or []),
+                    score.get("failure_mode"),
+                    encode_json(score.get("cost")),
+                    score.get("latency_ms"),
+                    score["created_at"],
+                ),
+            )
+        return score
+
     def list_behaviors(self, project_id: str) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(

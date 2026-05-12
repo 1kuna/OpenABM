@@ -227,6 +227,61 @@ def test_v1_eval_runs_are_queryable(tmp_path) -> None:
     assert results.json()["data"][0]["scores"][0]["failure_mode"] == "wrong_tool_for_refund"
 
 
+def test_v1_rubric_judge_run_persists_cited_score(tmp_path, monkeypatch) -> None:
+    class StubProvider:
+        async def structured_completion(self, request, schema):
+            del request, schema
+            return {
+                "status": "succeeded",
+                "value": {
+                    "verdict": "fail",
+                    "score": 0.0,
+                    "confidence": 0.7,
+                    "reasoning": "Order lookup was used for a refund issue.",
+                    "evidence_span_ids": ["span_wrong_tool_order_lookup"],
+                    "failure_mode": "wrong_tool_for_refund",
+                    "notes": None,
+                },
+                "provider": "stub",
+                "model": "stub-model",
+                "usage": None,
+                "repaired": False,
+            }
+
+    monkeypatch.setattr(
+        "openabm_api.main.model_provider_from_settings",
+        lambda settings: StubProvider(),
+    )
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    response = client.post(
+        "/v1/judges/rubric/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": fixture["trace"]["trace_id"],
+            "judge": {
+                "judge_id": "judge_wrong_tool_for_refund",
+                "judge_type": "rubric_judge",
+                "rubric": {"fail": "Wrong tool was used for the task."},
+            },
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["evidence_span_ids"] == ["span_wrong_tool_order_lookup"]
+    scores = client.get(
+        "/v1/scores",
+        params={"project_id": "proj_demo", "trace_id": fixture["trace"]["trace_id"]},
+        headers=auth_headers(),
+    )
+    assert scores.json()["data"][0]["cost"]["model"] == "stub-model"
+
+
 def _wrong_tool_judge() -> dict[str, object]:
     return {
         "judge_id": "judge_wrong_tool_for_refund",

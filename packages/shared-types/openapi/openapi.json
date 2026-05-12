@@ -1141,6 +1141,73 @@
         }
       }
     },
+    "/v1/judges/rubric/run": {
+      "post": {
+        "operationId": "runRubricJudge",
+        "summary": "Run a model-backed rubric judge on a trace and persist a cited score.",
+        "x-required-scopes": [
+          "scores:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "trace_id",
+                  "judge"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "trace_id": {
+                    "type": "string"
+                  },
+                  "judge": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Score persisted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/score-result.schema.json"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Model provider unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects": {
       "get": {
         "operationId": "listProjects",
