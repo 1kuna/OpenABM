@@ -218,6 +218,9 @@ Done:
 - Added trajectory assertion evaluator coverage for required/forbidden tools,
   retrieval sources, behavior IDs, span types, cost, duration, retry count, and
   grounding evidence counts.
+- Added draft behavior creation, deterministic rule/manual-label/judge detector
+  backtesting, persisted backtest-positive behavior matches, and review-task
+  creation for candidate positives.
 
 ## Phase 7: Prompt Registry, MCP, And Investigation Agent
 
@@ -248,6 +251,9 @@ Done:
 - Verified a live LM Studio investigation canary with `openabm-qwen35-9b`; the
   prompt revision produced a cited root cause, behavior draft, and rubric draft
   as valid unrepaired JSON with reasoning-token usage.
+- Added human review task APIs and connected investigation root-cause/behavior
+  candidates to the review queue instead of treating model drafts as active
+  product decisions.
 - Added web UI sections for judge runtime, behavior monitoring, datasets/evals,
   prompt registry, MCP, and ops status so unfinished surfaces are visible
   without pretending LLM-dependent capabilities exist.
@@ -355,5 +361,8 @@ Implemented in this pass:
   citation filters prevent invented trace/span IDs from becoming canonical, and
   the live 9B prompt was tightened after the first canary skipped behavior
   drafts.
+- Added `/v1/behaviors` create/get/backtest paths plus `/v1/review-tasks`
+  list/create/update paths so behavior candidates and root-cause candidates have
+  auditable review gates.
 - Added an Issues/Investigations scaffold view in the web app so the v2 surface
   is visible without pretending the LLM-backed pieces are ready.

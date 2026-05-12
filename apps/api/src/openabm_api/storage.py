@@ -340,6 +340,103 @@ class SQLiteStore:
             ).fetchall()
         return [self._behavior_from_row(row) for row in rows]
 
+    def get_behavior(self, project_id: str, behavior_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM behaviors
+                WHERE project_id = ? AND behavior_id = ?
+                """,
+                (project_id, behavior_id),
+            ).fetchone()
+        return self._behavior_from_row(row) if row else None
+
+    def create_behavior(self, request: dict[str, Any]) -> dict[str, Any]:
+        self.ensure_project(request["project_id"])
+        now = utc_now()
+        behavior = {
+            "behavior_id": request.get("behavior_id") or new_id("behavior"),
+            "project_id": request["project_id"],
+            "name": request["name"],
+            "description": request.get("description"),
+            "severity": request.get("severity") or "medium",
+            "detector": request.get("detector") or {"type": "manual_label"},
+            "status": request.get("status") or "draft",
+            "created_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO behaviors(
+                  behavior_id, project_id, name, description, severity,
+                  detector_json, status, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    behavior["behavior_id"],
+                    behavior["project_id"],
+                    behavior["name"],
+                    behavior["description"],
+                    behavior["severity"],
+                    encode_json(behavior["detector"]),
+                    behavior["status"],
+                    behavior["created_at"],
+                ),
+            )
+        return behavior
+
+    def replace_behavior_backtest_matches(
+        self,
+        project_id: str,
+        behavior_id: str,
+        positive_examples: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        now = utc_now()
+        matches = []
+        with self.connect() as conn:
+            conn.execute(
+                """
+                DELETE FROM behavior_matches
+                WHERE project_id = ? AND behavior_id = ? AND status = 'backtest_positive'
+                """,
+                (project_id, behavior_id),
+            )
+            for example in positive_examples:
+                match = {
+                    "behavior_match_id": new_id("behavior_match"),
+                    "project_id": project_id,
+                    "behavior_id": behavior_id,
+                    "trace_id": example["trace_id"],
+                    "span_id": (example.get("evidence_span_ids") or [None])[0],
+                    "score_id": None,
+                    "status": "backtest_positive",
+                    "evidence_span_ids": example.get("evidence_span_ids", []),
+                    "created_at": now,
+                }
+                conn.execute(
+                    """
+                    INSERT INTO behavior_matches(
+                      behavior_match_id, project_id, behavior_id, trace_id, span_id,
+                      score_id, status, evidence_span_ids_json, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        match["behavior_match_id"],
+                        match["project_id"],
+                        match["behavior_id"],
+                        match["trace_id"],
+                        match["span_id"],
+                        match["score_id"],
+                        match["status"],
+                        encode_json(match["evidence_span_ids"]),
+                        match["created_at"],
+                    ),
+                )
+                matches.append(match)
+        return matches
+
     def create_dataset(
         self,
         project_id: str,
@@ -866,6 +963,128 @@ class SQLiteStore:
             ).fetchall()
         return [self._data_classification_policy_from_row(row) for row in rows]
 
+    def create_review_task(self, request: dict[str, Any]) -> dict[str, Any]:
+        self.ensure_project(request["project_id"])
+        now = utc_now()
+        task = {
+            "review_task_id": request.get("review_task_id") or new_id("review_task"),
+            "project_id": request["project_id"],
+            "task_type": request["task_type"],
+            "source_entity_type": request["source_entity_type"],
+            "source_entity_id": request["source_entity_id"],
+            "assigned_to_nullable": request.get("assigned_to_nullable"),
+            "status": request.get("status") or "open",
+            "decision_nullable": request.get("decision_nullable"),
+            "notes_nullable": request.get("notes_nullable"),
+            "evidence_ids": request.get("evidence_ids") or [],
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO review_tasks(
+                  review_task_id, project_id, task_type, source_entity_type,
+                  source_entity_id, assigned_to_nullable, status, decision_nullable,
+                  notes_nullable, evidence_ids_json, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    task["review_task_id"],
+                    task["project_id"],
+                    task["task_type"],
+                    task["source_entity_type"],
+                    task["source_entity_id"],
+                    task["assigned_to_nullable"],
+                    task["status"],
+                    task["decision_nullable"],
+                    task["notes_nullable"],
+                    encode_json(task["evidence_ids"]),
+                    task["created_at"],
+                    task["updated_at"],
+                ),
+            )
+        return task
+
+    def list_review_tasks(
+        self,
+        project_id: str,
+        status: str | None = None,
+        task_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses = ["project_id = ?"]
+        params: list[Any] = [project_id]
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if task_type:
+            clauses.append("task_type = ?")
+            params.append(task_type)
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM review_tasks WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY created_at DESC",
+                params,
+            ).fetchall()
+        return [self._review_task_from_row(row) for row in rows]
+
+    def update_review_task(
+        self,
+        project_id: str,
+        review_task_id: str,
+        patch: dict[str, Any],
+    ) -> dict[str, Any]:
+        current = self.get_review_task(project_id, review_task_id)
+        if current is None:
+            raise KeyError(f"review task not found: {review_task_id}")
+        updated = {
+            **current,
+            "status": patch.get("status", current["status"]),
+            "decision_nullable": patch.get(
+                "decision_nullable",
+                patch.get("decision", current["decision_nullable"]),
+            ),
+            "notes_nullable": patch.get(
+                "notes_nullable",
+                patch.get("notes", current["notes_nullable"]),
+            ),
+            "updated_at": utc_now(),
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE review_tasks
+                SET status = ?, decision_nullable = ?, notes_nullable = ?, updated_at = ?
+                WHERE project_id = ? AND review_task_id = ?
+                """,
+                (
+                    updated["status"],
+                    updated["decision_nullable"],
+                    updated["notes_nullable"],
+                    updated["updated_at"],
+                    project_id,
+                    review_task_id,
+                ),
+            )
+        return updated
+
+    def get_review_task(
+        self,
+        project_id: str,
+        review_task_id: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM review_tasks
+                WHERE project_id = ? AND review_task_id = ?
+                """,
+                (project_id, review_task_id),
+            ).fetchone()
+        return self._review_task_from_row(row) if row else None
+
     def get_issue(self, project_id: str, issue_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:
             row = conn.execute(
@@ -1344,6 +1563,23 @@ class SQLiteStore:
             "detector": decode_json(row["detector_json"], {}),
             "status": row["status"],
             "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _review_task_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "review_task_id": row["review_task_id"],
+            "project_id": row["project_id"],
+            "task_type": row["task_type"],
+            "source_entity_type": row["source_entity_type"],
+            "source_entity_id": row["source_entity_id"],
+            "assigned_to_nullable": row["assigned_to_nullable"],
+            "status": row["status"],
+            "decision_nullable": row["decision_nullable"],
+            "notes_nullable": row["notes_nullable"],
+            "evidence_ids": decode_json(row["evidence_ids_json"], []),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
         }
 
     @staticmethod

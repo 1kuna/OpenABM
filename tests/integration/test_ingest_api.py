@@ -395,6 +395,64 @@ def test_v1_context_pack_cites_source_trace_and_span(tmp_path, monkeypatch) -> N
     ]
 
 
+def test_v1_behavior_backtest_persists_matches_and_review_task(tmp_path) -> None:
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    behavior = client.post(
+        "/v1/behaviors",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "name": "wrong_tool_for_refund",
+            "description": "Refund workflow uses an unrelated order lookup.",
+            "severity": "high",
+            "detector": {
+                "type": "rule",
+                "scope": "span",
+                "conditions": {
+                    "combine": "all",
+                    "items": [
+                        {
+                            "field": "attributes.tool.name",
+                            "op": "eq",
+                            "value": "order_lookup",
+                        }
+                    ],
+                },
+            },
+        },
+    )
+    assert behavior.status_code == 201
+
+    backtest = client.post(
+        f"/v1/behaviors/{behavior.json()['behavior_id']}/backtest",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "filters": {"status": "error"}},
+    )
+    assert backtest.status_code == 200
+    body = backtest.json()
+    assert body["status"] == "succeeded"
+    assert body["positive_count"] == 1
+    assert body["positive_examples"][0]["evidence_span_ids"] == [
+        "span_wrong_tool_order_lookup"
+    ]
+    assert body["persisted_behavior_matches"][0]["status"] == "backtest_positive"
+    assert body["review_task"]["task_type"] == "behavior_candidate"
+
+    reviews = client.get(
+        "/v1/review-tasks",
+        params={"project_id": "proj_demo", "task_type": "behavior_candidate"},
+        headers=auth_headers(),
+    )
+    assert reviews.status_code == 200
+    assert reviews.json()["data"][0]["source_entity_id"] == behavior.json()["behavior_id"]
+
+
 def test_v1_investigation_adds_model_assistance_with_citations(tmp_path, monkeypatch) -> None:
     class StubProvider:
         async def structured_completion(self, request, schema):
@@ -464,6 +522,15 @@ def test_v1_investigation_adds_model_assistance_with_citations(tmp_path, monkeyp
         "span_wrong_tool_order_lookup"
     ]
     assert assistance["behavior_drafts"][0]["positive_trace_ids"] == ["trace_wrong_tool"]
+    review_task_ids = response.json()["result"]["review_task_ids"]
+    assert len(review_task_ids) == 2
+    reviews = client.get(
+        "/v1/review-tasks",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    task_types = {task["task_type"] for task in reviews.json()["data"]}
+    assert {"root_cause_candidate", "behavior_candidate"} <= task_types
 
 
 def _wrong_tool_judge() -> dict[str, object]:

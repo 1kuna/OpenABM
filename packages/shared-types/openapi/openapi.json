@@ -114,6 +114,94 @@
             }
           }
         }
+      },
+      "post": {
+        "operationId": "createBehavior",
+        "summary": "Create a draft behavior definition.",
+        "x-required-scopes": [
+          "behaviors:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "../schemas/behavior-definition.schema.json"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Draft behavior created."
+          }
+        }
+      }
+    },
+    "/v1/behaviors/{behavior_id}": {
+      "get": {
+        "operationId": "getBehavior",
+        "summary": "Fetch a behavior definition.",
+        "x-required-scopes": [
+          "behaviors:read"
+        ],
+        "parameters": [
+          {
+            "name": "behavior_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Behavior definition."
+          }
+        }
+      }
+    },
+    "/v1/behaviors/{behavior_id}/backtest": {
+      "post": {
+        "operationId": "backtestBehavior",
+        "summary": "Backtest a behavior detector over matching traces.",
+        "x-required-scopes": [
+          "behaviors:write"
+        ],
+        "parameters": [
+          {
+            "name": "behavior_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Backtest result with reviewable positives."
+          }
+        }
       }
     },
     "/v1/context-packs": {
@@ -431,6 +519,86 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/review-tasks": {
+      "get": {
+        "operationId": "listReviewTasks",
+        "summary": "List human review tasks for model and detector outputs.",
+        "x-required-scopes": [
+          "reviews:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Review tasks."
+          }
+        }
+      },
+      "post": {
+        "operationId": "createReviewTask",
+        "summary": "Create a human review task for an evidence-backed candidate.",
+        "x-required-scopes": [
+          "reviews:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "../schemas/review-task.schema.json"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Review task created."
+          }
+        }
+      }
+    },
+    "/v1/review-tasks/{review_task_id}": {
+      "patch": {
+        "operationId": "updateReviewTask",
+        "summary": "Record a human review decision.",
+        "x-required-scopes": [
+          "reviews:write"
+        ],
+        "parameters": [
+          {
+            "name": "review_task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Review task updated."
           }
         }
       }

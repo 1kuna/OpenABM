@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.routing import APIRoute
+from openabm_worker.behaviors import backtest_behavior
 from openabm_worker.context_packs import build_agent_context_pack_content
 from openabm_worker.investigation import assist_investigation
 from openabm_worker.judges import run_rubric_judge
@@ -474,6 +475,123 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         del actor
         return {"data": store.list_behaviors(project_id)}
 
+    @app.post("/api/behaviors", status_code=201)
+    def create_behavior(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["behaviors:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "name"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        detector = request.get("detector") or {"type": "manual_label"}
+        if detector.get("type") not in {
+            "manual_label",
+            "rule",
+            "judge",
+            "cluster_experiment",
+            "external_signal",
+        }:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "detector.type is invalid",
+                "/detector/type",
+            )
+        behavior = store.create_behavior({**request, "detector": detector})
+        store.append_audit(
+            "create_behavior",
+            "behavior",
+            request["project_id"],
+            behavior["behavior_id"],
+        )
+        return behavior
+
+    @app.get("/api/behaviors/{behavior_id}")
+    def get_behavior(
+        behavior_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["behaviors:read"])),
+    ) -> dict[str, object]:
+        del actor
+        behavior = store.get_behavior(project_id, behavior_id)
+        if behavior is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Behavior not found."),
+            )
+        return behavior
+
+    @app.post("/api/behaviors/{behavior_id}/backtest")
+    def backtest_behavior_endpoint(
+        behavior_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["behaviors:write"])),
+    ) -> dict[str, object]:
+        del actor
+        project_id = request.get("project_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        behavior = store.get_behavior(project_id, behavior_id)
+        if behavior is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Behavior not found."),
+            )
+        traces = store.search_traces(
+            project_id,
+            filters=request.get("filters") or {},
+            full_text_query=request.get("query"),
+            limit=int(request.get("limit", 100)),
+        )
+        spans_by_trace = {
+            trace["trace_id"]: store.list_spans(project_id, trace["trace_id"])
+            for trace in traces
+        }
+        scores_by_trace = {
+            trace["trace_id"]: store.list_scores(project_id, trace["trace_id"])
+            for trace in traces
+        }
+        result = backtest_behavior(
+            behavior,
+            traces,
+            spans_by_trace,
+            scores_by_trace,
+            sample_limit=int(request.get("sample_limit", 10)),
+        )
+        persisted_matches = store.replace_behavior_backtest_matches(
+            project_id,
+            behavior_id,
+            result["positive_examples"],
+        )
+        result["persisted_behavior_matches"] = persisted_matches
+        if result["review_required"]:
+            review_task = store.create_review_task(
+                {
+                    "project_id": project_id,
+                    "task_type": "behavior_candidate",
+                    "source_entity_type": "behavior",
+                    "source_entity_id": behavior_id,
+                    "evidence_ids": _behavior_backtest_evidence_ids(result),
+                }
+            )
+            result["review_task"] = review_task
+        store.append_audit(
+            "backtest_behavior",
+            "behavior",
+            project_id,
+            behavior_id,
+            {"positive_count": result["positive_count"], "trace_count": result["trace_count"]},
+        )
+        return result
+
     @app.get("/api/datasets")
     def list_datasets(
         project_id: str,
@@ -748,6 +866,62 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ) from exc
         return result
 
+    @app.get("/api/review-tasks")
+    def list_review_tasks(
+        project_id: str,
+        status: str | None = None,
+        task_type: str | None = None,
+        actor: dict[str, object] = Depends(auth_dependency(["reviews:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_review_tasks(project_id, status=status, task_type=task_type)}
+
+    @app.post("/api/review-tasks", status_code=201)
+    def create_review_task(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["reviews:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "task_type", "source_entity_type", "source_entity_id"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        task = store.create_review_task(request)
+        store.append_audit(
+            "create_review_task",
+            "review_task",
+            task["project_id"],
+            task["review_task_id"],
+        )
+        return task
+
+    @app.patch("/api/review-tasks/{review_task_id}")
+    def update_review_task(
+        review_task_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["reviews:write"])),
+    ) -> dict[str, object]:
+        del actor
+        project_id = request.get("project_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        task = store.update_review_task(project_id, review_task_id, request)
+        store.append_audit(
+            "update_review_task",
+            "review_task",
+            project_id,
+            review_task_id,
+            {"status": task["status"], "decision": task["decision_nullable"]},
+        )
+        return task
+
     @app.get("/api/context-packs")
     def list_context_packs(
         project_id: str,
@@ -875,6 +1049,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 run["investigation_run_id"],
                 run["result"],
             )
+        review_tasks = _create_investigation_review_tasks(store, run)
+        if review_tasks:
+            run["result"]["review_task_ids"] = [
+                task["review_task_id"] for task in review_tasks
+            ]
+            run = store.update_investigation_result(
+                request["project_id"],
+                run["investigation_run_id"],
+                run["result"],
+            )
         store.append_audit(
             "start_investigation",
             "investigation_run",
@@ -909,6 +1093,64 @@ def _register_v1_aliases(app: FastAPI) -> None:
             name=f"v1_{route.name}",
             include_in_schema=True,
         )
+
+
+def _behavior_backtest_evidence_ids(result: dict[str, Any]) -> list[str]:
+    evidence_ids: list[str] = []
+    for example in result.get("positive_examples", []):
+        evidence_ids.append(example["trace_id"])
+        evidence_ids.extend(example.get("evidence_span_ids", []))
+    return sorted(set(evidence_ids))
+
+
+def _create_investigation_review_tasks(
+    store: SQLiteStore,
+    run: dict[str, Any],
+) -> list[dict[str, Any]]:
+    project_id = run["project_id"]
+    result = run.get("result", {})
+    tasks = []
+    for index, candidate in enumerate(result.get("suspected_root_causes", [])):
+        tasks.append(
+            store.create_review_task(
+                {
+                    "project_id": project_id,
+                    "task_type": "root_cause_candidate",
+                    "source_entity_type": "investigation_run",
+                    "source_entity_id": f"{run['investigation_run_id']}#root_cause:{index}",
+                    "evidence_ids": _candidate_evidence_ids(candidate),
+                }
+            )
+        )
+    assistance = result.get("model_assistance", {})
+    for draft in assistance.get("behavior_drafts", []):
+        source_name = draft.get("name") or "behavior_draft"
+        tasks.append(
+            store.create_review_task(
+                {
+                    "project_id": project_id,
+                    "task_type": "behavior_candidate",
+                    "source_entity_type": "investigation_run",
+                    "source_entity_id": f"{run['investigation_run_id']}#behavior:{source_name}",
+                    "evidence_ids": sorted(
+                        set(
+                            draft.get("positive_trace_ids", [])
+                            + draft.get("negative_trace_ids", [])
+                        )
+                    ),
+                }
+            )
+        )
+    return tasks
+
+
+def _candidate_evidence_ids(candidate: dict[str, Any]) -> list[str]:
+    return sorted(
+        set(
+            candidate.get("evidence_trace_ids", [])
+            + candidate.get("evidence_span_ids", [])
+        )
+    )
 
 
 def _deterministic_context_pack_content(
