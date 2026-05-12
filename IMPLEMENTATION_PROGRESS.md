@@ -254,6 +254,9 @@ Done:
 - Added human review task APIs and connected investigation root-cause/behavior
   candidates to the review queue instead of treating model drafts as active
   product decisions.
+- Expanded the MCP tool contract registry to match the v2 required tool list,
+  added resource templates, and added API-backed deterministic handlers for the
+  implemented read/draft paths with explicit unsupported responses for gaps.
 - Added web UI sections for judge runtime, behavior monitoring, datasets/evals,
   prompt registry, MCP, and ops status so unfinished surfaces are visible
   without pretending LLM-dependent capabilities exist.
@@ -364,5 +367,8 @@ Implemented in this pass:
 - Added `/v1/behaviors` create/get/backtest paths plus `/v1/review-tasks`
   list/create/update paths so behavior candidates and root-cause candidates have
   auditable review gates.
+- Added stable `/v1` get/list paths for sessions, datasets, issues,
+  investigations, impact reports, and context packs so MCP and UI clients can
+  link back to canonical artifacts.
 - Added an Issues/Investigations scaffold view in the web app so the v2 surface
   is visible without pretending the LLM-backed pieces are ready.

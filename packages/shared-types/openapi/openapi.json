@@ -339,6 +339,38 @@
         }
       }
     },
+    "/v1/context-packs/{context_pack_id}": {
+      "get": {
+        "operationId": "getContextPack",
+        "summary": "Fetch one agent context pack.",
+        "x-required-scopes": [
+          "context_packs:read"
+        ],
+        "parameters": [
+          {
+            "name": "context_pack_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent context pack."
+          }
+        }
+      }
+    },
     "/v1/data-classification-policies": {
       "get": {
         "operationId": "listDataClassificationPolicies",
@@ -702,6 +734,38 @@
         }
       }
     },
+    "/v1/datasets/{dataset_id}": {
+      "get": {
+        "operationId": "getDataset",
+        "summary": "Fetch a dataset definition.",
+        "x-required-scopes": [
+          "datasets:read"
+        ],
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dataset."
+          }
+        }
+      }
+    },
     "/v1/datasets/{dataset_id}/examples": {
       "get": {
         "operationId": "listDatasetExamples",
@@ -951,6 +1015,38 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/impact-reports/{report_id}": {
+      "get": {
+        "operationId": "getImpactReport",
+        "summary": "Fetch one impact report.",
+        "x-required-scopes": [
+          "investigations:read"
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Impact report."
           }
         }
       }
@@ -1270,6 +1366,36 @@
       }
     },
     "/v1/investigations": {
+      "get": {
+        "operationId": "listInvestigations",
+        "summary": "List investigation runs.",
+        "x-required-scopes": [
+          "investigations:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "issue_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Investigation runs."
+          }
+        }
+      },
       "post": {
         "operationId": "startInvestigation",
         "summary": "Start a deterministic investigation run over trace data.",
@@ -1335,6 +1461,38 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/investigations/{investigation_run_id}": {
+      "get": {
+        "operationId": "getInvestigation",
+        "summary": "Fetch one investigation run.",
+        "x-required-scopes": [
+          "investigations:read"
+        ],
+        "parameters": [
+          {
+            "name": "investigation_run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Investigation run."
           }
         }
       }
@@ -1440,6 +1598,38 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/issues/{issue_id}": {
+      "get": {
+        "operationId": "getIssue",
+        "summary": "Fetch one issue record.",
+        "x-required-scopes": [
+          "issues:read"
+        ],
+        "parameters": [
+          {
+            "name": "issue_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Issue."
           }
         }
       }
@@ -1866,6 +2056,38 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{session_id}": {
+      "get": {
+        "operationId": "getSession",
+        "summary": "Fetch a session and its traces.",
+        "x-required-scopes": [
+          "traces:read"
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session with traces."
           }
         }
       }

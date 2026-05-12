@@ -263,6 +263,9 @@ class SQLiteStore:
         if filters.get("trace_id"):
             clauses.append("trace_id = ?")
             params.append(filters["trace_id"])
+        if filters.get("session_id"):
+            clauses.append("session_id = ?")
+            params.append(filters["session_id"])
         if filters.get("time_from"):
             clauses.append("started_at >= ?")
             params.append(filters["time_from"])
@@ -487,6 +490,21 @@ class SQLiteStore:
                 (project_id,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def get_dataset(self, project_id: str, dataset_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT d.*, dv.dataset_version_id AS latest_version_id
+                FROM datasets d
+                LEFT JOIN dataset_versions dv ON dv.dataset_id = d.dataset_id
+                WHERE d.project_id = ? AND d.dataset_id = ?
+                ORDER BY dv.version DESC
+                LIMIT 1
+                """,
+                (project_id, dataset_id),
+            ).fetchone()
+        return dict(row) if row else None
 
     def add_trace_to_dataset(
         self,
@@ -1156,6 +1174,55 @@ class SQLiteStore:
             ).fetchall()
         return [self._agent_context_pack_from_row(row) for row in rows]
 
+    def get_agent_context_pack(
+        self,
+        project_id: str,
+        context_pack_id: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM agent_context_packs
+                WHERE project_id = ? AND context_pack_id = ?
+                """,
+                (project_id, context_pack_id),
+            ).fetchone()
+        return self._agent_context_pack_from_row(row) if row else None
+
+    def list_investigation_runs(
+        self,
+        project_id: str,
+        issue_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses = ["project_id = ?"]
+        params: list[Any] = [project_id]
+        if issue_id:
+            clauses.append("issue_id_nullable = ?")
+            params.append(issue_id)
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM investigation_runs WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY created_at DESC",
+                params,
+            ).fetchall()
+        return [self._investigation_run_from_row(row) for row in rows]
+
+    def get_investigation_run(
+        self,
+        project_id: str,
+        investigation_run_id: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM investigation_runs
+                WHERE project_id = ? AND investigation_run_id = ?
+                """,
+                (project_id, investigation_run_id),
+            ).fetchone()
+        return self._investigation_run_from_row(row) if row else None
+
     def start_investigation(self, request: dict[str, Any]) -> dict[str, Any]:
         project_id = request["project_id"]
         query = request.get("natural_language_problem_nullable") or request.get("query") or ""
@@ -1316,6 +1383,17 @@ class SQLiteStore:
                 (project_id,),
             ).fetchall()
         return [self._impact_report_from_row(row) for row in rows]
+
+    def get_impact_report(self, project_id: str, report_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM impact_reports
+                WHERE project_id = ? AND report_id = ?
+                """,
+                (project_id, report_id),
+            ).fetchone()
+        return self._impact_report_from_row(row) if row else None
 
     def _build_impact_report(
         self,

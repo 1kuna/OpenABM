@@ -301,6 +301,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "page": {"limit": limit, "next_cursor": None, "has_more": False},
         }
 
+    @app.get("/api/sessions/{session_id}")
+    def get_session(
+        session_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["traces:read"])),
+        limit: int = 100,
+    ) -> dict[str, object]:
+        del actor
+        traces = store.search_traces(project_id, filters={"session_id": session_id}, limit=limit)
+        if not traces:
+            raise HTTPException(status_code=404, detail=_error("not_found", "Session not found."))
+        return {
+            "session_id": session_id,
+            "trace_count": len(traces),
+            "trace_ids": [trace["trace_id"] for trace in traces],
+            "traces": traces,
+        }
+
     @app.post("/api/search/traces")
     def search_traces(
         request: dict[str, Any],
@@ -600,6 +618,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         del actor
         return {"data": store.list_datasets(project_id)}
 
+    @app.get("/api/datasets/{dataset_id}")
+    def get_dataset(
+        dataset_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["datasets:read"])),
+    ) -> dict[str, object]:
+        del actor
+        dataset = store.get_dataset(project_id, dataset_id)
+        if dataset is None:
+            raise HTTPException(status_code=404, detail=_error("not_found", "Dataset not found."))
+        return dataset
+
     @app.post("/api/datasets", status_code=201)
     def create_dataset(
         request: dict[str, Any],
@@ -795,6 +825,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         store.append_audit("create_issue", "issue", request["project_id"], item["issue_id"])
         return item
 
+    @app.get("/api/issues/{issue_id}")
+    def get_issue(
+        issue_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["issues:read"])),
+    ) -> dict[str, object]:
+        del actor
+        issue = store.get_issue(project_id, issue_id)
+        if issue is None:
+            raise HTTPException(status_code=404, detail=_error("not_found", "Issue not found."))
+        return issue
+
     @app.get("/api/data-classification-policies")
     def list_data_classification_policies(
         project_id: str,
@@ -931,6 +973,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         del actor
         return {"data": store.list_agent_context_packs(project_id, issue_id=issue_id)}
 
+    @app.get("/api/context-packs/{context_pack_id}")
+    def get_context_pack(
+        context_pack_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["context_packs:read"])),
+    ) -> dict[str, object]:
+        del actor
+        item = store.get_agent_context_pack(project_id, context_pack_id)
+        if item is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Context pack not found."),
+            )
+        return item
+
     @app.post("/api/context-packs", status_code=201)
     async def create_context_pack(
         request: dict[str, Any],
@@ -991,6 +1048,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             {"source_trace_ids": request["source_trace_ids"]},
         )
         return item
+
+    @app.get("/api/investigations")
+    def list_investigations(
+        project_id: str,
+        issue_id: str | None = None,
+        actor: dict[str, object] = Depends(auth_dependency(["investigations:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_investigation_runs(project_id, issue_id=issue_id)}
+
+    @app.get("/api/investigations/{investigation_run_id}")
+    def get_investigation(
+        investigation_run_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["investigations:read"])),
+    ) -> dict[str, object]:
+        del actor
+        run = store.get_investigation_run(project_id, investigation_run_id)
+        if run is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Investigation run not found."),
+            )
+        return run
 
     @app.post("/api/investigations", status_code=201)
     async def start_investigation(
@@ -1074,6 +1155,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict[str, object]:
         del actor
         return {"data": store.list_impact_reports(project_id)}
+
+    @app.get("/api/impact-reports/{report_id}")
+    def get_impact_report(
+        report_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["investigations:read"])),
+    ) -> dict[str, object]:
+        del actor
+        report = store.get_impact_report(project_id, report_id)
+        if report is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Impact report not found."),
+            )
+        return report
 
     _register_v1_aliases(app)
     return app

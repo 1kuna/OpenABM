@@ -4,6 +4,7 @@ import textwrap
 import pytest
 from openabm_api.classification import classify_payload, redact_if_needed
 from openabm_api.prompts import diff_prompt_text, prompt_commit_id, render_prompt
+from openabm_mcp.handlers import call_tool, tool_manifest
 from openabm_mcp.tools import REQUIRED_TOOL_NAMES, all_tool_definitions
 from openabm_worker.code_sandbox import run_code_judge_dev_sandbox
 from openabm_worker.conditions import evaluate_condition_group
@@ -129,12 +130,45 @@ def test_mcp_tool_contracts_cover_required_names() -> None:
     tools = all_tool_definitions()
     by_name = {tool["name"]: tool for tool in tools}
     assert set(REQUIRED_TOOL_NAMES) == set(by_name)
+    assert "start_investigation_run" in by_name
+    assert "get_agent_context_pack" in by_name
     for tool in tools:
         assert tool["description"]
         assert "input_schema" in tool
         assert "output_schema" in tool
         assert "required_scopes" in tool
         assert "confirmation_required" in tool
+
+
+def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def request(self, method, path, *, params=None, json_body=None):
+            self.calls.append(
+                {
+                    "method": method,
+                    "path": path,
+                    "params": params,
+                    "json_body": json_body,
+                }
+            )
+            return {"ok": True, "path": path}
+
+    client = FakeClient()
+    result = call_tool(
+        "get_trace",
+        {"project_id": "proj_demo", "trace_id": "trace_1"},
+        client=client,
+    )
+    assert result["path"] == "/v1/traces/trace_1"
+    assert client.calls[0]["params"] == {"project_id": "proj_demo"}
+
+    unsupported = call_tool("list_prompts", {"project_id": "proj_demo"}, client=client)
+    assert unsupported["status"] == "unsupported"
+    assert "Prompt registry" in unsupported["reason"]
+    assert "trace://{trace_id}" in tool_manifest()["resource_templates"]
 
 
 def test_trajectory_assertions_cite_failing_tool_spans() -> None:

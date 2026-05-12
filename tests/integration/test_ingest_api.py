@@ -40,6 +40,14 @@ def test_batch_ingest_and_trace_detail(tmp_path) -> None:
     assert body["trace"]["trace_id"] == fixture["trace"]["trace_id"]
     assert body["reconstruction"]["span_tree"][0]["span"]["span_id"] == "span_happy_root"
 
+    session = client.get(
+        f"/v1/sessions/{fixture['trace']['session_id']}",
+        params={"project_id": fixture["trace"]["project_id"]},
+        headers=auth_headers(),
+    )
+    assert session.status_code == 200
+    assert fixture["trace"]["trace_id"] in session.json()["trace_ids"]
+
 
 def test_invalid_span_gets_partial_success_rejection(tmp_path) -> None:
     client = make_client(tmp_path)
@@ -142,6 +150,12 @@ def test_trace_can_be_added_to_dataset_with_provenance(tmp_path) -> None:
     )
     assert dataset.status_code == 201
     dataset_id = dataset.json()["dataset_id"]
+    fetched_dataset = client.get(
+        f"/v1/datasets/{dataset_id}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert fetched_dataset.status_code == 200
 
     example = client.post(
         f"/v1/datasets/{dataset_id}/examples/from-trace",
@@ -202,6 +216,12 @@ def test_v1_issue_investigation_saved_search_and_classification_flow(tmp_path) -
         },
     )
     assert issue.status_code == 201
+    fetched_issue = client.get(
+        f"/v1/issues/{issue.json()['issue_id']}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert fetched_issue.status_code == 200
 
     investigation = client.post(
         "/v1/investigations",
@@ -215,6 +235,19 @@ def test_v1_issue_investigation_saved_search_and_classification_flow(tmp_path) -
         },
     )
     assert investigation.status_code == 201
+    investigation_id = investigation.json()["investigation_run_id"]
+    fetched_investigation = client.get(
+        f"/v1/investigations/{investigation_id}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert fetched_investigation.status_code == 200
+    listed_investigations = client.get(
+        "/v1/investigations",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert listed_investigations.json()["data"][0]["investigation_run_id"] == investigation_id
     impact = investigation.json()["result"]["impact_report"]
     assert impact["matching_trace_count"] >= 1
     assert impact["affected_entity_count"] == 1
@@ -251,6 +284,12 @@ def test_v1_issue_investigation_saved_search_and_classification_flow(tmp_path) -
     )
     assert reports.status_code == 200
     assert reports.json()["data"][0]["matching_trace_count"] >= 1
+    fetched_report = client.get(
+        f"/v1/impact-reports/{impact['report_id']}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert fetched_report.status_code == 200
 
 
 def test_v1_eval_runs_are_queryable(tmp_path) -> None:
@@ -393,6 +432,12 @@ def test_v1_context_pack_cites_source_trace_and_span(tmp_path, monkeypatch) -> N
     assert content["summary"]["key_evidence"][0]["span_ids"] == [
         "span_wrong_tool_order_lookup"
     ]
+    fetched = client.get(
+        f"/v1/context-packs/{response.json()['context_pack_id']}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert fetched.status_code == 200
 
 
 def test_v1_behavior_backtest_persists_matches_and_review_task(tmp_path) -> None:
