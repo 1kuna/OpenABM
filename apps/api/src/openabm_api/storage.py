@@ -441,6 +441,173 @@ class SQLiteStore:
             ).fetchall()
         return [self._dataset_example_from_row(row) for row in rows]
 
+    def list_dataset_examples_by_version(
+        self,
+        project_id: str,
+        dataset_version_id: str,
+    ) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM dataset_examples
+                WHERE project_id = ? AND dataset_version_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id, dataset_version_id),
+            ).fetchall()
+        return [self._dataset_example_from_row(row) for row in rows]
+
+    def create_eval_run(
+        self,
+        project_id: str,
+        dataset_version_id: str,
+        runner: dict[str, Any],
+        judges: list[dict[str, Any]],
+        baseline_eval_run_id: str | None = None,
+        prompt_version_id: str | None = None,
+    ) -> dict[str, Any]:
+        self.ensure_project(project_id)
+        now = utc_now()
+        item = {
+            "eval_run_id": new_id("eval_run"),
+            "project_id": project_id,
+            "dataset_version_id": dataset_version_id,
+            "baseline_eval_run_id": baseline_eval_run_id,
+            "runner": runner,
+            "judges": judges,
+            "prompt_version_id": prompt_version_id,
+            "status": "running",
+            "summary": {},
+            "created_at": now,
+            "completed_at": None,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO eval_runs(
+                  eval_run_id, project_id, dataset_version_id, baseline_eval_run_id,
+                  runner_json, judges_json, prompt_version_id, status, summary_json,
+                  created_at, completed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["eval_run_id"],
+                    project_id,
+                    dataset_version_id,
+                    baseline_eval_run_id,
+                    encode_json(runner),
+                    encode_json(judges),
+                    prompt_version_id,
+                    "running",
+                    encode_json({}),
+                    now,
+                    None,
+                ),
+            )
+        return item
+
+    def complete_eval_run(
+        self,
+        project_id: str,
+        eval_run_id: str,
+        summary: dict[str, Any],
+        status: str = "completed",
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE eval_runs
+                SET status = ?, summary_json = ?, completed_at = ?
+                WHERE project_id = ? AND eval_run_id = ?
+                """,
+                (status, encode_json(summary), now, project_id, eval_run_id),
+            )
+            row = conn.execute(
+                """
+                SELECT * FROM eval_runs
+                WHERE project_id = ? AND eval_run_id = ?
+                """,
+                (project_id, eval_run_id),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"eval run not found: {eval_run_id}")
+        return self._eval_run_from_row(row)
+
+    def record_eval_result(
+        self,
+        project_id: str,
+        eval_run_id: str,
+        dataset_example_id: str,
+        status: str,
+        scores: list[dict[str, Any]],
+        offline_trace_id: str | None = None,
+        cost: dict[str, Any] | None = None,
+        latency_ms: int | None = None,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        item = {
+            "eval_result_id": new_id("eval_result"),
+            "project_id": project_id,
+            "eval_run_id": eval_run_id,
+            "dataset_example_id": dataset_example_id,
+            "offline_trace_id": offline_trace_id,
+            "status": status,
+            "scores": scores,
+            "cost": cost,
+            "latency_ms": latency_ms,
+            "created_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO eval_results(
+                  eval_result_id, project_id, eval_run_id, dataset_example_id,
+                  offline_trace_id, status, scores_json, cost_json, latency_ms,
+                  created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["eval_result_id"],
+                    project_id,
+                    eval_run_id,
+                    dataset_example_id,
+                    offline_trace_id,
+                    status,
+                    encode_json(scores),
+                    encode_json(cost),
+                    latency_ms,
+                    now,
+                ),
+            )
+        return item
+
+    def list_eval_runs(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM eval_runs
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._eval_run_from_row(row) for row in rows]
+
+    def list_eval_results(self, project_id: str, eval_run_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM eval_results
+                WHERE project_id = ? AND eval_run_id = ?
+                ORDER BY created_at ASC
+                """,
+                (project_id, eval_run_id),
+            ).fetchall()
+        return [self._eval_result_from_row(row) for row in rows]
+
     def add_trace_dimension(
         self,
         project_id: str,
@@ -1063,6 +1230,37 @@ class SQLiteStore:
             "metadata": decode_json(row["metadata_json"], {}),
             "split": row["split"],
             "created_from": row["created_from"],
+            "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _eval_run_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "eval_run_id": row["eval_run_id"],
+            "project_id": row["project_id"],
+            "dataset_version_id": row["dataset_version_id"],
+            "baseline_eval_run_id": row["baseline_eval_run_id"],
+            "runner": decode_json(row["runner_json"], {}),
+            "judges": decode_json(row["judges_json"], []),
+            "prompt_version_id": row["prompt_version_id"],
+            "status": row["status"],
+            "summary": decode_json(row["summary_json"], {}),
+            "created_at": row["created_at"],
+            "completed_at": row["completed_at"],
+        }
+
+    @staticmethod
+    def _eval_result_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "eval_result_id": row["eval_result_id"],
+            "project_id": row["project_id"],
+            "eval_run_id": row["eval_run_id"],
+            "dataset_example_id": row["dataset_example_id"],
+            "offline_trace_id": row["offline_trace_id"],
+            "status": row["status"],
+            "scores": decode_json(row["scores_json"], []),
+            "cost": decode_json(row["cost_json"], None),
+            "latency_ms": row["latency_ms"],
             "created_at": row["created_at"],
         }
 

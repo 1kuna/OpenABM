@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from openabm_api.main import create_app
 from openabm_api.settings import Settings
+from openabm_worker.offline_eval import run_deterministic_eval
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PATH = ROOT / "evals" / "golden-fixtures" / "trace_fixtures.json"
@@ -193,3 +194,49 @@ def test_v1_issue_investigation_saved_search_and_classification_flow(tmp_path) -
     )
     assert reports.status_code == 200
     assert reports.json()["data"][0]["matching_trace_count"] >= 1
+
+
+def test_v1_eval_runs_are_queryable(tmp_path) -> None:
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    store = client.app.state.store
+    dataset = store.create_dataset("proj_demo", "Refund eval")
+    store.add_trace_to_dataset("proj_demo", dataset["dataset_id"], fixture["trace"]["trace_id"])
+    run = run_deterministic_eval(
+        store,
+        project_id="proj_demo",
+        dataset_version_id=dataset["latest_version_id"],
+        judges=[_wrong_tool_judge()],
+    )
+
+    runs = client.get("/v1/evals", params={"project_id": "proj_demo"}, headers=auth_headers())
+    assert runs.status_code == 200
+    assert runs.json()["data"][0]["eval_run_id"] == run["eval_run_id"]
+
+    results = client.get(
+        f"/v1/evals/{run['eval_run_id']}/results",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert results.status_code == 200
+    assert results.json()["data"][0]["scores"][0]["failure_mode"] == "wrong_tool_for_refund"
+
+
+def _wrong_tool_judge() -> dict[str, object]:
+    return {
+        "judge_id": "judge_wrong_tool_for_refund",
+        "judge_type": "deterministic_rule",
+        "rule": {
+            "match_semantics": "any_match_is_fail",
+            "failure_mode": "wrong_tool_for_refund",
+            "conditions": {
+                "combine": "all",
+                "items": [{"field": "attributes.tool.name", "op": "eq", "value": "order_lookup"}],
+            },
+        },
+    }

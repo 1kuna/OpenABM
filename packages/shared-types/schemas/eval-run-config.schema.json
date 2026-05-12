@@ -11,9 +11,11 @@
     "dataset_version_id": {"type": "string"},
     "baseline_eval_run_id": {"type": ["string", "null"]},
     "runner": {"type": "object", "required": ["type"], "properties": {"type": {"enum": ["in_process_function", "command", "http_endpoint"]}}, "additionalProperties": true},
-    "judges": {"type": "array", "items": {"type": "string"}, "default": []},
+    "judges": {"type": "array", "items": {"type": "object"}, "default": []},
     "prompt_version_id": {"type": ["string", "null"]},
-    "created_at": {"type": "string", "format": "date-time"}
+    "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]},
+    "summary": {"type": "object", "default": {}},
+    "created_at": {"type": "string", "format": "date-time"},
+    "completed_at": {"type": ["string", "null"], "format": "date-time"}
   }
 }
-

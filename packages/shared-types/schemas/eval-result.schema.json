@@ -7,6 +7,7 @@
   "required": ["eval_result_id", "eval_run_id", "dataset_example_id", "status", "created_at"],
   "properties": {
     "eval_result_id": {"type": "string"},
+    "project_id": {"type": "string"},
     "eval_run_id": {"type": "string"},
     "dataset_example_id": {"type": "string"},
     "offline_trace_id": {"type": ["string", "null"]},
@@ -17,4 +18,3 @@
     "created_at": {"type": "string", "format": "date-time"}
   }
 }
-

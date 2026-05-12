@@ -33,8 +33,14 @@ def _evaluate_item(item: dict[str, Any], context: dict[str, Any]) -> dict[str, A
 
 def _resolve_path(context: dict[str, Any], path: str) -> Any:
     value: Any = context
-    for part in path.split("."):
-        if isinstance(value, dict) and part in value:
+    parts = path.split(".")
+    for index, part in enumerate(parts):
+        if not isinstance(value, dict):
+            return None
+        remaining = ".".join(parts[index:])
+        if remaining in value:
+            return value[remaining]
+        if part in value:
             value = value[part]
         else:
             return None
@@ -69,4 +75,3 @@ def _compare(actual: Any, op: str, expected: Any) -> bool:
     if op == "matches_regex":
         return actual is not None and re.search(str(expected), str(actual)) is not None
     return False
-

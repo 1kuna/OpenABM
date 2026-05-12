@@ -382,7 +382,7 @@ function scaffoldRows(view: ViewKey) {
     ],
     datasets: [
       { icon: <Database />, title: "Dataset provenance", status: "schema and storage tables available", phase: "Phase 5" },
-      { icon: <Play />, title: "Offline runner", status: "contract scaffold pending endpoint", phase: "Phase 5" },
+      { icon: <Play />, title: "Offline runner", status: "make demo-eval available", phase: "Phase 5" },
       { icon: <CheckCircle2 />, title: "Baseline comparison", status: "deterministic data model pending", phase: "Phase 5" }
     ],
     prompts: [

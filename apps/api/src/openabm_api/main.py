@@ -444,6 +444,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return example
 
+    @app.get("/api/evals")
+    def list_eval_runs(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["evals:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_eval_runs(project_id)}
+
+    @app.get("/api/evals/{eval_run_id}/results")
+    def list_eval_results(
+        eval_run_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["evals:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_eval_results(project_id, eval_run_id)}
+
     @app.get("/api/saved-searches")
     def list_saved_searches(
         project_id: str,

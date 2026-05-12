@@ -173,6 +173,9 @@ Done:
   provenance and labels.
 - Added OpenAPI contract entries and integration coverage for the trace-to-
   dataset path.
+- Added persisted local offline eval runs/results and `make demo-eval`, which
+  seeds fixtures, creates a dataset from a trace, runs one deterministic judge,
+  and records the eval artifact without LLM calls.
 
 ## Phase 6: Behaviors And Automations
 
