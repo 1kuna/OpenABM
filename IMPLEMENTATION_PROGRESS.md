@@ -557,7 +557,10 @@ Done:
   pointers with tag events, deterministic config diffs, and tag-movement history
   surfaced through API, OpenAPI, tests, and UI.
 - Added MCP tool contract registry covering all required tool names, including
-  side-effect and confirmation metadata.
+  side-effect and confirmation metadata, prompt and agent-config commit tools,
+  and readable resources for trace/span/session/behavior/judge/dataset/prompt/
+  agent-config/eval/automation/search/issue/investigation/impact/context-pack
+  records.
 - Added agent context pack generation and persistence with model-backed
   summaries, citation validation, deterministic fallback when a model provider is
   unavailable, and `/v1/context-packs` API coverage.

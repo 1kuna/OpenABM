@@ -230,8 +230,10 @@ def test_mcp_tool_contracts_cover_required_names() -> None:
         Draft202012Validator.check_schema(tool["input_schema"])
         Draft202012Validator.check_schema(tool["output_schema"])
     assert by_name["commit_prompt"]["confirmation_required"] is True
+    assert by_name["commit_agent_config"]["confirmation_required"] is True
     assert by_name["run_eval"]["confirmation_required"] is True
     assert "confirmed" in by_name["commit_prompt"]["input_schema"]["properties"]
+    assert "confirmed" in by_name["commit_agent_config"]["input_schema"]["properties"]
     assert "confirmed" in by_name["run_eval"]["input_schema"]["properties"]
     assert by_name["search_traces"]["side_effects"] is False
     assert by_name["create_issue"]["side_effects"] is True
@@ -276,6 +278,12 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
     assert span_search_result["path"] == "/v1/search/spans"
     prompt_result = call_tool("list_prompts", {"project_id": "proj_demo"}, client=client)
     assert prompt_result["path"] == "/v1/prompts"
+    agent_config_result = call_tool(
+        "list_agent_configs",
+        {"project_id": "proj_demo"},
+        client=client,
+    )
+    assert agent_config_result["path"] == "/v1/agent-configs"
     automation_result = call_tool("list_automations", {"project_id": "proj_demo"}, client=client)
     assert automation_result["path"] == "/v1/automations"
     judge_result = call_tool("list_judges", {"project_id": "proj_demo"}, client=client)
@@ -322,6 +330,32 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
     assert client.calls[-1]["path"] == "/v1/ops/mcp-tool-observations"
     assert client.calls[-1]["json_body"]["request"]["confirmed"] is True
     assert client.calls[-1]["json_body"]["status"] == "succeeded"
+    gated_config = call_tool(
+        "commit_agent_config",
+        {
+            "project_id": "proj_demo",
+            "agent_config_id": "agent_config_1",
+            "content": {"model": "qwen3.5-9b-mlx"},
+        },
+        client=client,
+    )
+    assert gated_config["status"] == "confirmation_required"
+    assert all(call["path"] != "/v1/agent-configs/agent_config_1/versions" for call in client.calls)
+
+    confirmed_config = call_tool(
+        "commit_agent_config",
+        {
+            "project_id": "proj_demo",
+            "agent_config_id": "agent_config_1",
+            "content": {"model": "qwen3.5-9b-mlx"},
+            "tag": "prod",
+            "confirmed": True,
+        },
+        client=client,
+    )
+    assert confirmed_config["path"] == "/v1/agent-configs/agent_config_1/versions"
+    assert client.calls[-2]["json_body"]["tag"] == "prod"
+    assert "confirmed" not in client.calls[-2]["json_body"]
     trace_resource = read_resource(
         "trace://trace_1?project_id=proj_demo",
         client=client,
@@ -330,12 +364,20 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
     assert trace_resource["mimeType"] == "application/json"
     assert trace_payload["path"] == "/v1/traces/trace_1"
     assert client.calls[-1]["params"] == {"project_id": "proj_demo"}
+    agent_config_resource = read_resource(
+        "agent-config://agent_config_1?project_id=proj_demo",
+        client=client,
+    )
+    agent_config_payload = json.loads(agent_config_resource["text"])
+    assert agent_config_payload["path"] == "/v1/agent-configs/agent_config_1"
+    assert client.calls[-1]["params"] == {"project_id": "proj_demo"}
 
     templates = resource_template_manifest()
     assert templates[0]["uriTemplate"] == "trace://{trace_id}"
     assert templates[0]["mimeType"] == "application/json"
     assert all(template["name"] for template in templates)
     assert "trace://{trace_id}" in tool_manifest()["resource_templates"]
+    assert "agent-config://{agent_config_id}" in tool_manifest()["resource_templates"]
 
 
 def test_mcp_jsonrpc_exposes_readable_resources(monkeypatch) -> None:

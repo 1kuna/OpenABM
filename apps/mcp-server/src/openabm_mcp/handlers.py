@@ -51,6 +51,11 @@ RESOURCE_TEMPLATE_DEFINITIONS = [
         "description": "Fetch a prompt registry entry and version history.",
     },
     {
+        "uriTemplate": "agent-config://{agent_config_id}",
+        "name": "OpenABM agent config",
+        "description": "Fetch an agent runtime configuration and immutable version history.",
+    },
+    {
         "uriTemplate": "eval-run://{eval_run_id}",
         "name": "OpenABM eval run",
         "description": "Fetch an eval run summary and linked results.",
@@ -413,6 +418,12 @@ def _call_tool_impl(
             f"/v1/agent-configs/{arguments['agent_config_id']}",
             params={"project_id": arguments["project_id"]},
         )
+    if name == "commit_agent_config":
+        return client.request(
+            "POST",
+            f"/v1/agent-configs/{arguments['agent_config_id']}/versions",
+            json_body=arguments,
+        )
     if name == "compare_agent_configs":
         return client.request(
             "POST",
@@ -471,6 +482,7 @@ def _resource_tool_arguments(
         "judge": ("get_judge", "judge_id"),
         "dataset": ("get_dataset", "dataset_id"),
         "prompt": ("get_prompt", "prompt_id"),
+        "agent-config": ("get_agent_config", "agent_config_id"),
         "automation": ("get_automation", "automation_id"),
         "saved-search": ("get_saved_search", "saved_search_id"),
         "issue": ("get_issue", "issue_id"),

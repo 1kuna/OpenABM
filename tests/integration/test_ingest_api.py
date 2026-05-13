@@ -1588,6 +1588,23 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
         params={"project_id": "proj_demo"},
     )
     assert config_detail.json()["tags"]["prod"] == cfg_v2.json()["commit_id"]
+    mcp_config_version = call_tool(
+        "commit_agent_config",
+        {
+            "project_id": "proj_demo",
+            "agent_config_id": config_id,
+            "content": {"model": "local-9b", "tools": ["lookup", "refund_status"]},
+            "tag": "mcp",
+            "confirmed": True,
+        },
+        client=_TestClientMcpAdapter(client),
+    )
+    mcp_config_detail = client.get(
+        f"/v1/agent-configs/{config_id}",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert mcp_config_detail.json()["tags"]["mcp"] == mcp_config_version["commit_id"]
     assert [
         event["new_commit_id"]
         for event in compare.json()["tag_movement_history"]

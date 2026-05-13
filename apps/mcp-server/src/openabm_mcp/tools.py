@@ -24,6 +24,7 @@ WRITE_REVIEW_SCOPE = ["reviews:write"]
 READ_PROMPT_SCOPE = ["prompts:read"]
 WRITE_PROMPT_SCOPE = ["prompts:write"]
 READ_AGENT_CONFIG_SCOPE = ["agent_configs:read"]
+WRITE_AGENT_CONFIG_SCOPE = ["agent_configs:write"]
 READ_AUTOMATION_SCOPE = ["automations:read"]
 
 STRING = {"type": "string"}
@@ -120,6 +121,7 @@ REQUIRED_TOOL_NAMES = [
     "commit_prompt",
     "list_agent_configs",
     "get_agent_config",
+    "commit_agent_config",
     "compare_agent_configs",
     "list_automations",
     "get_automation",
@@ -619,6 +621,31 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         scopes=READ_AGENT_CONFIG_SCOPE,
         example_request={"project_id": "proj_demo", "agent_config_id": "agent_config_123"},
         example_response={"agent_config_id": "agent_config_123"},
+    ),
+    _tool(
+        "commit_agent_config",
+        "Commit an immutable agent runtime configuration version and optionally "
+        "move a mutable tag pointer.",
+        _schema(
+            ["project_id", "agent_config_id", "content"],
+            {
+                "project_id": STRING,
+                "agent_config_id": STRING,
+                "content": OBJECT,
+                "metadata": OBJECT,
+                "tag": STRING,
+            },
+        ),
+        scopes=WRITE_AGENT_CONFIG_SCOPE,
+        side_effects=True,
+        confirmation_required=True,
+        example_request={
+            "project_id": "proj_demo",
+            "agent_config_id": "agent_config_123",
+            "content": {"model": "qwen3.5-9b-mlx", "tools": ["search_traces"]},
+            "tag": "prod",
+        },
+        example_response={"agent_config_version_id": "agent_config_version_123"},
     ),
     _tool(
         "compare_agent_configs",
