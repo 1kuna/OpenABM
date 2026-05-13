@@ -8,6 +8,10 @@ from typing import Annotated
 import typer
 from openabm_api.settings import Settings
 from openabm_api.storage import SQLiteStore, ingest_fixture
+from openabm_worker.agent_flow_smoke import (
+    DEFAULT_AGENT_FLOW_INCIDENT,
+    run_agent_flow_tool_smoke,
+)
 from openabm_worker.model_benchmark import (
     compare_model_runtime_benchmarks,
     run_model_runtime_benchmark,
@@ -138,6 +142,24 @@ def bench_model_runtime(
     if compare_to is not None:
         baseline = json.loads(compare_to.read_text())
         result["comparison"] = compare_model_runtime_benchmarks(baseline, result)
+    text = json.dumps(result, indent=2, sort_keys=True)
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text + "\n")
+    console.print_json(text)
+
+
+@bench_app.command("agent-flow-smoke")
+def bench_agent_flow_smoke(
+    incident: Annotated[
+        str,
+        typer.Option(help="Agent incident prompt for the tool-call smoke."),
+    ] = DEFAULT_AGENT_FLOW_INCIDENT,
+    output: Annotated[Path | None, typer.Option(help="Optional JSON output path.")] = None,
+) -> None:
+    settings = Settings.from_env()
+    model_provider = model_provider_from_settings(settings)
+    result = asyncio.run(run_agent_flow_tool_smoke(model_provider, incident=incident))
     text = json.dumps(result, indent=2, sort_keys=True)
     if output is not None:
         output.parent.mkdir(parents=True, exist_ok=True)

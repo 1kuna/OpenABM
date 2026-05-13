@@ -32,9 +32,9 @@ implementation.
 - `make ci` passes integration coverage for batch ingest, trace lookup,
   reconstruction, payload metadata, retention/export/delete, eval provenance,
   investigation flows, and MCP trace/context-pack access.
-- `openabm init-db`, `openabm seed-fixtures`, `make demo-eval`, and
-  `make reset-local` provide the local setup, fixture, deterministic eval, and
-  reset paths.
+- `./scripts/openabm init-db`, `./scripts/openabm seed-fixtures`,
+  `make demo-eval`, and `make reset-local` provide the local setup, fixture,
+  deterministic eval, and reset paths.
 - `make deploy-config-check` validates the Docker Compose reference contract
   that mounts the same SQLite/payload storage model into API and worker
   containers.

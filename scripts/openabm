@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+PYTHON_VERSION="${PYTHON:-3.12}"
+PYTHONPATH_VALUE="apps/api/src:apps/worker/src:apps/mcp-server/src:packages/python-sdk/src:packages/cli/src"
+
+cd "$ROOT"
+PYTHONPATH="$PYTHONPATH_VALUE" exec uv run --python "$PYTHON_VERSION" --extra dev python -m openabm_cli.main "$@"

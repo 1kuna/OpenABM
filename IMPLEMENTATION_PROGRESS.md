@@ -325,6 +325,18 @@ Done:
   runaway completions without adding a timeout or reducing model context.
 - Added OpenAI-compatible tool-call parsing to the local provider so semantic
   workers can prefer typed tool requests over prose-shaped JSON.
+- Added `./scripts/openabm bench agent-flow-smoke`, a lightweight local-provider
+  tool-call smoke that asks the configured model to call a typed investigation
+  planning tool, validates the returned arguments, and reports context length,
+  memory guard status, available memory, provider/model, usage, and timeout
+  behavior.
+- Verified a live LM Studio agent-flow tool-call smoke against
+  `qwen3.5-9b-mlx`; the model emitted one valid `record_agent_flow_plan` tool
+  call using real OpenABM MCP tool names (`search_traces`, `get_trace`,
+  `search_spans`), with 262144 context, memory guard `ready`, no generation
+  timeout, 1171 total tokens, and 479 reasoning tokens. The ignored
+  machine-readable result is under
+  `artifacts/model-benchmarks/qwen3.5-agent-flow-smoke.json`.
 - Added judge output validation for verdicts and span citations.
 - Added model-backed rubric judge execution with context packets, preserved-span
   citation validation, provider/model metadata, score persistence, and `/v1`
@@ -356,7 +368,7 @@ Done:
   access, POSIX resource-limit attempts for CPU/memory, spec-shaped
   `status`/`failure_reason` outputs, and visible sandbox policy metadata.
 - Added a reproducible local model runtime benchmark harness exposed as
-  `openabm bench model-runtime --fixtures golden --provider configured-provider`;
+  `./scripts/openabm bench model-runtime --fixtures golden --provider configured-provider`;
   it records provider/model/config hash, fixture version, structured-output
   validity, citation validity, judge accuracy, unsure/invalid/context-failure
   rates, latency, throughput, memory, token usage, and a promotion gate that

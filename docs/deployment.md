@@ -60,3 +60,7 @@ and do not add generation timeouts. The memory guard checks available host
 memory before starting a new chat or embedding request and skips the model call
 when available memory is below `OPENABM_MODEL_MIN_AVAILABLE_MEMORY_MB`; it does
 not cap context length or interrupt an in-flight generation.
+
+Use `./scripts/openabm bench agent-flow-smoke` for a lightweight local
+tool-calling smoke against the configured provider before running the full model
+benchmark.

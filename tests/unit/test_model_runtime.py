@@ -5,6 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 from openabm_api.settings import Settings
+from openabm_worker.agent_flow_smoke import run_agent_flow_tool_smoke
 from openabm_worker.context_packets import build_trace_context_packet
 from openabm_worker.investigation import assist_investigation
 from openabm_worker.judges import run_rubric_judge
@@ -168,6 +169,79 @@ def test_embedding_provider_parses_openai_compatible_embeddings_without_timeout(
     assert result["model"] == "local-embed"
     assert result["embeddings"][0]["document_id"] == "trace_refund"
     assert result["embeddings"][0]["embedding"] == [1.0, 0.0]
+
+
+def test_agent_flow_tool_smoke_validates_required_tool_call() -> None:
+    class StubHealth:
+        adapter_name = "stub"
+        status = "configured"
+        supported_capabilities = ["tool_completion"]
+        details = {
+            "chat_model": "qwen3.5-9b-mlx",
+            "context_length": 262144,
+            "memory_guard_status": "ready",
+            "available_memory_mb": 40000,
+            "min_available_memory_mb": 8192,
+            "timeout_behavior": "No generation timeout is applied by OpenABM.",
+        }
+
+    class StubProvider:
+        def health_check(self):
+            return StubHealth()
+
+        async def tool_completion(self, request, tools):
+            assert request["tool_choice"]["function"]["name"] == "record_agent_flow_plan"
+            assert tools[0]["function"]["name"] == "record_agent_flow_plan"
+            return {
+                "status": "succeeded",
+                "tool_calls": [
+                    {
+                        "name": "record_agent_flow_plan",
+                        "arguments": {
+                            "queries": ["refund wrong tool"],
+                            "expected_tools": ["search_traces", "create_agent_context_pack"],
+                            "risk_notes": ["single fixture smoke"],
+                            "confidence": "medium",
+                        },
+                    }
+                ],
+                "provider": "stub",
+                "model": "qwen3.5-9b-mlx",
+                "usage": {"total_tokens": 32},
+            }
+
+    result = asyncio.run(run_agent_flow_tool_smoke(StubProvider()))
+
+    assert result["status"] == "succeeded"
+    assert result["requested_tool"] == "record_agent_flow_plan"
+    assert result["provider_health"]["context_length"] == 262144
+    assert result["provider_health"]["memory_guard_status"] == "ready"
+
+
+def test_agent_flow_tool_smoke_rejects_missing_required_arguments() -> None:
+    class StubHealth:
+        adapter_name = "stub"
+        status = "configured"
+        supported_capabilities = ["tool_completion"]
+        details = {}
+
+    class StubProvider:
+        def health_check(self):
+            return StubHealth()
+
+        async def tool_completion(self, request, tools):
+            del request, tools
+            return {
+                "status": "succeeded",
+                "tool_calls": [{"name": "record_agent_flow_plan", "arguments": {}}],
+                "provider": "stub",
+                "model": "stub-model",
+            }
+
+    result = asyncio.run(run_agent_flow_tool_smoke(StubProvider()))
+
+    assert result["status"] == "invalid_output"
+    assert "queries" in " ".join(result["validation_errors"])
 
 
 def test_model_provider_from_settings_configures_memory_guard() -> None:

@@ -32,4 +32,10 @@ and investigation assistance.
 See `IMPLEMENTATION_PROGRESS.md` for the current build status and deferred
 LLM-dependent work.
 
+To deliberately test the local tool-calling lane against the configured model:
+
+```bash
+./scripts/openabm bench agent-flow-smoke
+```
+
 For self-hosted reference deployment, see `docs/deployment.md`.
