@@ -15,6 +15,7 @@ from openabm_worker.automations import (
 )
 from openabm_worker.behaviors import backtest_behavior
 from openabm_worker.context_packs import build_agent_context_pack_content
+from openabm_worker.eval_assertions import evaluate_trace_assertions
 from openabm_worker.grounding import (
     claims_from_text,
     evaluate_grounding_claims,
@@ -703,13 +704,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail=_error("model_unavailable", str(exc), retryable=True),
             ) from exc
         spans = store.list_spans(request["project_id"], request["trace_id"])
-        score = await run_rubric_judge(
-            provider,
-            trace,
-            spans,
-            request["judge"],
-            token_budget=settings.max_trace_tokens_for_judge,
-        )
+        try:
+            score = await run_rubric_judge(
+                provider,
+                trace,
+                spans,
+                request["judge"],
+                token_budget=settings.max_trace_tokens_for_judge,
+            )
+        except ModelCallsDisabled as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=_error("model_unavailable", str(exc), retryable=True),
+            ) from exc
         store.record_score(request["project_id"], score)
         store.append_audit(
             "run_rubric_judge",
@@ -827,6 +834,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "behavior_id": request["behavior_id"],
                 "span_id": request.get("span_id_nullable"),
             },
+        )
+        return result
+
+    @app.post("/api/traces/{trace_id}/assertions/check")
+    def check_trace_assertions(
+        trace_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["traces:read"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "assertions"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        trace = store.get_trace(request["project_id"], trace_id)
+        if trace is None:
+            raise HTTPException(status_code=404, detail=_error("not_found", "Trace not found."))
+        result = evaluate_trace_assertions(
+            store.list_spans(request["project_id"], trace_id),
+            request["assertions"],
+        )
+        store.append_audit(
+            "check_trace_assertions",
+            "trace",
+            request["project_id"],
+            trace_id,
+            {"status": result["status"], "failure_count": len(result["failures"])},
         )
         return result
 

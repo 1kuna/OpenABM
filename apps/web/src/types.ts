@@ -52,6 +52,29 @@ export interface TraceDetail {
   };
 }
 
+export interface SimilarTraceMatch {
+  trace_id: string;
+  similarity_score: number;
+  rationale: string;
+  evidence_span_ids: string[];
+}
+
+export interface SimilarTraceSearchResult {
+  data: SimilarTraceMatch[];
+  disabled: boolean;
+  reason?: string | null;
+  representation_version: string | null;
+  model_metadata?: Record<string, unknown>;
+  request: Record<string, unknown>;
+  page: { limit: number; next_cursor: string | null; has_more: boolean };
+}
+
+export interface TraceAssertionResult {
+  status: "passed" | "failed";
+  failures: Array<Record<string, unknown>>;
+  observed: Record<string, unknown>;
+}
+
 export interface SpanNode {
   span: SpanEnvelope;
   children: SpanNode[];

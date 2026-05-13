@@ -1093,6 +1093,63 @@ def test_v1_rubric_judge_run_persists_cited_score(tmp_path, monkeypatch) -> None
     assert scores.json()["data"][0]["cost"]["model"] == "stub-model"
 
 
+def test_v1_rubric_judge_run_reports_disabled_model(tmp_path) -> None:
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'openabm.sqlite3'}",
+        chat_model="stub-model",
+        model_mode="disabled",
+    )
+    client = TestClient(create_app(settings))
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+
+    response = client.post(
+        "/v1/judges/rubric/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": fixture["trace"]["trace_id"],
+            "judge": {
+                "judge_id": "judge_wrong_tool_for_refund",
+                "judge_type": "rubric_judge",
+                "rubric": {"fail": "Wrong tool was used for the task."},
+            },
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["error"]["code"] == "model_unavailable"
+
+
+def test_v1_trace_assertion_check_reports_deterministic_failures(tmp_path) -> None:
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+
+    response = client.post(
+        "/v1/traces/trace_wrong_tool/assertions/check",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "assertions": {"forbidden_tools": ["order_lookup"]},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "failed"
+    assert body["failures"][0]["type"] == "forbidden_tool_used"
+    assert body["failures"][0]["span_ids"] == ["span_wrong_tool_order_lookup"]
+
+
 def test_v1_context_pack_cites_source_trace_and_span(tmp_path, monkeypatch) -> None:
     class StubProvider:
         async def structured_completion(self, request, schema):

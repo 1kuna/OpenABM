@@ -36,8 +36,10 @@ import type {
   SavedSearch,
   ScoreResult,
   ScreenshotIssueResult,
+  SimilarTraceSearchResult,
   TraceDetail,
-  TraceEnvelope
+  TraceEnvelope,
+  TraceAssertionResult
 } from "./types";
 
 export interface OpenAbmClientConfig {
@@ -93,11 +95,22 @@ export class OpenAbmClient {
     return this.get<TraceDetail>(`/v1/traces/${traceId}?${params.toString()}`);
   }
 
-  async searchSimilar(projectId: string, sourceId: string): Promise<{ disabled: boolean; reason?: string }> {
-    return this.post("/v1/search/similar", {
+  async searchSimilar(projectId: string, sourceId: string): Promise<SimilarTraceSearchResult> {
+    return this.post<SimilarTraceSearchResult>("/v1/search/similar", {
       project_id: projectId,
       source_id: sourceId,
       source_type: "trace"
+    });
+  }
+
+  async checkTraceAssertions(
+    projectId: string,
+    traceId: string,
+    assertions: Record<string, unknown>
+  ): Promise<TraceAssertionResult> {
+    return this.post<TraceAssertionResult>(`/v1/traces/${traceId}/assertions/check`, {
+      project_id: projectId,
+      assertions
     });
   }
 
@@ -259,6 +272,18 @@ export class OpenAbmClient {
     if (traceId) params.set("trace_id", traceId);
     const body = await this.get<{ data: ScoreResult[] }>(`/v1/scores?${params.toString()}`);
     return body.data;
+  }
+
+  async runRubricJudge(
+    projectId: string,
+    traceId: string,
+    judge: Record<string, unknown>
+  ): Promise<ScoreResult> {
+    return this.post<ScoreResult>("/v1/judges/rubric/run", {
+      project_id: projectId,
+      trace_id: traceId,
+      judge
+    });
   }
 
   async labelTraceBehavior(

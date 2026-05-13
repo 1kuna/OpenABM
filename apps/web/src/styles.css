@@ -1268,7 +1268,9 @@ td span {
 }
 
 .eventRows small,
-.evidenceRows span {
+.evidenceRows span,
+.evidenceRows small {
+  display: block;
   color: #6b7280;
   font-size: 12px;
   overflow-wrap: anywhere;
@@ -1313,6 +1315,25 @@ pre {
 .actionStrip button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.assertionBox {
+  display: grid;
+  gap: 7px;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.assertionBox textarea {
+  min-height: 86px;
+  resize: vertical;
+  border: 1px solid #d1d5db;
+  border-radius: 7px;
+  color: #111827;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  padding: 10px;
 }
 
 .reviewFacts {

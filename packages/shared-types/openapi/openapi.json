@@ -3737,6 +3737,81 @@
         }
       }
     },
+    "/v1/traces/{trace_id}/assertions/check": {
+      "post": {
+        "operationId": "checkTraceAssertions",
+        "summary": "Run deterministic trace assertions against captured spans.",
+        "x-required-scopes": [
+          "traces:read"
+        ],
+        "parameters": [
+          {
+            "name": "trace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "assertions"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "assertions": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deterministic assertion result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "failures",
+                    "observed"
+                  ],
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "passed",
+                        "failed"
+                      ]
+                    },
+                    "failures": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "observed": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/traces/{trace_id}/spans": {
       "get": {
         "operationId": "listTraceSpans",

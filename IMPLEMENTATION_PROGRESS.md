@@ -143,6 +143,15 @@ Done:
 - Added `/v1/traces/{trace_id}/behavior-labels` and a trace-detail behavior
   labeling action. The action updates explicit trace behavior attributes and
   persists a confirmed behavior match with selected-span evidence.
+- Added `/v1/traces/{trace_id}/assertions/check` and a trace-detail
+  deterministic assertion action that evaluates captured spans without model
+  calls, displays failures/observed values, and audits the check outcome.
+- Wired trace-detail similar trace results and rubric judge execution into the
+  UI. Similarity now renders model-ranked matches with evidence span IDs, and
+  rubric runs append persisted score results back into the evidence panel.
+- Updated `.env.example` so local model configuration names
+  `OPENABM_CHAT_MODEL=qwen3.5-9b-mlx` and keeps model and judge context at the
+  262k default instead of advertising a sub-32k token cap.
 - Added trace-list saved search controls and a bulk dataset action that saves
   the current trace query, reapplies saved searches, creates datasets, and adds
   the visible trace result set as provenance-linked dataset examples.
@@ -437,11 +446,12 @@ Verified after the latest implementation slices:
   switching, saved search creation/application, trace-list dataset bulk add,
   trace-list latency/token/cost columns, score and behavior badges, selected
   span inspection, payload/evidence panels, trace-detail add-to-dataset,
-  trace-detail behavior labeling, retention dry-run, export manifest,
-  classification, issue intake, screenshot intake, ChatOps investigation,
-  notification-target creation, automation creation, and automation run-once
-  flows completed against the live local API with no console errors or failing
-  API responses.
+  trace-detail behavior labeling, deterministic assertion checks, similar trace
+  result rendering, and local qwen-backed rubric judge execution, retention
+  dry-run, export manifest, classification, issue intake, screenshot intake,
+  ChatOps investigation, notification-target creation, automation creation, and
+  automation run-once flows completed against the live local API with no console
+  errors or failing API responses.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
 - MCP stdio smoke: `tools/list` returned 35 tools and

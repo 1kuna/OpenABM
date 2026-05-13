@@ -53,9 +53,11 @@ import type {
   SavedSearch,
   ScoreResult,
   ScreenshotIssueResult,
+  SimilarTraceSearchResult,
   SpanEnvelope,
   SpanNode,
   TimelineRow,
+  TraceAssertionResult,
   TraceDetail,
   TraceEnvelope,
   TraceStatus
@@ -92,6 +94,7 @@ export function App() {
   const [status, setStatus] = useState("");
   const [activeView, setActiveView] = useState<ViewKey>("traces");
   const [similarState, setSimilarState] = useState("semantic similarity ready when a model provider is configured");
+  const [similarResult, setSimilarResult] = useState<SimilarTraceSearchResult | null>(null);
 
   const client = useMemo(() => new OpenAbmClient({ baseUrl, apiKey }), [baseUrl, apiKey]);
 
@@ -139,6 +142,7 @@ export function App() {
     let cancelled = false;
     async function loadDetail() {
       if (!selectedTraceId) return;
+      setSimilarResult(null);
       if (connection !== "live") {
         setDetail(fixtureDetails.find((item) => item.trace.trace_id === selectedTraceId) ?? fixtureDetails[0]);
         return;
@@ -176,7 +180,8 @@ export function App() {
       return;
     }
     const result = await client.searchSimilar(projectId, selectedTraceId);
-    setSimilarState(result.disabled ? result.reason ?? "disabled" : "ready");
+    setSimilarResult(result);
+    setSimilarState(result.disabled ? result.reason ?? "disabled" : `${result.data.length} similar traces`);
   }
 
   async function applySavedSearch(savedSearch: SavedSearch) {
@@ -259,6 +264,7 @@ export function App() {
             status={status}
             selectedTraceId={selectedTraceId}
             similarState={similarState}
+            similarResult={similarResult}
             client={client}
             connection={connection}
             projectId={projectId}
@@ -2643,6 +2649,7 @@ function TraceExplorer(props: {
   status: string;
   selectedTraceId: string;
   similarState: string;
+  similarResult: SimilarTraceSearchResult | null;
   client: OpenAbmClient;
   connection: ConnectionState;
   projectId: string;
@@ -2667,10 +2674,15 @@ function TraceExplorer(props: {
   const [datasetMembershipByTrace, setDatasetMembershipByTrace] = useState<Record<string, DatasetMembership[]>>({});
   const [behaviorDefinitions, setBehaviorDefinitions] = useState<BehaviorDefinition[]>([]);
   const [labelBehaviorId, setLabelBehaviorId] = useState("");
+  const [judgeDefinitions, setJudgeDefinitions] = useState<JudgeDefinition[]>([]);
+  const [selectedJudgeId, setSelectedJudgeId] = useState("");
+  const [assertionText, setAssertionText] = useState('{\n  "forbidden_tools": []\n}');
+  const [assertionResult, setAssertionResult] = useState<TraceAssertionResult | null>(null);
   const [selectedSpanId, setSelectedSpanId] = useState("");
   const selectedSpan = detail?.spans.find((span) => span.span_id === selectedSpanId) ?? detail?.spans[0] ?? null;
   const selectedSavedSearch = savedSearches.find((item) => item.saved_search_id === selectedSavedSearchId) ?? null;
   const selectedDataset = datasets.find((dataset) => dataset.dataset_id === selectedDatasetId) ?? datasets[0] ?? null;
+  const selectedJudge = judgeDefinitions.find((judge) => judge.judge_id === selectedJudgeId) ?? judgeDefinitions[0] ?? null;
 
   async function loadTraceListTools() {
     if (props.connection !== "live") {
@@ -2681,16 +2693,27 @@ function TraceExplorer(props: {
       setDatasetMembershipByTrace({});
       setBehaviorDefinitions([]);
       setLabelBehaviorId("");
+      setJudgeDefinitions([]);
+      setSelectedJudgeId("");
+      setAssertionResult(null);
       setTraceListState("fixture mode");
       return;
     }
     try {
-      const [loadedSearches, loadedDatasets, loadedScores, loadedBehaviorMatches, loadedBehaviors] = await Promise.all([
+      const [
+        loadedSearches,
+        loadedDatasets,
+        loadedScores,
+        loadedBehaviorMatches,
+        loadedBehaviors,
+        loadedJudges
+      ] = await Promise.all([
         props.client.listSavedSearches(props.projectId),
         props.client.listDatasets(props.projectId),
         props.client.listScores(props.projectId),
         props.client.listBehaviorMatches(props.projectId),
-        props.client.listBehaviors(props.projectId)
+        props.client.listBehaviors(props.projectId),
+        props.client.listJudges(props.projectId)
       ]);
       const datasetExamples = await Promise.all(
         loadedDatasets.map(async (dataset) => ({
@@ -2704,10 +2727,16 @@ function TraceExplorer(props: {
       setBehaviorMatchesByTrace(groupByTraceId(loadedBehaviorMatches));
       setDatasetMembershipByTrace(groupDatasetMembership(datasetExamples));
       setBehaviorDefinitions(loadedBehaviors);
+      setJudgeDefinitions(loadedJudges);
       setLabelBehaviorId((current) =>
         loadedBehaviors.some((behavior) => behavior.behavior_id === current)
           ? current
           : loadedBehaviors[0]?.behavior_id ?? ""
+      );
+      setSelectedJudgeId((current) =>
+        loadedJudges.some((judge) => judge.judge_id === current)
+          ? current
+          : loadedJudges[0]?.judge_id ?? ""
       );
       setSelectedSavedSearchId((current) =>
         loadedSearches.some((search) => search.saved_search_id === current)
@@ -2733,6 +2762,7 @@ function TraceExplorer(props: {
 
   useEffect(() => {
     setSelectedSpanId(detail?.spans[0]?.span_id ?? "");
+    setAssertionResult(null);
   }, [detail?.trace.trace_id]);
 
   async function createSavedSearch() {
@@ -2835,6 +2865,46 @@ function TraceExplorer(props: {
       setTraceListState(`labeled ${detail.trace.trace_id} with ${result.behavior_match.behavior_id}`);
     } catch (error) {
       setTraceListState(error instanceof Error ? error.message : "behavior label failed");
+    }
+  }
+
+  async function runSelectedJudge() {
+    if (props.connection !== "live" || !detail || !selectedJudge) return;
+    try {
+      const judge = await props.client.getJudge(props.projectId, selectedJudge.judge_id);
+      const payload = runnableJudgePayload(judge);
+      if (!payload) {
+        setTraceListState("selected judge has no runnable rubric version");
+        return;
+      }
+      setTraceListState(`running judge ${judge.name}`);
+      const score = await props.client.runRubricJudge(props.projectId, detail.trace.trace_id, payload);
+      setScoresByTrace((current) => ({
+        ...current,
+        [detail.trace.trace_id]: [
+          score,
+          ...(current[detail.trace.trace_id] ?? []).filter((item) => item.score_id !== score.score_id)
+        ]
+      }));
+      setTraceListState(`judge ${judge.name} returned ${formatScore(asRecord(score))}`);
+    } catch (error) {
+      setTraceListState(error instanceof Error ? error.message : "judge run failed");
+    }
+  }
+
+  async function runAssertionCheck() {
+    if (props.connection !== "live" || !detail) return;
+    try {
+      const assertions = parseJsonObject(assertionText);
+      const result = await props.client.checkTraceAssertions(
+        props.projectId,
+        detail.trace.trace_id,
+        assertions
+      );
+      setAssertionResult(result);
+      setTraceListState(`deterministic check ${result.status}`);
+    } catch (error) {
+      setTraceListState(error instanceof Error ? error.message : "deterministic check failed");
     }
   }
 
@@ -2994,11 +3064,29 @@ function TraceExplorer(props: {
               scores={scoresByTrace[detail.trace.trace_id] ?? []}
               behaviorMatches={behaviorMatchesByTrace[detail.trace.trace_id] ?? []}
               datasetMemberships={datasetMembershipByTrace[detail.trace.trace_id] ?? []}
+              similarResult={props.similarResult}
+              assertionResult={assertionResult}
             />
             <div className="actionStrip">
               <button onClick={props.onCheckSimilarity}>
                 <Search size={15} />
                 Similar
+              </button>
+              <select
+                value={selectedJudge?.judge_id ?? ""}
+                onChange={(event) => setSelectedJudgeId(event.target.value)}
+                aria-label="Rubric judge"
+              >
+                <option value="">Select judge</option>
+                {judgeDefinitions.map((judge) => (
+                  <option key={judge.judge_id} value={judge.judge_id}>
+                    {judge.name}
+                  </option>
+                ))}
+              </select>
+              <button onClick={() => void runSelectedJudge()} disabled={!selectedJudge}>
+                <Braces size={15} />
+                Run judge
               </button>
               <select
                 value={labelBehaviorId}
@@ -3016,7 +3104,7 @@ function TraceExplorer(props: {
                 <GitBranch size={15} />
                 Label behavior
               </button>
-              <button>
+              <button onClick={() => void runAssertionCheck()}>
                 <Braces size={15} />
                 Deterministic check
               </button>
@@ -3025,6 +3113,10 @@ function TraceExplorer(props: {
                 Add trace
               </button>
             </div>
+            <label className="assertionBox">
+              Assertions JSON
+              <textarea value={assertionText} onChange={(event) => setAssertionText(event.target.value)} spellCheck={false} />
+            </label>
             <p className="systemNote">{props.similarState}</p>
           </>
         ) : (
@@ -3328,8 +3420,10 @@ function TraceEvidencePanel(props: {
   scores: ScoreResult[];
   behaviorMatches: BehaviorMatch[];
   datasetMemberships: DatasetMembership[];
+  similarResult: SimilarTraceSearchResult | null;
+  assertionResult: TraceAssertionResult | null;
 }) {
-  const { trace, scores, behaviorMatches, datasetMemberships } = props;
+  const { trace, scores, behaviorMatches, datasetMemberships, similarResult, assertionResult } = props;
   return (
     <div className="traceEvidencePanel">
       <section>
@@ -3366,6 +3460,37 @@ function TraceEvidencePanel(props: {
             </div>
           ))}
           {!datasetMemberships.length ? <p className="systemNote">No dataset examples linked yet</p> : null}
+        </div>
+      </section>
+      <section>
+        <h4>Similar traces</h4>
+        <div className="evidenceRows">
+          {similarResult?.disabled ? <p className="systemNote">{similarResult.reason ?? "similarity disabled"}</p> : null}
+          {similarResult?.data.map((match) => (
+            <div key={match.trace_id}>
+              <strong>{match.trace_id}</strong>
+              <span>{formatRate(match.similarity_score)} similar · evidence {match.evidence_span_ids.join(", ") || "none"}</span>
+              <small>{match.rationale}</small>
+            </div>
+          ))}
+          {similarResult && !similarResult.disabled && !similarResult.data.length ? (
+            <p className="systemNote">No similar traces returned</p>
+          ) : null}
+          {!similarResult ? <p className="systemNote">Similarity not run for {trace.trace_id}</p> : null}
+        </div>
+      </section>
+      <section>
+        <h4>Deterministic check</h4>
+        <div className="evidenceRows">
+          {assertionResult ? (
+            <div>
+              <strong>{assertionResult.status}</strong>
+              <span>{assertionResult.failures.length} failures</span>
+              <pre>{JSON.stringify(assertionResult, null, 2)}</pre>
+            </div>
+          ) : (
+            <p className="systemNote">No assertion check run</p>
+          )}
         </div>
       </section>
     </div>
@@ -3892,6 +4017,26 @@ function groupDatasetMembership(items: Array<{ dataset: DatasetDefinition; examp
     }
     return grouped;
   }, {});
+}
+
+function runnableJudgePayload(judge: JudgeDefinition): Record<string, unknown> | null {
+  const version = latestJudgeVersion(judge);
+  const definition = version?.definition ?? {};
+  const judgeType = String(definition.judge_type ?? judge.judge_type);
+  if (judgeType !== "rubric_judge") return null;
+  if (!definition.rubric) return null;
+  return {
+    ...definition,
+    judge_id: judge.judge_id,
+    judge_version_id: version?.judge_version_id ?? null,
+    judge_type: judgeType,
+    name: judge.name,
+    description: judge.description
+  };
+}
+
+function latestJudgeVersion(judge: JudgeDefinition) {
+  return [...(judge.versions ?? [])].sort((left, right) => right.version - left.version)[0] ?? null;
 }
 
 function traceLatency(trace: TraceEnvelope) {
