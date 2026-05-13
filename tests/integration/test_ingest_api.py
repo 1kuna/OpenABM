@@ -1569,6 +1569,7 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
         json={
             "project_id": "proj_demo",
             "content": {"model": "local-9b", "tools": ["lookup"]},
+            "metadata": {"deployment_context_id": "deploy_refund_runtime_v2"},
             "tag": "prod",
         },
     )
@@ -1582,6 +1583,11 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
         },
     )
     assert '"tools":["lookup"]' in compare.json()["content_diff"]
+    compare_body = compare.json()
+    assert compare_body["metadata_changed"] is True
+    assert compare_body["metadata_diff"]["changed_fields"] == ["deployment_context_id"]
+    assert compare_body["structured_diff"]["tool_changes"]["added"] == ["lookup"]
+    assert compare_body["structured_diff"]["changed_fields"] == ["tools"]
     config_detail = client.get(
         f"/v1/agent-configs/{config_id}",
         headers=auth_headers(),
@@ -1607,11 +1613,11 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
     assert mcp_config_detail.json()["tags"]["mcp"] == mcp_config_version["commit_id"]
     assert [
         event["new_commit_id"]
-        for event in compare.json()["tag_movement_history"]
+        for event in compare_body["tag_movement_history"]
         if event["tag"] == "prod"
     ] == [cfg_v1.json()["commit_id"], cfg_v2.json()["commit_id"]]
     prod_config_tag_events = [
-        event for event in compare.json()["tag_movement_history"] if event["tag"] == "prod"
+        event for event in compare_body["tag_movement_history"] if event["tag"] == "prod"
     ]
     assert prod_config_tag_events[1]["previous_commit_id"] == cfg_v1.json()["commit_id"]
 

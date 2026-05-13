@@ -4777,6 +4777,8 @@
                     "new_commit_id",
                     "content_diff",
                     "metadata_changed",
+                    "metadata_diff",
+                    "structured_diff",
                     "tag_movement_history"
                   ],
                   "properties": {
@@ -4785,6 +4787,8 @@
                     "new_commit_id": {"type": "string"},
                     "content_diff": {"type": "string"},
                     "metadata_changed": {"type": "boolean"},
+                    "metadata_diff": {"type": "object"},
+                    "structured_diff": {"type": "object"},
                     "tag_movement_history": {
                       "type": "array",
                       "items": {"$ref": "#/components/schemas/AgentConfigTagEvent"}

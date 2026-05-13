@@ -552,6 +552,138 @@ def _runtime_provenance_comparison(
     }
 
 
+CONFIG_DIFF_SECTION_KEYS = {
+    "retrieval_source_changes": {
+        "retrieval",
+        "retriever",
+        "retrieval_config",
+        "retriever_settings",
+        "retrieval_sources",
+        "sources",
+    },
+    "memory_policy_changes": {"memory", "memory_policy", "memory_config", "memory_policies"},
+    "guardrail_changes": {
+        "guardrail",
+        "guardrails",
+        "guardrail_config",
+        "guardrail_settings",
+    },
+    "routing_rule_changes": {
+        "routing",
+        "routes",
+        "runtime_routing",
+        "model_routing",
+        "routing_rules",
+    },
+    "workflow_step_changes": {"workflow", "graph", "steps", "workflow_steps"},
+    "feature_flag_changes": {"feature_flags", "flags"},
+    "linked_deployment_changes": {
+        "deployment",
+        "deployment_context_id",
+        "environment",
+        "service_version",
+    },
+}
+
+
+def _json_structural_diff(old: Any, new: Any) -> dict[str, Any]:
+    old_flat = _flatten_json(old)
+    new_flat = _flatten_json(new)
+    changes = []
+    for path in sorted(set(old_flat) | set(new_flat)):
+        old_missing = path not in old_flat
+        new_missing = path not in new_flat
+        if old_missing:
+            changes.append({"path": path, "change_type": "added", "new": new_flat[path]})
+        elif new_missing:
+            changes.append({"path": path, "change_type": "removed", "old": old_flat[path]})
+        elif old_flat[path] != new_flat[path]:
+            changes.append(
+                {
+                    "path": path,
+                    "change_type": "changed",
+                    "old": old_flat[path],
+                    "new": new_flat[path],
+                }
+            )
+    return {
+        "changed_fields": sorted({_top_level_field(change["path"]) for change in changes}),
+        "changes": changes,
+    }
+
+
+def _agent_config_structured_diff(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
+    base = _json_structural_diff(old, new)
+    changes = base["changes"]
+    return {
+        **base,
+        "tool_changes": _named_list_delta(old.get("tools"), new.get("tools")),
+        **{
+            section: [
+                change
+                for change in changes
+                if _top_level_field(change["path"]) in section_keys
+            ]
+            for section, section_keys in CONFIG_DIFF_SECTION_KEYS.items()
+        },
+    }
+
+
+def _flatten_json(value: Any, path: str = "$") -> dict[str, Any]:
+    if isinstance(value, dict):
+        if not value:
+            return {}
+        flattened: dict[str, Any] = {}
+        for key in sorted(value):
+            flattened.update(_flatten_json(value[key], f"{path}.{key}"))
+        return flattened
+    if isinstance(value, list):
+        if not value:
+            return {}
+        flattened = {}
+        for index, item in enumerate(value):
+            flattened.update(_flatten_json(item, f"{path}[{index}]"))
+        return flattened
+    return {path: value}
+
+
+def _top_level_field(path: str) -> str:
+    if not path.startswith("$."):
+        return "$"
+    rest = path[2:]
+    return rest.split(".", 1)[0].split("[", 1)[0]
+
+
+def _named_list_delta(old: Any, new: Any) -> dict[str, list[str]]:
+    old_items = _named_items(old)
+    new_items = _named_items(new)
+    old_keys = set(old_items)
+    new_keys = set(new_items)
+    return {
+        "added": sorted(new_keys - old_keys),
+        "removed": sorted(old_keys - new_keys),
+        "changed": sorted(
+            key for key in old_keys & new_keys if old_items[key] != new_items[key]
+        ),
+    }
+
+
+def _named_items(value: Any) -> dict[str, Any]:
+    if not isinstance(value, list):
+        return {}
+    return {_item_identity(item): item for item in value}
+
+
+def _item_identity(item: Any) -> str:
+    if isinstance(item, str):
+        return item
+    if isinstance(item, dict):
+        for key in ["tool_id", "tool", "name", "id", "ref", "version_id"]:
+            if isinstance(item.get(key), str) and item[key]:
+                return item[key]
+    return encode_json(item)
+
+
 def _runtime_provenance_distribution(traces: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
     distribution: dict[str, dict[str, int]] = {
         "prompt_version_id": {},
@@ -3876,6 +4008,8 @@ class SQLiteStore:
             "new_commit_id": new_commit_id,
             "content_diff": diff,
             "metadata_changed": old["metadata"] != new["metadata"],
+            "metadata_diff": _json_structural_diff(old["metadata"], new["metadata"]),
+            "structured_diff": _agent_config_structured_diff(old["content"], new["content"]),
             "tag_movement_history": self._agent_config_tag_history_for_commits(
                 project_id,
                 agent_config_id,

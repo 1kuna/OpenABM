@@ -587,6 +587,12 @@ function AgentConfigWorkspace(props: {
                   </button>
                 </div>
                 {comparison ? <pre>{comparison.content_diff || "No content changes"}</pre> : null}
+                {comparison ? (
+                  <pre>{JSON.stringify({
+                    metadata_diff: comparison.metadata_diff,
+                    structured_diff: comparison.structured_diff
+                  }, null, 2)}</pre>
+                ) : null}
                 {comparison?.tag_movement_history.length ? (
                   <pre>{JSON.stringify(comparison.tag_movement_history, null, 2)}</pre>
                 ) : null}
