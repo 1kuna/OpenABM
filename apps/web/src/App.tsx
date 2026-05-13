@@ -39,6 +39,7 @@ import type {
   DataClassificationPolicy,
   DatasetDefinition,
   DatasetExample,
+  EvalAnalytics,
   EvalComparison,
   EvalResult,
   EvalRun,
@@ -3187,6 +3188,7 @@ function DatasetEvalWorkspace(props: {
   const [datasets, setDatasets] = useState<DatasetDefinition[]>([]);
   const [examples, setExamples] = useState<DatasetExample[]>([]);
   const [evalRuns, setEvalRuns] = useState<EvalRun[]>([]);
+  const [evalAnalytics, setEvalAnalytics] = useState<EvalAnalytics | null>(null);
   const [evalResults, setEvalResults] = useState<EvalResult[]>([]);
   const [comparisonBaselineResults, setComparisonBaselineResults] = useState<EvalResult[]>([]);
   const [comparisonCandidateResults, setComparisonCandidateResults] = useState<EvalResult[]>([]);
@@ -3220,12 +3222,16 @@ function DatasetEvalWorkspace(props: {
   const agentConfigVersionOptions = agentConfigOptions.flatMap((config) =>
     (config.versions ?? []).map((version) => ({ config, version }))
   );
+  const topPromptAnalytics = evalAnalytics?.by_prompt_version[0];
+  const topConfigAnalytics = evalAnalytics?.by_agent_config_version[0];
+  const topDeploymentAnalytics = evalAnalytics?.by_deployment_context[0];
 
   async function loadWorkspace() {
     if (connection !== "live") {
       setDatasets([]);
       setExamples([]);
       setEvalRuns([]);
+      setEvalAnalytics(null);
       setEvalResults([]);
       setComparisonBaselineResults([]);
       setComparisonCandidateResults([]);
@@ -3236,12 +3242,20 @@ function DatasetEvalWorkspace(props: {
       return;
     }
     try {
-      const [loadedDatasets, loadedRuns, loadedJudges, listedPrompts, listedConfigs] = await Promise.all([
+      const [
+        loadedDatasets,
+        loadedRuns,
+        loadedJudges,
+        listedPrompts,
+        listedConfigs,
+        analytics
+      ] = await Promise.all([
         client.listDatasets(projectId),
         client.listEvalRuns(projectId),
         client.listJudges(projectId),
         client.listPrompts(projectId),
-        client.listAgentConfigs(projectId)
+        client.listAgentConfigs(projectId),
+        client.getEvalAnalytics(projectId)
       ]);
       const [hydratedPrompts, hydratedConfigs] = await Promise.all([
         Promise.all(listedPrompts.map((prompt) => client.getPrompt(projectId, prompt.prompt_id))),
@@ -3251,6 +3265,7 @@ function DatasetEvalWorkspace(props: {
       ]);
       setDatasets(loadedDatasets);
       setEvalRuns(loadedRuns);
+      setEvalAnalytics(analytics);
       setJudges(loadedJudges);
       setPromptOptions(hydratedPrompts);
       setAgentConfigOptions(hydratedConfigs);
@@ -3461,6 +3476,7 @@ function DatasetEvalWorkspace(props: {
               <Metric icon={<Database />} label="Examples" value={String(examples.length)} />
               <Metric icon={<Play />} label="Eval runs" value={String(datasetRuns.length)} />
               <Metric icon={<GitBranch />} label="Version" value={selectedDataset.latest_version_id} />
+              <Metric icon={<Split />} label="Analyzed runs" value={String(evalAnalytics?.run_count ?? 0)} />
             </div>
             <div className="datasetSections">
               <section className="datasetSection">
@@ -3547,6 +3563,20 @@ function DatasetEvalWorkspace(props: {
 
               <section className="datasetSection evalHistory">
                 <h4>Eval history</h4>
+                <div className="exampleRows">
+                  <div>
+                    <strong>Prompt versions</strong>
+                    <span>{formatEvalAnalyticsGroup(topPromptAnalytics)}</span>
+                  </div>
+                  <div>
+                    <strong>Runtime configs</strong>
+                    <span>{formatEvalAnalyticsGroup(topConfigAnalytics)}</span>
+                  </div>
+                  <div>
+                    <strong>Deployments</strong>
+                    <span>{formatEvalAnalyticsGroup(topDeploymentAnalytics)}</span>
+                  </div>
+                </div>
                 <div className="evalRows">
                   {datasetRuns.map((run) => (
                     <button
@@ -5851,6 +5881,19 @@ function formatEvalRuntimeContext(context: Record<string, unknown>) {
     ? `tools ${context.tool_version_ids.map((value) => String(value)).join(", ")}`
     : null;
   return [deployment, toolVersions].filter(Boolean).join(" · ") || "none";
+}
+
+function formatEvalAnalyticsGroup(group: EvalAnalytics["by_prompt_version"][number] | undefined) {
+  if (!group) return "No historical runs";
+  const passRate =
+    typeof group.avg_pass_rate === "number"
+      ? `${Math.round(group.avg_pass_rate * 1000) / 10}% pass`
+      : "pass pending";
+  const invalidRate =
+    typeof group.invalid_output_rate === "number"
+      ? `${Math.round(group.invalid_output_rate * 1000) / 10}% invalid`
+      : "invalid pending";
+  return `${shortIdentifier(group.key)} · ${group.run_count} runs · ${passRate} · ${invalidRate}`;
 }
 
 function formatEvalProvenanceComparison(value: Record<string, unknown>) {

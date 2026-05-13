@@ -698,6 +698,9 @@ Verified after the latest implementation slices:
 - Eval provenance UI build passed: the Datasets/Evals workspace now hydrates
   prompt/config version options, sends selected provenance with eval runs, and
   renders selected-run runtime context plus comparison provenance changes.
+- Added eval runtime analytics over historical runs: `/v1/evals/analytics`
+  groups pass/invalid-output trends by prompt version, agent config version, and
+  deployment context, with a compact Datasets/Evals UI summary.
 - Worker supervision regression passed: ops status reports healthy worker
   heartbeats, marks stale heartbeats after the local freshness threshold, counts
   worker risk, and the Operations workspace renders that risk next to heartbeat
@@ -711,8 +714,9 @@ Known remaining gaps before calling the whole spec complete:
   tag movement, render, diff, plus agent config history/comparison.
 - Judge registry, model-backed judge drafting, local eval launch, eval
   comparison, judge calibration reporting, promotion gates, and the judge
-  lifecycle workspace now exist. Prompt/config-linked eval launch and comparison
-  provenance are now wired; richer historical analytics remain future polish.
+  lifecycle workspace now exist. Prompt/config-linked eval launch, comparison
+  provenance, and runtime-version analytics are now wired; deeper historical
+  drilldowns remain future polish.
 - Automation definitions and local run execution include deterministic
   conditions, idempotency, preview notifications, opt-in live webhook delivery,
   review-task actions, cooldown skips, bounded retries, and dead-letter action

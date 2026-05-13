@@ -21,6 +21,7 @@ import type {
   DatasetExample,
   DocsSearchResult,
   EvalComparison,
+  EvalAnalytics,
   EvalResult,
   EvalRun,
   HealthStatus,
@@ -771,6 +772,11 @@ export class OpenAbmClient {
     const params = new URLSearchParams({ project_id: projectId });
     const body = await this.get<{ data: EvalRun[] }>(`/v1/evals?${params.toString()}`);
     return body.data;
+  }
+
+  async getEvalAnalytics(projectId: string): Promise<EvalAnalytics> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<EvalAnalytics>(`/v1/evals/analytics?${params.toString()}`);
   }
 
   async getEvalRun(projectId: string, evalRunId: string): Promise<EvalRun> {

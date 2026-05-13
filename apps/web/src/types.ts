@@ -699,6 +699,27 @@ export interface EvalRun {
   completed_at: string | null;
 }
 
+export interface EvalAnalyticsGroup {
+  key: string;
+  run_count: number;
+  completed_count: number;
+  latest_eval_run_id: string | null;
+  latest_created_at: string | null;
+  avg_pass_rate: number | null;
+  total_examples: number;
+  invalid_output_count: number;
+  invalid_output_rate: number | null;
+}
+
+export interface EvalAnalytics {
+  project_id: string;
+  run_count: number;
+  by_prompt_version: EvalAnalyticsGroup[];
+  by_agent_config_version: EvalAnalyticsGroup[];
+  by_deployment_context: EvalAnalyticsGroup[];
+  recent_runs: Array<Record<string, unknown>>;
+}
+
 export interface EvalResult {
   eval_result_id: string;
   project_id: string;

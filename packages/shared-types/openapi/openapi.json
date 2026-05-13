@@ -2097,6 +2097,30 @@
         }
       }
     },
+    "/v1/evals/analytics": {
+      "get": {
+        "operationId": "getEvalRunAnalytics",
+        "summary": "Summarize eval outcomes by prompt, agent config, and deployment context.",
+        "x-required-scopes": [
+          "evals:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Eval analytics."
+          }
+        }
+      }
+    },
     "/v1/evals/run": {
       "post": {
         "operationId": "runEval",

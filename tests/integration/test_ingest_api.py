@@ -1178,6 +1178,20 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
     assert provenance["candidate"]["runtime_context"]["deployment_context_id"] == (
         "deploy_refund_runtime_v2"
     )
+    analytics = client.get(
+        "/v1/evals/analytics",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert analytics.status_code == 200
+    analytics_body = analytics.json()
+    assert analytics_body["run_count"] == 2
+    assert analytics_body["by_prompt_version"][0]["run_count"] == 1
+    prompt_keys = {item["key"] for item in analytics_body["by_prompt_version"]}
+    assert version_1.json()["prompt_version_id"] in prompt_keys
+    assert version_2.json()["prompt_version_id"] in prompt_keys
+    deployment_keys = {item["key"] for item in analytics_body["by_deployment_context"]}
+    assert {"deploy_refund_runtime_v1", "deploy_refund_runtime_v2"} <= deployment_keys
 
     investigation = client.post(
         "/v1/investigations",

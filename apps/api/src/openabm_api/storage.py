@@ -5,7 +5,7 @@ import hashlib
 import json
 import secrets
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -181,6 +181,14 @@ def _invalid_delta(baseline: dict[str, Any], candidate: dict[str, Any]) -> int:
     return candidate_invalid - baseline_invalid
 
 
+def _invalid_output_count(summary: dict[str, Any]) -> int:
+    return int(summary.get("result_status_counts", {}).get("invalid_output", 0))
+
+
+def _total_eval_examples(summary: dict[str, Any]) -> int:
+    return int(summary.get("total_examples") or 0)
+
+
 def _average_score(results: Iterable[dict[str, Any]]) -> float | None:
     scores = []
     for result in results:
@@ -215,6 +223,39 @@ def _sum_token_usage(results: Iterable[dict[str, Any]]) -> int | None:
                 saw_usage = True
                 total += int(tokens)
     return total if saw_usage else None
+
+
+def _eval_group_summary(group_key: str, runs: list[dict[str, Any]]) -> dict[str, Any]:
+    sorted_runs = sorted(runs, key=lambda run: run.get("created_at") or "", reverse=True)
+    total_examples = sum(_total_eval_examples(run.get("summary", {})) for run in runs)
+    invalid_outputs = sum(_invalid_output_count(run.get("summary", {})) for run in runs)
+    return {
+        "key": group_key,
+        "run_count": len(runs),
+        "completed_count": sum(1 for run in runs if run.get("status") == "completed"),
+        "latest_eval_run_id": sorted_runs[0]["eval_run_id"] if sorted_runs else None,
+        "latest_created_at": sorted_runs[0].get("created_at") if sorted_runs else None,
+        "avg_pass_rate": _average_numbers([_pass_rate(run.get("summary", {})) for run in runs]),
+        "total_examples": total_examples,
+        "invalid_output_count": invalid_outputs,
+        "invalid_output_rate": None
+        if total_examples == 0
+        else invalid_outputs / total_examples,
+    }
+
+
+def _group_eval_runs(
+    runs: list[dict[str, Any]],
+    key_fn: Callable[[dict[str, Any]], str],
+) -> list[dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for run in runs:
+        groups.setdefault(key_fn(run), []).append(run)
+    return sorted(
+        (_eval_group_summary(key, grouped_runs) for key, grouped_runs in groups.items()),
+        key=lambda item: (item["run_count"], item["latest_created_at"] or ""),
+        reverse=True,
+    )
 
 
 def _score_verdict_counts(scores: Iterable[dict[str, Any]]) -> dict[str, int]:
@@ -2687,6 +2728,45 @@ class SQLiteStore:
                 (project_id, eval_run_id),
             ).fetchall()
         return [self._eval_result_from_row(row) for row in rows]
+
+    def eval_run_analytics(self, project_id: str) -> dict[str, Any]:
+        runs = self.list_eval_runs(project_id)
+        return {
+            "project_id": project_id,
+            "run_count": len(runs),
+            "by_prompt_version": _group_eval_runs(
+                runs,
+                lambda run: run.get("prompt_version_id") or "unversioned",
+            ),
+            "by_agent_config_version": _group_eval_runs(
+                runs,
+                lambda run: run.get("agent_config_version_id") or "unversioned",
+            ),
+            "by_deployment_context": _group_eval_runs(
+                runs,
+                lambda run: str(
+                    (run.get("runtime_context") or {}).get("deployment_context_id")
+                    or "unversioned"
+                ),
+            ),
+            "recent_runs": [
+                {
+                    "eval_run_id": run["eval_run_id"],
+                    "dataset_version_id": run["dataset_version_id"],
+                    "status": run["status"],
+                    "prompt_version_id": run.get("prompt_version_id"),
+                    "agent_config_version_id": run.get("agent_config_version_id"),
+                    "deployment_context_id": (run.get("runtime_context") or {}).get(
+                        "deployment_context_id"
+                    ),
+                    "pass_rate": _pass_rate(run.get("summary", {})),
+                    "invalid_output_count": _invalid_output_count(run.get("summary", {})),
+                    "created_at": run["created_at"],
+                    "completed_at": run.get("completed_at"),
+                }
+                for run in runs[:10]
+            ],
+        }
 
     def get_eval_run(self, project_id: str, eval_run_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:

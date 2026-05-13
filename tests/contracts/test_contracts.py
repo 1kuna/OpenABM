@@ -97,6 +97,7 @@ REQUIRED_QUERY_PATHS = {
     "/v1/search/spans",
     "/v1/search/similar",
     "/v1/evals",
+    "/v1/evals/analytics",
     "/v1/evals/run",
     "/v1/evals/{eval_run_id}",
     "/v1/evals/{eval_run_id}/results",

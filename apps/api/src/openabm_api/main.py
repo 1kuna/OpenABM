@@ -1657,6 +1657,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         del actor
         return {"data": store.list_eval_runs(project_id)}
 
+    @app.get("/api/evals/analytics")
+    def get_eval_run_analytics(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["evals:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return store.eval_run_analytics(project_id)
+
     @app.post("/api/evals/run", status_code=201)
     async def run_eval_endpoint(
         request: dict[str, Any],
