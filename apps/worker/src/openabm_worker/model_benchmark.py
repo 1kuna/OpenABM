@@ -158,15 +158,28 @@ def _benchmark_judge() -> dict[str, Any]:
         "judge_id": BENCHMARK_JUDGE_ID,
         "judge_type": "rubric_judge",
         "name": "Wrong refund tool benchmark judge",
-        "description": "Evaluate whether a refund trace used the wrong operational tool.",
+        "description": (
+            "Evaluate only whether the trace shows a refund decision made with the "
+            "wrong operational tool. This is not a general trace-quality, safety, "
+            "or business-correctness judge."
+        ),
         "require_span_citations": False,
         "rubric": {
             "pass": (
-                "The trace uses a refund-policy appropriate tool or does not show "
-                "a refund failure."
+                "The trace uses a refund-policy appropriate tool, or the trace is "
+                "well-formed and does not show a refund decision made with an "
+                "unrelated operational tool. Unrelated failure modes pass this "
+                "narrow benchmark judge."
             ),
-            "fail": "The trace uses order lookup or another unrelated tool for a refund decision.",
-            "unsure": "The trace is malformed, incomplete, or lacks enough refund-tool evidence.",
+            "fail": (
+                "The trace includes evidence of a refund decision and shows order "
+                "lookup or another unrelated/non-refund tool being used for that "
+                "refund decision."
+            ),
+            "unsure": (
+                "The trace is malformed or incomplete enough that the narrow "
+                "wrong-refund-tool question cannot be judged."
+            ),
         },
     }
 

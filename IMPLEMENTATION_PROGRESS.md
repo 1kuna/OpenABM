@@ -403,6 +403,10 @@ Done:
   validity, citation validity, judge accuracy, unsure/invalid/context-failure
   rates, latency, throughput, memory, token usage, and a promotion gate that
   blocks high invalid-output or citation-failure rates.
+- Tightened the benchmark rubric contract after the expanded fixture corpus
+  exposed a prompt mismatch: the wrong-refund-tool judge now explicitly treats
+  unrelated well-formed failure modes as pass cases for this narrow benchmark
+  instead of generalizing into an `unsure` verdict.
 - Added tests for disabled model mode, citation validation, deterministic rule
   judge execution, benchmark quality/promotion gating, and code judge
   environment scrubbing.
@@ -786,9 +790,10 @@ Blocked:
 Verified after the latest implementation slices:
 
 - `make lint`: passed.
-- `make test`: passed, 54 tests after the model-benchmark, LangGraph
-  investigation-adapter, core-loop acceptance, and reported-incident acceptance
-  retention-worker, MCP observability, and command-runner eval slices.
+- `make test`: passed, 91 tests after the model-benchmark, LangGraph
+  investigation-adapter, core-loop acceptance, reported-incident acceptance,
+  retention-worker, MCP observability, command-runner eval, expanded fixture,
+  assertion-result persistence, and benchmark-rubric calibration slices.
 - `npm --prefix apps/web run build`: passed.
 - Browser QA captured desktop and mobile Trace Detail, Operations, Issues, and
   Automations workspace screenshots under `artifacts/ui-qa/`; trace detail mode
@@ -831,14 +836,23 @@ Verified after the latest implementation slices:
   templates.
 - Live LM Studio canaries completed for structured rubric output, semantic trace
   similarity, and investigation drafting with `openabm-qwen35-9b`.
-- Live LM Studio model-runtime benchmark completed with `qwen3.5-9b-mlx` before
-  the section 38 corpus expansion, against the earlier four-fixture golden set:
-  structured-output validity 1.0, citation validity 1.0, judge accuracy 1.0,
-  invalid-output rate 0.0, unsure rate 0.5, 17,992 total tokens, and 318.4s
-  total latency. The machine-readable result is under
-  `artifacts/model-benchmarks/qwen3.5-9b-golden.json`; the expanded 22-fixture
-  corpus still needs a fresh live model benchmark when the local runtime budget
-  is acceptable.
+- Live LM Studio model-runtime benchmark completed with `qwen3.5-9b-mlx` against
+  the expanded 22-fixture golden corpus at 262,144 context and no OpenABM
+  generation timeout. The first expanded run exposed a narrow-rubric prompt
+  mismatch and blocked promotion at 10/22 accuracy while preserving structured
+  output validity 1.0, citation validity 1.0, invalid-output rate 0.0, and
+  context-failure rate 0.0. After tightening the benchmark rubric, the rerun
+  reached promotion-eligible status with judge accuracy 18/22 (0.8182),
+  structured-output validity 1.0, citation validity 1.0, invalid-output rate
+  0.0, context-failure rate 0.0, unsure rate 0.3182, 121,209 total tokens, and
+  1,769.2s total latency. Machine-readable local artifacts are under
+  `artifacts/model-benchmarks/qwen3.5-9b-golden-expanded.json` and
+  `artifacts/model-benchmarks/qwen3.5-9b-golden-expanded-prompt-v2.json`.
+  Remaining 9B/prompt boundary misses were `clock_skew_trace`,
+  `redacted_payload_trace`, `offline_eval_trace`, and
+  `issue_with_unknown_seed_trace`; these stay documented for later heavier-model
+  or rubric-calibration review rather than being replaced with deterministic
+  semantic shortcuts.
 - LangGraph investigation adapter regression passed: investigation runs now
   persist framework, graph version, candidate search queries, trace candidates,
   and tool-call inputs/outputs before model assistance and review tasks are

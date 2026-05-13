@@ -18,6 +18,7 @@ from openabm_worker.judges import (
     validate_judge_output,
 )
 from openabm_worker.model_benchmark import (
+    _benchmark_judge,
     compare_model_runtime_benchmarks,
     run_model_runtime_benchmark,
 )
@@ -614,6 +615,16 @@ def test_model_runtime_benchmark_reports_quality_and_promotion_gate() -> None:
     assert result["metrics"]["citation_validity_rate"] == 1.0
     assert result["metrics"]["cost"]["usage"]["total_tokens"] == 15 * len(corpus["fixtures"])
     assert result["promotion_gate"]["status"] == "eligible"
+
+
+def test_model_runtime_benchmark_judge_is_narrow_wrong_refund_tool_contract() -> None:
+    judge = _benchmark_judge()
+    rubric_text = json.dumps(judge["rubric"]).lower()
+
+    assert "not a general trace-quality" in judge["description"]
+    assert "unrelated failure modes pass" in rubric_text
+    assert "refund decision" in rubric_text
+    assert "malformed or incomplete" in rubric_text
 
 
 def test_model_runtime_benchmark_blocks_invalid_outputs() -> None:
