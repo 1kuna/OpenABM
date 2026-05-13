@@ -43,6 +43,11 @@ from openabm_api.auth import SESSION_COOKIE_POLICY, auth_contract, require_api_k
 from openabm_api.classification import classify_payload, normalize_classification, redact_if_needed
 from openabm_api.docs_search import search_public_docs
 from openabm_api.ids import new_id
+from openabm_api.ingest_policy import (
+    IngestPolicyReport,
+    apply_ingest_batch_policy,
+    apply_ingest_span_policy,
+)
 from openabm_api.metrics import Metrics
 from openabm_api.prompts import render_prompt
 from openabm_api.reconstruction import reconstruct_trace
@@ -604,6 +609,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         actor: dict[str, object] = Depends(auth_dependency(["traces:write"])),
     ) -> dict[str, str | None]:
         del actor
+        span, policy_report = apply_ingest_span_policy(
+            span,
+            inline_payload_max_bytes=settings.ingest_inline_payload_max_bytes,
+            max_events_per_span=settings.ingest_max_events_per_span,
+            stream_event_sample_rate=settings.ingest_stream_event_sample_rate,
+        )
+        _record_ingest_policy_metrics(metrics, policy_report)
         validate_payload("span-envelope.schema.json", span)
         span_id = store.upsert_span(span, idempotency_key=idempotency_key)
         metrics.increment("ingest.spans")
@@ -675,6 +687,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         actor: dict[str, object] = Depends(auth_dependency(["traces:write"])),
     ) -> dict[str, object]:
         del actor
+        batch, policy_report = apply_ingest_batch_policy(
+            batch,
+            max_batch_items=settings.ingest_max_batch_items,
+            retryable_batch_items=settings.ingest_retryable_backpressure_items,
+            inline_payload_max_bytes=settings.ingest_inline_payload_max_bytes,
+            max_events_per_span=settings.ingest_max_events_per_span,
+            stream_event_sample_rate=settings.ingest_stream_event_sample_rate,
+        )
+        _record_ingest_policy_metrics(metrics, policy_report)
+        if policy_report.backpressure_retry:
+            metrics.increment("ingest.backpressure.retryable_rejections")
+            raise HTTPException(
+                status_code=429,
+                detail=_error(
+                    "ingest_backpressure",
+                    (
+                        "Batch exceeds the retryable backpressure item limit and does "
+                        "not contain an always-keep trace."
+                    ),
+                    retryable=True,
+                ),
+                headers={"Retry-After": str(policy_report.retry_after_seconds)},
+            )
         items: list[dict[str, Any]] = []
         accepted = 0
         rejected = 0
@@ -713,9 +748,78 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             except Exception as exc:  # noqa: BLE001 - partial-success contract
                 reject(client_id, exc)
 
+        for index, event_payload in enumerate(batch.get("events", [])):
+            client_id = event_payload.get("client_item_id", f"event_{index}")
+            try:
+                event = event_payload.get("event")
+                if not isinstance(event, dict):
+                    raise SchemaValidationFailure(
+                        "schema_validation_failed",
+                        "event is required",
+                        "/event",
+                    )
+                validate_payload("trace-event.schema.json", event)
+                accept(
+                    client_id,
+                    store.append_event(
+                        event_payload["project_id"],
+                        event_payload["trace_id"],
+                        event_payload["span_id"],
+                        event,
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001 - partial-success contract
+                reject(client_id, exc)
+
+        for index, feedback in enumerate(batch.get("feedback", [])):
+            client_id = feedback.get("client_item_id", f"feedback_{index}")
+            try:
+                for key in ["project_id", "trace_id", "feedback_type"]:
+                    if key not in feedback:
+                        raise SchemaValidationFailure(
+                            "schema_validation_failed",
+                            f"{key} is required",
+                            f"/{key}",
+                        )
+                accept(
+                    client_id,
+                    store.append_audit(
+                        "ingest_feedback",
+                        "trace",
+                        feedback["project_id"],
+                        feedback["trace_id"],
+                        {"feedback": feedback},
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001 - partial-success contract
+                reject(client_id, exc)
+
+        for index, payload in enumerate(batch.get("payloads", [])):
+            payload_metadata = payload.get("payload", payload)
+            client_id = payload_metadata.get("payload_id", f"payload_{index}")
+            try:
+                if not isinstance(payload_metadata, dict):
+                    raise SchemaValidationFailure(
+                        "schema_validation_failed",
+                        "payload metadata is required",
+                        "/payload",
+                    )
+                validate_payload("payload-object.schema.json", payload_metadata)
+                accept(client_id, store.put_payload(payload_metadata))
+            except Exception as exc:  # noqa: BLE001 - partial-success contract
+                reject(client_id, exc)
+
         status = "success" if rejected == 0 else "partial_success" if accepted else "failed"
         metrics.increment("ingest.batch")
-        return {"status": status, "accepted": accepted, "rejected": rejected, "items": items}
+        response: dict[str, object] = {
+            "status": status,
+            "accepted": accepted,
+            "rejected": rejected,
+            "items": items,
+        }
+        if policy_report.changed:
+            response["backpressure"] = policy_report.to_dict()
+        return response
 
     @app.get("/api/projects")
     def list_projects(
@@ -3256,6 +3360,16 @@ def _refresh_observability_gauges(
     for tool in mcp_summary["tools"]:
         tool_name = tool["tool_name"]
         metrics.set_gauge(f"mcp.tool.{tool_name}.avg_latency_ms", tool["avg_latency_ms"])
+
+
+def _record_ingest_policy_metrics(metrics: Metrics, report: IngestPolicyReport) -> None:
+    if report.payloads_omitted:
+        metrics.increment("ingest.payloads_omitted", report.payloads_omitted)
+        metrics.increment("ingest.payload_bytes_omitted", report.payload_bytes_omitted)
+    if report.events_omitted:
+        metrics.increment("ingest.events_omitted", report.events_omitted)
+    if report.stream_events_omitted:
+        metrics.increment("ingest.stream_events_omitted", report.stream_events_omitted)
 
 
 def _behavior_backtest_evidence_ids(result: dict[str, Any]) -> list[str]:

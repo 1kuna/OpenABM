@@ -101,6 +101,13 @@ Done:
 - Added Python SDK with manual spans, sync/async `observe`, nested context,
   error events, payload capture controls, redaction hooks, offline JSONL export,
   in-memory export, and HTTP batch export.
+- Added SDK and API backpressure/sampling controls: deterministic SDK trace
+  sampling metadata, SDK payload and model-stream event sampling with visible
+  omission markers, bounded HTTP exporter buffering, server-side inline payload
+  and event sampling, retryable low-priority batch backpressure, and always-keep
+  preservation for error/high-priority/feedback/behavior/dataset-linked traces.
+- Expanded batch ingest so events, feedback, and payload metadata are processed
+  through the same partial-success response contract as traces and spans.
 - Added CLI commands for database initialization, fixture seeding, and status.
 - Verified `make test`, `make lint`, `make init-db`, and `make seed-fixtures`.
 
@@ -604,6 +611,12 @@ Verified after the latest implementation slices:
   acceptance flow: impact scoping persisted the affected account, issue links
   included the remediation record, and the API updated the entity status to
   fixed with owner/notes.
+- Backpressure/sampling regression passed: oversized inline payloads and sampled
+  model-stream events are persisted as explicit omission markers, low-priority
+  oversized batches receive retryable 429 backpressure responses, high-priority
+  traces still ingest under pressure, batch ingest accepts events/feedback/
+  payload metadata, and SDK buffering remains bounded while preserving
+  high-priority items.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:

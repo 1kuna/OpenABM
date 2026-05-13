@@ -1,6 +1,5 @@
 """Python SDK for OpenABM tracing."""
 
-from openabm.tracing import Tracer, observe
+from openabm.tracing import SamplingConfig, Tracer, observe
 
-__all__ = ["Tracer", "observe"]
-
+__all__ = ["SamplingConfig", "Tracer", "observe"]

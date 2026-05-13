@@ -2670,6 +2670,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Retryable ingest backpressure response when low-priority batches exceed configured capacity.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         }
       }
@@ -5266,6 +5276,10 @@
                 }
               }
             }
+          },
+          "backpressure": {
+            "type": "object",
+            "description": "Visible sampling and backpressure decisions applied before persistence."
           }
         }
       },

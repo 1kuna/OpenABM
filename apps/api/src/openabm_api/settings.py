@@ -27,6 +27,11 @@ class Settings:
     embedding_concurrency: int = 1
     max_trace_tokens_for_judge: int = 262144
     incomplete_threshold_seconds: int = 300
+    ingest_max_batch_items: int = 5000
+    ingest_retryable_backpressure_items: int = 10000
+    ingest_inline_payload_max_bytes: int = 262144
+    ingest_max_events_per_span: int = 500
+    ingest_stream_event_sample_rate: int = 10
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -65,6 +70,20 @@ class Settings:
             ),
             incomplete_threshold_seconds=int(
                 os.getenv("OPENABM_INCOMPLETE_THRESHOLD_SECONDS", "300")
+            ),
+            ingest_max_batch_items=int(os.getenv("OPENABM_INGEST_MAX_BATCH_ITEMS", "5000")),
+            ingest_retryable_backpressure_items=int(
+                os.getenv("OPENABM_INGEST_RETRYABLE_BACKPRESSURE_ITEMS", "10000")
+            ),
+            ingest_inline_payload_max_bytes=int(
+                os.getenv("OPENABM_INGEST_INLINE_PAYLOAD_MAX_BYTES", "262144")
+            ),
+            ingest_max_events_per_span=int(
+                os.getenv("OPENABM_INGEST_MAX_EVENTS_PER_SPAN", "500")
+            ),
+            ingest_stream_event_sample_rate=max(
+                1,
+                int(os.getenv("OPENABM_INGEST_STREAM_EVENT_SAMPLE_RATE", "10")),
             ),
         )
 

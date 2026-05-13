@@ -296,6 +296,131 @@ def test_invalid_span_gets_partial_success_rejection(tmp_path) -> None:
     assert body["items"][0]["error"]["code"] == "schema_validation_failed"
 
 
+def test_ingest_batch_applies_visible_payload_and_event_sampling(tmp_path) -> None:
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'openabm.sqlite3'}",
+        ingest_inline_payload_max_bytes=16,
+        ingest_max_events_per_span=3,
+        ingest_stream_event_sample_rate=2,
+    )
+    client = TestClient(create_app(settings))
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][0]
+    trace = json.loads(json.dumps(fixture["trace"]))
+    span = json.loads(json.dumps(fixture["spans"][0]))
+    span["input"] = {"mode": "inline", "value": {"prompt": "x" * 100}, "redaction_state": "raw"}
+    span["output"] = {"mode": "inline", "value": {"answer": "y" * 100}, "redaction_state": "raw"}
+    span["events"] = [
+        {"name": "model.stream.delta", "time": span["started_at"], "attributes": {"index": index}}
+        for index in range(8)
+    ]
+
+    response = client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [trace], "spans": [span]},
+    )
+
+    assert response.status_code == 207
+    backpressure = response.json()["backpressure"]
+    assert backpressure["payloads_omitted"] == 2
+    assert backpressure["stream_events_omitted"] == 4
+    detail = client.get(
+        f"/v1/traces/{trace['trace_id']}",
+        params={"project_id": trace["project_id"]},
+        headers=auth_headers(),
+    )
+    stored_span = detail.json()["spans"][0]
+    assert stored_span["input"]["mode"] == "omitted"
+    assert stored_span["input"]["omission_reason"] == "server_payload_sampling"
+    assert stored_span["events"][-1]["name"] == "openabm.events_omitted"
+
+
+def test_ingest_backpressure_is_retryable_but_preserves_high_priority_trace(tmp_path) -> None:
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'openabm.sqlite3'}",
+        ingest_retryable_backpressure_items=1,
+    )
+    client = TestClient(create_app(settings))
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][0]
+    trace = json.loads(json.dumps(fixture["trace"]))
+    span = json.loads(json.dumps(fixture["spans"][0]))
+
+    rejected = client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [trace], "spans": [span]},
+    )
+    assert rejected.status_code == 429
+    assert rejected.json()["detail"]["error"]["code"] == "ingest_backpressure"
+    assert rejected.json()["detail"]["error"]["retryable"] is True
+
+    trace["status"] = "error"
+    accepted = client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [trace], "spans": [span]},
+    )
+    assert accepted.status_code == 207
+    assert accepted.json()["accepted"] == 2
+    assert accepted.json()["backpressure"]["high_priority_present"] is True
+
+
+def test_batch_ingest_accepts_events_feedback_and_payload_metadata(tmp_path) -> None:
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][0]
+    trace = fixture["trace"]
+    span = fixture["spans"][0]
+    response = client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={
+            "traces": [trace],
+            "spans": [span],
+            "events": [
+                {
+                    "client_item_id": "event_1",
+                    "project_id": trace["project_id"],
+                    "trace_id": trace["trace_id"],
+                    "span_id": span["span_id"],
+                    "event": {
+                        "name": "feedback.received",
+                        "time": span["started_at"],
+                        "attributes": {"rating": "negative"},
+                    },
+                }
+            ],
+            "feedback": [
+                {
+                    "client_item_id": "feedback_1",
+                    "project_id": trace["project_id"],
+                    "trace_id": trace["trace_id"],
+                    "feedback_type": "thumbs_down",
+                }
+            ],
+            "payloads": [
+                {
+                    "payload_id": "payload_batch_1",
+                    "project_id": trace["project_id"],
+                    "trace_id": trace["trace_id"],
+                    "span_id": span["span_id"],
+                    "content_type": "application/json",
+                    "redaction_state": "omitted",
+                    "created_at": span["started_at"],
+                }
+            ],
+        },
+    )
+    assert response.status_code == 207
+    assert response.json()["accepted"] == 5
+    detail = client.get(
+        f"/v1/traces/{trace['trace_id']}",
+        params={"project_id": trace["project_id"]},
+        headers=auth_headers(),
+    )
+    stored_events = detail.json()["spans"][0]["events"]
+    assert any(event["name"] == "feedback.received" for event in stored_events)
+
+
 def test_search_similar_fails_closed_without_embeddings(tmp_path) -> None:
     client = make_client(tmp_path)
     fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][2]

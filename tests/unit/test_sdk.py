@@ -1,7 +1,7 @@
 import json
 
-from openabm import Tracer, observe
-from openabm.exporters import InMemoryExporter, OfflineJsonlExporter
+from openabm import SamplingConfig, Tracer, observe
+from openabm.exporters import HttpExporter, InMemoryExporter, OfflineJsonlExporter
 
 
 def test_tracer_records_nested_spans_in_memory() -> None:
@@ -49,3 +49,98 @@ def test_payload_capture_can_be_disabled(tmp_path) -> None:
     assert span_payload["input"]["mode"] == "omitted"
     assert span_payload["output"]["mode"] == "omitted"
     assert "do-not-export" not in output_path.read_text()
+
+
+def test_sdk_payload_and_stream_event_sampling_are_visible() -> None:
+    exporter = InMemoryExporter()
+    tracer = Tracer(
+        "proj_demo",
+        environment="test",
+        exporter=exporter,
+        sampling=SamplingConfig(
+            payload_max_bytes=12,
+            max_events_per_span=3,
+            stream_event_sample_rate=2,
+        ),
+    )
+
+    with tracer.span("chat_agent", span_type="agent", input={"prompt": "x" * 40}) as span:
+        for index in range(8):
+            span.add_event(
+                "model.stream.delta",
+                {"index": index, "text": "partial"},
+            )
+        span.set_output({"answer": "y" * 40})
+
+    span_payload = next(item["payload"] for item in exporter.items if item["type"] == "span")
+    assert span_payload["input"]["mode"] == "omitted"
+    assert span_payload["input"]["omission_reason"] == "sdk_payload_sampling"
+    assert span_payload["output"]["omission_reason"] == "sdk_payload_sampling"
+    assert span_payload["events"][-1]["name"] == "openabm.events_omitted"
+    assert span_payload["events"][-1]["attributes"]["stream_events_omitted"] == 4
+
+
+def test_sdk_probabilistic_sampling_preserves_metadata_and_omits_bodies() -> None:
+    exporter = InMemoryExporter()
+    tracer = Tracer(
+        "proj_demo",
+        environment="test",
+        exporter=exporter,
+        sampling=SamplingConfig(sample_rate=0),
+    )
+
+    with tracer.span(
+        "sampled_out_agent",
+        span_type="agent",
+        input={"prompt": "keep metadata"},
+    ) as span:
+        span.add_event("debug.step", {"detail": "low signal"})
+        span.set_output({"answer": "sampled"})
+
+    span_payload = next(item["payload"] for item in exporter.items if item["type"] == "span")
+    trace_payload = next(item["payload"] for item in exporter.items if item["type"] == "trace")
+    assert trace_payload["attributes"]["openabm.sampling.sampled"] is False
+    assert span_payload["input"]["omission_reason"] == "sdk_trace_sampling"
+    assert span_payload["output"]["omission_reason"] == "sdk_trace_sampling"
+    assert span_payload["events"] == [
+        {
+            "name": "openabm.events_omitted",
+            "time": span_payload["events"][0]["time"],
+            "attributes": {
+                "omission_reason": "sdk_trace_sampling",
+                "stream_events_omitted": 0,
+                "other_events_omitted": 1,
+                "preserved_metadata": True,
+            },
+        }
+    ]
+
+
+def test_http_exporter_caps_buffer_and_preserves_high_priority_items() -> None:
+    exporter = HttpExporter(
+        "http://127.0.0.1:8787",
+        "dev-openabm-key",
+        max_buffered_items=1,
+    )
+
+    exporter.export(
+        "span",
+        {
+            "trace_id": "trace_ok",
+            "span_id": "span_ok",
+            "status": "ok",
+            "attributes": {},
+        },
+    )
+    exporter.export(
+        "span",
+        {
+            "trace_id": "trace_error",
+            "span_id": "span_error",
+            "status": "error",
+            "attributes": {},
+        },
+    )
+
+    assert [span["span_id"] for span in exporter._spans] == ["span_error"]
+    assert exporter.dropped_items[0]["reason"] == "evicted_for_high_priority_item"
