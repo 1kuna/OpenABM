@@ -283,6 +283,12 @@ def _call_tool_impl(
             f"/v1/prompts/{arguments['prompt_id']}",
             params={"project_id": arguments["project_id"]},
         )
+    if name == "render_prompt":
+        return client.request(
+            "POST",
+            f"/v1/prompts/{arguments['prompt_id']}/render",
+            json_body=arguments,
+        )
     if name == "commit_prompt":
         return client.request(
             "POST",

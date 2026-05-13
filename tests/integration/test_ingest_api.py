@@ -1333,6 +1333,29 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
         },
     )
     assert rendered.json()["rendered"] == "Hi OpenABM"
+    mcp_prompt_version = call_tool(
+        "commit_prompt",
+        {
+            "project_id": "proj_demo",
+            "prompt_id": prompt_id,
+            "template_text": "MCP says hi to {{name}}",
+            "variables_schema": {"type": "object", "required": ["name"]},
+            "parent_commit_id": version_2.json()["commit_id"],
+            "tag": "mcp",
+        },
+        client=_TestClientMcpAdapter(client),
+    )
+    mcp_rendered = call_tool(
+        "render_prompt",
+        {
+            "project_id": "proj_demo",
+            "prompt_id": prompt_id,
+            "commit_id": mcp_prompt_version["commit_id"],
+            "variables": {"name": "OpenABM"},
+        },
+        client=_TestClientMcpAdapter(client),
+    )
+    assert mcp_rendered["rendered"] == "MCP says hi to OpenABM"
     prompt_secret = client.post(
         "/v1/secrets",
         headers=auth_headers(),

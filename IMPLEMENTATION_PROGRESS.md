@@ -524,6 +524,9 @@ Done:
   list/decision tools, and affected-entity remediation tools so investigation
   agents can act through audited review/remediation APIs instead of only reading
   trace evidence.
+- Corrected the MCP prompt-commit contract to use `template_text` and
+  `variables_schema`, and added a prompt-render MCP tool so prompt lifecycle
+  work is executable through tool calls.
 - Expanded MCP tool observability from latency/status rows to bounded
   request/response capture, citation IDs, and confirmation metadata so deep
   agent tool use is replayable enough for audit without changing tool results.
