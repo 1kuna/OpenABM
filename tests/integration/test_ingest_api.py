@@ -74,6 +74,11 @@ def make_client(tmp_path: Path) -> TestClient:
     return TestClient(create_app(settings))
 
 
+def make_client_with_settings(tmp_path: Path, **overrides) -> TestClient:
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'openabm.sqlite3'}", **overrides)
+    return TestClient(create_app(settings))
+
+
 def test_cors_origins_are_configurable_for_deployment(tmp_path) -> None:
     settings = Settings(
         database_url=f"sqlite:///{tmp_path / 'openabm.sqlite3'}",
@@ -130,13 +135,14 @@ def test_batch_ingest_and_trace_detail(tmp_path) -> None:
     assert fixture["trace"]["trace_id"] in session.json()["trace_ids"]
 
 
-def test_auth_contract_api_keys_roles_sessions_and_revocation(tmp_path) -> None:
+def test_auth_contract_api_keys_roles_sessions_and_revocation(tmp_path, monkeypatch) -> None:
     client = make_client(tmp_path)
 
     contract = client.get("/v1/auth/contract")
     assert contract.status_code == 200
     assert contract.json()["password_or_passwordless_decision"] == "passwordless_first"
     assert contract.json()["invites"]["delivery"] == "local_outbox"
+    assert contract.json()["invites"]["optional_delivery_adapters"] == ["smtp"]
     assert "viewer" in contract.json()["role_matrix"]
 
     me = client.get("/v1/auth/me", headers=auth_headers())
@@ -189,6 +195,96 @@ def test_auth_contract_api_keys_roles_sessions_and_revocation(tmp_path) -> None:
     assert invites.json()["data"][0]["delivery"]["invite_delivery_id"] == invite_body["delivery"][
         "invite_delivery_id"
     ]
+
+    smtp_messages: list[dict[str, object]] = []
+
+    class FakeSMTP:
+        def __init__(self, host: str, port: int, *, timeout: float) -> None:
+            self.host = host
+            self.port = port
+            self.timeout = timeout
+            self.started_tls = False
+            self.logins: list[tuple[str, str]] = []
+
+        def __enter__(self) -> "FakeSMTP":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def ehlo(self) -> None:
+            return None
+
+        def starttls(self) -> None:
+            self.started_tls = True
+
+        def login(self, username: str, password: str) -> None:
+            self.logins.append((username, password))
+
+        def send_message(self, message) -> None:
+            smtp_messages.append(
+                {
+                    "host": self.host,
+                    "port": self.port,
+                    "timeout": self.timeout,
+                    "started_tls": self.started_tls,
+                    "logins": self.logins,
+                    "message": message,
+                }
+            )
+
+    monkeypatch.setattr("openabm_api.main.smtplib.SMTP", FakeSMTP)
+
+    smtp_client = make_client_with_settings(
+        tmp_path,
+        enable_smtp_invites=True,
+        smtp_host="smtp.example.test",
+        smtp_port=2525,
+        smtp_username="mailer",
+        smtp_password="smtp-secret",
+        smtp_from_email="noreply@example.test",
+        smtp_timeout_seconds=12.5,
+    )
+    smtp_invite = smtp_client.post(
+        "/v1/auth/invites",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "email": "smtp-viewer@example.com", "role": "viewer"},
+    )
+    assert smtp_invite.status_code == 201
+    smtp_body = smtp_invite.json()
+    assert smtp_body["delivery"]["delivery_channel"] == "smtp"
+    assert smtp_body["delivery"]["delivery_status"] == "sent"
+    assert smtp_body["delivery"]["error_nullable"] is None
+    assert "smtp-secret" not in json.dumps(smtp_body)
+    assert len(smtp_messages) == 1
+    smtp_record = smtp_messages[0]
+    assert smtp_record["host"] == "smtp.example.test"
+    assert smtp_record["port"] == 2525
+    assert smtp_record["timeout"] == 12.5
+    assert smtp_record["started_tls"] is True
+    assert smtp_record["logins"] == [("mailer", "smtp-secret")]
+    message = smtp_record["message"]
+    assert message["From"] == "noreply@example.test"
+    assert message["To"] == "smtp-viewer@example.com"
+    assert message["Subject"] == "OpenABM invite for proj_demo"
+    assert "Invite ID:" in message.get_content()
+
+    missing_config_client = make_client_with_settings(
+        tmp_path,
+        enable_smtp_invites=True,
+        smtp_from_email="noreply@example.test",
+    )
+    failed_invite = missing_config_client.post(
+        "/v1/auth/invites",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "email": "blocked-viewer@example.com", "role": "viewer"},
+    )
+    assert failed_invite.status_code == 201
+    failed_body = failed_invite.json()
+    assert failed_body["delivery"]["delivery_channel"] == "smtp"
+    assert failed_body["delivery"]["delivery_status"] == "failed"
+    assert "OPENABM_SMTP_HOST" in failed_body["delivery"]["error_nullable"]
+    assert len(smtp_messages) == 1
 
     session = client.post(
         "/v1/auth/sessions",

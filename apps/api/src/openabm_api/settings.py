@@ -34,6 +34,14 @@ class Settings:
     ingest_max_events_per_span: int = 500
     ingest_stream_event_sample_rate: int = 10
     enable_external_notifications: bool = False
+    enable_smtp_invites: bool = False
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
+    smtp_use_starttls: bool = True
+    smtp_timeout_seconds: float = 30.0
     cors_origins: tuple[str, ...] = ("http://127.0.0.1:5173", "http://localhost:5173")
 
     @classmethod
@@ -102,6 +110,18 @@ class Settings:
                 "false",
             ).lower()
             == "true",
+            enable_smtp_invites=os.getenv("OPENABM_ENABLE_SMTP_INVITES", "false").lower()
+            == "true",
+            smtp_host=os.getenv("OPENABM_SMTP_HOST") or None,
+            smtp_port=int(os.getenv("OPENABM_SMTP_PORT", str(cls.smtp_port))),
+            smtp_username=os.getenv("OPENABM_SMTP_USERNAME") or None,
+            smtp_password=os.getenv("OPENABM_SMTP_PASSWORD") or None,
+            smtp_from_email=os.getenv("OPENABM_SMTP_FROM_EMAIL") or None,
+            smtp_use_starttls=os.getenv("OPENABM_SMTP_USE_STARTTLS", "true").lower()
+            == "true",
+            smtp_timeout_seconds=float(
+                os.getenv("OPENABM_SMTP_TIMEOUT_SECONDS", str(cls.smtp_timeout_seconds))
+            ),
             cors_origins=_csv_env(
                 "OPENABM_CORS_ORIGINS",
                 cls.cors_origins,

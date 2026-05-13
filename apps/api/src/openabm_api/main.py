@@ -4,10 +4,12 @@ import base64
 import binascii
 import io
 import json
+import smtplib
 import sqlite3
 import time
 import zipfile
 from collections.abc import Callable
+from email.message import EmailMessage
 from typing import Any
 from xml.etree import ElementTree
 
@@ -355,8 +357,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     f"/{key}",
                 )
         try:
-            return store.create_auth_invite(
+            invite = store.create_auth_invite(
                 request,
+                actor_id=str(actor.get("actor_id") or "unknown"),
+            )
+            return _deliver_auth_invite_if_enabled(
+                store,
+                settings,
+                invite,
                 actor_id=str(actor.get("actor_id") or "unknown"),
             )
         except ValueError as exc:
@@ -3588,6 +3596,92 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     _register_v1_aliases(app)
     return app
+
+
+def _deliver_auth_invite_if_enabled(
+    store: SQLiteStore,
+    settings: Settings,
+    invite: dict[str, Any],
+    *,
+    actor_id: str | None,
+) -> dict[str, Any]:
+    delivery = invite.get("delivery")
+    if not settings.enable_smtp_invites or not isinstance(delivery, dict):
+        return invite
+
+    try:
+        _send_auth_invite_smtp(settings, invite, delivery)
+    except (OSError, smtplib.SMTPException, ValueError) as exc:
+        updated = store.update_auth_invite_delivery(
+            delivery,
+            delivery_channel="smtp",
+            delivery_status="failed",
+            error_nullable=_safe_delivery_error(exc),
+            actor_id=actor_id,
+        )
+    else:
+        updated = store.update_auth_invite_delivery(
+            delivery,
+            delivery_channel="smtp",
+            delivery_status="sent",
+            error_nullable=None,
+            actor_id=actor_id,
+        )
+    invite["delivery"] = updated
+    invite["deliveries"] = [updated]
+    return invite
+
+
+def _send_auth_invite_smtp(
+    settings: Settings,
+    invite: dict[str, Any],
+    delivery: dict[str, Any],
+) -> None:
+    if not settings.smtp_host:
+        raise ValueError("OPENABM_SMTP_HOST is required when SMTP invite delivery is enabled")
+    if not settings.smtp_from_email:
+        raise ValueError("OPENABM_SMTP_FROM_EMAIL is required when SMTP invite delivery is enabled")
+    if bool(settings.smtp_username) != bool(settings.smtp_password):
+        raise ValueError(
+            "Both OPENABM_SMTP_USERNAME and OPENABM_SMTP_PASSWORD are required "
+            "when SMTP auth is configured"
+        )
+
+    message = EmailMessage()
+    message["From"] = settings.smtp_from_email
+    message["To"] = str(delivery["recipient_email"])
+    message["Subject"] = f"OpenABM invite for {invite['project_id']}"
+    message.set_content(
+        "\n".join(
+            [
+                "You have been invited to OpenABM.",
+                "",
+                f"Project: {invite['project_id']}",
+                f"Role: {invite['role']}",
+                f"Invite ID: {invite['invite_id']}",
+                f"Expires at: {invite['expires_at']}",
+                "",
+                "Use this invite with your OpenABM deployment's configured auth flow.",
+            ]
+        )
+    )
+
+    with smtplib.SMTP(
+        settings.smtp_host,
+        settings.smtp_port,
+        timeout=settings.smtp_timeout_seconds,
+    ) as smtp:
+        smtp.ehlo()
+        if settings.smtp_use_starttls:
+            smtp.starttls()
+            smtp.ehlo()
+        if settings.smtp_username and settings.smtp_password:
+            smtp.login(settings.smtp_username, settings.smtp_password)
+        smtp.send_message(message)
+
+
+def _safe_delivery_error(exc: Exception) -> str:
+    return f"{exc.__class__.__name__}: {exc}"[:500]
 
 
 def _register_v1_aliases(app: FastAPI) -> None:

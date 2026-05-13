@@ -1031,8 +1031,10 @@ Known remaining gaps before calling the whole spec complete:
   eval comparison behavior-shift drilldown, prompt/config diff summaries, and
   prompt/config version usage histories are now wired into their workspaces, and
   trace detail resolves captured prompt/config/deployment/tool runtime context.
-- External IdP/OAuth login, vendor email/SMTP invite delivery, and production
-  secret-manager provider adapters remain beyond the local reference scaffold.
+- External IdP/OAuth login, vendor-specific invite providers, and production
+  secret-manager provider adapters remain beyond the local reference scaffold;
+  invite delivery now has a default-off SMTP adapter layered on the local
+  outbox.
 - Production-grade observability exporters, log aggregation, external
   deployment supervision, and vendor-specific non-webhook transports are still
   future hardening beyond the local reference surfaces; local worker
@@ -1133,6 +1135,10 @@ Implemented in this pass:
 - Added live non-webhook notification adapter outbox records so email/chat/
   issue-tracker/custom targets have an audited local delivery contract while
   vendor transports remain adapter-specific future work.
+- Added default-off SMTP invite delivery: local outbox remains the default,
+  operators can explicitly enable `OPENABM_ENABLE_SMTP_INVITES`, successful
+  sends mark the invite delivery `smtp/sent`, and failures are persisted as
+  audited `smtp/failed` records without storing SMTP secrets.
 - Notification target creation now rejects plaintext config blobs and validates
   `config_secret_refs`; active targets require at least one secret ref, while
   paused placeholders can be created without mounting secrets.

@@ -1513,6 +1513,67 @@ class SQLiteStore:
             ).fetchall()
         return [self._invite_delivery_from_row(row) for row in rows]
 
+    def update_auth_invite_delivery(
+        self,
+        delivery: dict[str, Any],
+        *,
+        delivery_channel: str,
+        delivery_status: str,
+        error_nullable: str | None,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM auth_invite_deliveries
+                WHERE invite_delivery_id = ? AND invite_id = ? AND project_id = ?
+                """,
+                (
+                    delivery["invite_delivery_id"],
+                    delivery["invite_id"],
+                    delivery["project_id"],
+                ),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"Invite delivery not found: {delivery['invite_delivery_id']}")
+            conn.execute(
+                """
+                UPDATE auth_invite_deliveries
+                SET delivery_channel = ?,
+                    delivery_status = ?,
+                    error_nullable = ?,
+                    updated_at = ?
+                WHERE invite_delivery_id = ?
+                """,
+                (
+                    delivery_channel,
+                    delivery_status,
+                    error_nullable,
+                    now,
+                    delivery["invite_delivery_id"],
+                ),
+            )
+            updated = conn.execute(
+                "SELECT * FROM auth_invite_deliveries WHERE invite_delivery_id = ?",
+                (delivery["invite_delivery_id"],),
+            ).fetchone()
+        result = self._invite_delivery_from_row(updated)
+        self.append_audit(
+            "update_auth_invite_delivery",
+            "auth_invite",
+            result["project_id"],
+            result["invite_id"],
+            {
+                "invite_delivery_id": result["invite_delivery_id"],
+                "delivery_channel": result["delivery_channel"],
+                "delivery_status": result["delivery_status"],
+                "error_nullable": result["error_nullable"],
+            },
+            actor_id=actor_id,
+        )
+        return result
+
     def _create_auth_invite_delivery_row(
         self,
         conn: sqlite3.Connection,

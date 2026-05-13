@@ -5,9 +5,9 @@ retention worker container, one static web container, and a persistent SQLite
 volume for the local reference store and payload objects.
 
 This is a self-hosting contract, not a claim that the reference stack is already
-a hardened multi-tenant cloud service. External IdP, vendor email delivery,
-external secret managers, and production observability exporters remain adapter
-work.
+a hardened multi-tenant cloud service. External IdP, vendor-specific email
+providers, external secret managers, and production observability exporters
+remain adapter work.
 
 ## Services
 
@@ -30,6 +30,11 @@ the UI should point at `http://127.0.0.1:8787` or `http://localhost:8787`.
 Before exposing a deployment beyond localhost, replace `OPENABM_DEV_API_KEY` and
 `OPENABM_SECRET_KEY`, keep `OPENABM_AUTH_MODE=local`, and set
 `OPENABM_CORS_ORIGINS` to the exact allowed web origins.
+
+Invite delivery stays in the local outbox by default. To send invites through a
+generic SMTP server, set `OPENABM_ENABLE_SMTP_INVITES=true` and populate
+`OPENABM_SMTP_HOST`, `OPENABM_SMTP_PORT`, `OPENABM_SMTP_FROM_EMAIL`, and the
+username/password fields when your SMTP server requires authentication.
 
 ## Smoke Check
 

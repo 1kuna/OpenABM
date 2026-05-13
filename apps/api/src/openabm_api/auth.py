@@ -149,6 +149,8 @@ def auth_contract(
         "invites": {
             "status": "implemented_reference_model",
             "delivery": "local_outbox",
+            "optional_delivery_adapters": ["smtp"],
+            "external_send_default": "disabled",
         },
         "role_matrix": role_matrix(),
         "decision_records": decision_records or [],
