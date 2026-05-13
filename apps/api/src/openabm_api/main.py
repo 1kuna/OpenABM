@@ -730,6 +730,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         validate_payload("payload-object.schema.json", payload_metadata)
         payload_id = store.put_payload(payload_metadata)
         metrics.increment("ingest.payloads")
+        store.append_audit(
+            "ingest_payload",
+            "payload_object",
+            payload_metadata["project_id"],
+            payload_id,
+            _payload_audit_metadata(payload_metadata),
+        )
         return {"status": "accepted", "server_id": payload_id}
 
     @app.post("/api/ingest/batch", status_code=207)
@@ -854,9 +861,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         "schema_validation_failed",
                         "payload metadata is required",
                         "/payload",
-                    )
+                )
                 validate_payload("payload-object.schema.json", payload_metadata)
-                accept(client_id, store.put_payload(payload_metadata))
+                payload_id = store.put_payload(payload_metadata)
+                store.append_audit(
+                    "ingest_payload",
+                    "payload_object",
+                    payload_metadata["project_id"],
+                    payload_id,
+                    _payload_audit_metadata(payload_metadata),
+                )
+                accept(client_id, payload_id)
             except Exception as exc:  # noqa: BLE001 - partial-success contract
                 reject(client_id, exc)
 
@@ -960,7 +975,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "code_context",
             request["project_id"],
             request["code_context_id"],
-            {"trace_id": request["trace_id"], "span_id": request.get("span_id_nullable")},
+            {
+                "trace_id": request["trace_id"],
+                "span_id": request.get("span_id_nullable"),
+                "classification": context.get("classification", "internal"),
+            },
         )
         return context
 
@@ -2583,6 +2602,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "trace_dimension",
             request["project_id"],
             item["trace_dimension_id"],
+            {
+                "trace_id": request["trace_id"],
+                "key": request["key"],
+                "classification": item.get("classification", "internal"),
+            },
         )
         return item
 
@@ -4225,6 +4249,16 @@ def _select_data_classification_policy(
         "project_id": project_id,
         "default_classification": "internal",
         "rules": [],
+    }
+
+
+def _payload_audit_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "trace_id": payload.get("trace_id"),
+        "span_id": payload.get("span_id"),
+        "content_type": payload.get("content_type"),
+        "redaction_state": payload.get("redaction_state"),
+        "classification": normalize_classification(payload.get("classification"), "internal"),
     }
 
 

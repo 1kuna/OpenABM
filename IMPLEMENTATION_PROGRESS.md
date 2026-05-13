@@ -1166,6 +1166,9 @@ Implemented in this pass:
   default `internal` compatibility, API/MCP max-classification access controls,
   export redaction before manifest hashes, and schema/contract coverage for
   redacted business/code metadata.
+- Added audit metadata for classification-bearing payload, trace-dimension, and
+  code-context writes so classification changes are traceable in the audit log
+  instead of only visible on the stored records.
 - Added default-off SMTP invite delivery: local outbox remains the default,
   operators can explicitly enable `OPENABM_ENABLE_SMTP_INVITES`, successful
   sends mark the invite delivery `smtp/sent`, and failures are persisted as

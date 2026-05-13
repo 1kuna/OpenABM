@@ -117,6 +117,20 @@ def make_client_with_settings(tmp_path: Path, **overrides) -> TestClient:
     return TestClient(create_app(settings))
 
 
+def audit_rows(client: TestClient, action: str) -> list[dict[str, object]]:
+    with client.app.state.store.connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT action, target_type, target_id, metadata_json
+            FROM audit_log
+            WHERE action = ?
+            ORDER BY created_at
+            """,
+            (action,),
+        ).fetchall()
+    return [{**dict(row), "metadata": json.loads(row["metadata_json"])} for row in rows]
+
+
 def test_cors_origins_are_configurable_for_deployment(tmp_path) -> None:
     settings = Settings(
         database_url=f"sqlite:///{tmp_path / 'openabm.sqlite3'}",
@@ -681,6 +695,10 @@ def test_batch_ingest_accepts_events_feedback_and_payload_metadata(tmp_path) -> 
     )
     stored_events = detail.json()["spans"][0]["events"]
     assert any(event["name"] == "feedback.received" for event in stored_events)
+    payload_audits = audit_rows(client, "ingest_payload")
+    assert payload_audits[0]["target_id"] == "payload_batch_1"
+    assert payload_audits[0]["target_type"] == "payload_object"
+    assert payload_audits[0]["metadata"]["classification"] == "internal"
 
 
 def test_payload_classification_redacts_exported_payload_objects(tmp_path) -> None:
@@ -702,6 +720,10 @@ def test_payload_classification_redacts_exported_payload_objects(tmp_path) -> No
         json={"payload": payload},
     )
     assert accepted.status_code == 202
+    payload_audits = audit_rows(client, "ingest_payload")
+    assert payload_audits[0]["target_id"] == payload["payload_id"]
+    assert payload_audits[0]["metadata"]["classification"] == "secret"
+    assert payload_audits[0]["metadata"]["redaction_state"] == "raw"
 
     restricted_export = client.post(
         "/v1/exports/project",
@@ -810,6 +832,12 @@ def test_business_and_code_context_classification_redacts_access_surfaces(tmp_pa
     )
     assert code_context.status_code == 201
     assert code_context.json()["file_path_nullable"] == "agents/secret_refund.py"
+    dimension_audits = audit_rows(client, "create_trace_dimension")
+    assert dimension_audits[0]["metadata"]["classification"] == "secret"
+    assert dimension_audits[0]["metadata"]["key"] == "account_id"
+    code_context_audits = audit_rows(client, "register_code_context")
+    assert code_context_audits[0]["metadata"]["classification"] == "secret"
+    assert code_context_audits[0]["metadata"]["trace_id"] == trace_id
 
     restricted_context = client.get(
         "/v1/code-contexts/code_context_secret",
