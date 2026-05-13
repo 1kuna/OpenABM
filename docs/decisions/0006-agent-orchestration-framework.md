@@ -4,7 +4,7 @@ Date: 2026-05-12
 
 ## Status
 
-Proposed
+Accepted for a thin local adapter prototype
 
 ## Context
 
@@ -91,3 +91,17 @@ canaries.
 - The framework can run locally without requiring cloud-hosted model calls.
 - The framework does not hide prompts, tool payloads, citations, or model
   outputs from OpenABM audit storage.
+
+## Implementation Update: 2026-05-13
+
+OpenABM now includes a first LangGraph-backed investigation workflow adapter.
+The adapter is intentionally thin: LangGraph sequences candidate query planning,
+structured trace search, full-text search, and persisted investigation creation,
+while OpenABM storage remains the source of truth for traces, impact reports,
+review tasks, model assistance, and audit records.
+
+Each investigation run stores an `orchestration` record with the framework name,
+graph version, generated search queries, candidate trace IDs, and tool-call
+inputs/outputs. This keeps framework execution inspectable and preserves the
+option to evaluate Deep Agents or Pi/pi-agent-core later without changing the
+product data contracts.

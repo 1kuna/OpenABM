@@ -379,6 +379,12 @@ Done:
 - Added human review task APIs and connected investigation root-cause/behavior
   candidates to the review queue instead of treating model drafts as active
   product decisions.
+- Added a thin LangGraph-backed investigation workflow adapter that sequences
+  candidate query planning, structured search, full-text search, and persisted
+  investigation creation while keeping OpenABM storage/API records as the source
+  of truth. Investigation results now persist an `orchestration` record with
+  graph version, framework name, candidate queries, trace candidates, and
+  tool-call inputs/outputs for replay/audit.
 - Added a live Judge workspace in the web app with judge listing, immutable
   version inspection, calibration summaries, configurable promotion gates, and
   promotion results wired to `/v1/judges`.
@@ -496,7 +502,8 @@ Blocked:
 Verified after the latest implementation slices:
 
 - `make lint`: passed.
-- `make test`: passed, 48 tests after the observability/admin-status slice.
+- `make test`: passed, 50 tests after the model-benchmark and LangGraph
+  investigation-adapter slices.
 - `npm --prefix apps/web run build`: passed.
 - Browser QA captured desktop and mobile Trace Detail, Operations, Issues, and
   Automations workspace screenshots under `artifacts/ui-qa/`; trace detail mode
@@ -543,6 +550,10 @@ Verified after the latest implementation slices:
   validity 1.0, judge accuracy 1.0, invalid-output rate 0.0, unsure rate 0.5,
   17,992 total tokens, and 318.4s total latency. The machine-readable result is
   under `artifacts/model-benchmarks/qwen3.5-9b-golden.json`.
+- LangGraph investigation adapter regression passed: investigation runs now
+  persist framework, graph version, candidate search queries, trace candidates,
+  and tool-call inputs/outputs before model assistance and review tasks are
+  layered on top.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:

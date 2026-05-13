@@ -1654,6 +1654,16 @@ def test_v1_investigation_adds_model_assistance_with_citations(tmp_path, monkeyp
         },
     )
     assert response.status_code == 201
+    orchestration = response.json()["result"]["orchestration"]
+    assert orchestration["framework"] == "langgraph"
+    assert orchestration["graph_version"] == "openabm_investigation_graph_v1"
+    assert orchestration["structured_trace_ids"] == ["trace_wrong_tool"]
+    assert [event["node"] for event in orchestration["tool_calls"]] == [
+        "generate_candidate_search_queries",
+        "run_structured_search",
+        "run_full_text_search",
+        "persist_investigation_run",
+    ]
     assistance = response.json()["result"]["model_assistance"]
     assert assistance["suspected_root_causes"][0]["evidence_span_ids"] == [
         "span_wrong_tool_order_lookup"

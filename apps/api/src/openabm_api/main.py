@@ -24,6 +24,7 @@ from openabm_worker.grounding import (
     extract_grounding_claims_with_model,
 )
 from openabm_worker.investigation import assist_investigation
+from openabm_worker.investigation_workflow import run_investigation_workflow
 from openabm_worker.judge_drafts import draft_judge_from_request
 from openabm_worker.judges import run_rubric_judge
 from openabm_worker.model_runtime import (
@@ -2616,7 +2617,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         investigation_started = time.perf_counter()
         impact_started = time.perf_counter()
-        run = store.start_investigation(request)
+        run = run_investigation_workflow(store, request)
         metrics.observe(
             "impact_report.generation_latency_ms",
             (time.perf_counter() - impact_started) * 1000,
