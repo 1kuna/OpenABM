@@ -421,8 +421,9 @@ Done:
   emitted a tool call, named the fixture candidate `Tool Selection Error`, and
   OpenABM persisted validated membership back to `error_wrong_tool` /
   `trace_wrong_tool` with model metadata.
-- Added screenshot issue intake endpoint that stores screenshot-origin issues and
-  returns candidate seed traces with explicit match reasons.
+- Added screenshot issue intake endpoint that stores screenshot-origin issues,
+  normalizes screenshot plus attachment evidence, links source payload objects,
+  and returns candidate seed traces with explicit match reasons.
 - Added ChatOps-style investigation endpoint that creates canonical issue and
   investigation artifacts without binding the product to a chat vendor.
 - Added canonical issue artifact links so issues can stay connected to
@@ -712,8 +713,9 @@ Known remaining gaps before calling the whole spec complete:
   and model-extracted claims with exact evidence matching; broader semantic
   contradiction adjudication remains review-gated rather than automatic.
 - Screenshot issue intake and ChatOps-style issue/investigation creation exist;
-  real OCR, attachment text extraction, and vendor-specific chat connectors are
-  still future integration work.
+  screenshot/attachment metadata and extracted text are preserved as evidence,
+  while real OCR, deeper attachment parsing, and vendor-specific chat
+  connectors are still future integration work.
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
   behavior detail, deeper impact-report analysis, and deeper
   prompt/configuration history.
@@ -834,7 +836,9 @@ Implemented in this pass:
   LangGraph, Deep Agents, and Pi/pi-agent-core, plus an adoption sequence that
   keeps OpenABM's audit/provenance contracts authoritative.
 - Added `/v1/issues/from-screenshot` and `/v1/chatops/investigate` entrypoints
-  for weak human reports and chat-originated investigations.
+  for weak human reports and chat-originated investigations; screenshot intake
+  now preserves screenshot and attachment payload links plus extracted text
+  evidence for seed trace search.
 - Added `/v1/judges`, `/v1/judges/drafts`, `/v1/evals/run`,
   `/v1/evals/compare`, and `/v1/docs/search`, then wired the corresponding MCP
   tool handlers so the agent surface no longer reports those paths as

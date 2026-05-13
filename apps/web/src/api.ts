@@ -333,6 +333,8 @@ export class OpenAbmClient {
       screenshotPayloadId: string;
       extractedText?: string;
       description?: string;
+      attachmentPayloadId?: string;
+      attachmentText?: string;
     }
   ): Promise<ScreenshotIssueResult> {
     return this.post<ScreenshotIssueResult>("/v1/issues/from-screenshot", {
@@ -340,7 +342,17 @@ export class OpenAbmClient {
       title: request.title,
       description: request.description || null,
       screenshot_payload_id_nullable: request.screenshotPayloadId,
-      extracted_text: request.extractedText || null
+      extracted_text: request.extractedText || null,
+      attachments:
+        request.attachmentPayloadId || request.attachmentText
+          ? [
+              {
+                payload_id: request.attachmentPayloadId || undefined,
+                content_type: "text/plain",
+                extracted_text: request.attachmentText || undefined
+              }
+            ]
+          : []
     });
   }
 

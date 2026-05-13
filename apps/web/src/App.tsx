@@ -1449,6 +1449,8 @@ function IssueInvestigationWorkspace(props: {
   const [screenshotTitle, setScreenshotTitle] = useState("Screenshot shows refund failure");
   const [screenshotPayloadId, setScreenshotPayloadId] = useState("payload_screenshot_1");
   const [screenshotText, setScreenshotText] = useState("damaged order refund");
+  const [screenshotAttachmentPayloadId, setScreenshotAttachmentPayloadId] = useState("payload_log_1");
+  const [screenshotAttachmentText, setScreenshotAttachmentText] = useState("order lookup refund");
   const [screenshotResult, setScreenshotResult] = useState<ScreenshotIssueResult | null>(null);
   const [chatMessage, setChatMessage] = useState("Investigate damaged order refund failures");
   const [chatopsResult, setChatopsResult] = useState<ChatOpsInvestigationResult | null>(null);
@@ -1481,6 +1483,7 @@ function IssueInvestigationWorkspace(props: {
   const rubricDrafts = recordsFrom(assistance.rubric_drafts);
   const evidenceSpanIds = recordsFrom(assistance.suspected_root_causes)
     .flatMap((cause) => stringsFromUnknown(cause.evidence_span_ids));
+  const screenshotIntakeCounts = asRecord(screenshotResult?.intake_evidence.source_counts);
 
   async function loadIssues() {
     if (connection !== "live") {
@@ -1583,7 +1586,9 @@ function IssueInvestigationWorkspace(props: {
       const created = await client.createIssueFromScreenshot(projectId, {
         title: screenshotTitle.trim(),
         screenshotPayloadId: screenshotPayloadId.trim(),
-        extractedText: screenshotText.trim()
+        extractedText: screenshotText.trim(),
+        attachmentPayloadId: screenshotAttachmentPayloadId.trim() || undefined,
+        attachmentText: screenshotAttachmentText.trim() || undefined
       });
       setScreenshotResult(created);
       setIssues((current) => [created, ...current.filter((issue) => issue.issue_id !== created.issue_id)]);
@@ -1790,12 +1795,18 @@ function IssueInvestigationWorkspace(props: {
           <input value={screenshotTitle} onChange={(event) => setScreenshotTitle(event.target.value)} placeholder="Screenshot issue title" />
           <input value={screenshotPayloadId} onChange={(event) => setScreenshotPayloadId(event.target.value)} placeholder="Screenshot payload id" />
           <input value={screenshotText} onChange={(event) => setScreenshotText(event.target.value)} placeholder="Extracted screenshot text" />
+          <input value={screenshotAttachmentPayloadId} onChange={(event) => setScreenshotAttachmentPayloadId(event.target.value)} placeholder="Attachment payload id" />
+          <input value={screenshotAttachmentText} onChange={(event) => setScreenshotAttachmentText(event.target.value)} placeholder="Attachment text" />
           <button onClick={() => void createScreenshotIssue()}>
             <FileSearch size={15} />
             Screenshot intake
           </button>
           {screenshotResult ? (
-            <p className="systemNote">{screenshotResult.candidate_seed_traces.length} candidate seed traces</p>
+            <p className="systemNote">
+              {screenshotResult.candidate_seed_traces.length} candidate seed traces,
+              {" "}
+              {String(screenshotIntakeCounts.payloads ?? 0)} payload source(s)
+            </p>
           ) : null}
         </div>
 

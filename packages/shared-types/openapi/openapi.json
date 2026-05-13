@@ -3356,6 +3356,52 @@
         "x-required-scopes": [
           "issues:write"
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "title",
+                  "screenshot_payload_id_nullable"
+                ],
+                "properties": {
+                  "project_id": {"type": "string"},
+                  "title": {"type": "string"},
+                  "description": {"type": ["string", "null"]},
+                  "reporter_text": {"type": ["string", "null"]},
+                  "screenshot_payload_id_nullable": {"type": ["string", "null"]},
+                  "screenshot_content_type": {"type": ["string", "null"]},
+                  "extracted_text": {"type": ["string", "null"]},
+                  "session_id_hint": {"type": ["string", "null"]},
+                  "filters": {"type": "object"},
+                  "attachments": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "payload_id": {"type": "string"},
+                        "id": {"type": "string"},
+                        "content_type": {"type": "string"},
+                        "source": {"type": "string"},
+                        "filename": {"type": "string"},
+                        "name": {"type": "string"},
+                        "extracted_text": {"type": "string"},
+                        "text": {"type": "string"},
+                        "content_text": {"type": "string"},
+                        "summary": {"type": "string"}
+                      },
+                      "additionalProperties": true
+                    }
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "Screenshot issue and candidate seed traces."

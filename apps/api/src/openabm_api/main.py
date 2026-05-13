@@ -78,6 +78,7 @@ ISSUE_LINK_TARGET_TYPES = {
     "grounding_check",
     "novelty_run",
     "automation",
+    "payload_object",
 }
 
 
@@ -2243,15 +2244,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 or "Screenshot issue report.",
             }
         )
-        candidates = _screenshot_seed_trace_candidates(store, request)
+        intake_evidence = _normalize_screenshot_intake_evidence(request)
+        _link_screenshot_intake_payloads(store, issue, intake_evidence)
+        candidates = _screenshot_seed_trace_candidates(store, request, intake_evidence)
         store.append_audit(
             "create_issue_from_screenshot",
             "issue",
             request["project_id"],
             issue["issue_id"],
-            {"candidate_trace_ids": [candidate["trace_id"] for candidate in candidates]},
+            {
+                "candidate_trace_ids": [candidate["trace_id"] for candidate in candidates],
+                "intake_evidence": intake_evidence,
+            },
         )
-        return {**issue, "candidate_seed_traces": candidates}
+        return {**issue, "candidate_seed_traces": candidates, "intake_evidence": intake_evidence}
 
     @app.post("/api/chatops/investigate", status_code=201)
     def chatops_investigate(
@@ -3411,30 +3417,187 @@ def _eval_judges_from_request(store: SQLiteStore, request: dict[str, Any]) -> li
     return judges
 
 
+def _text_or_none(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _normalize_screenshot_intake_evidence(request: dict[str, Any]) -> dict[str, object]:
+    attachments_raw = request.get("attachments") or []
+    if not isinstance(attachments_raw, list):
+        raise SchemaValidationFailure(
+            "schema_validation_failed",
+            "attachments must be an array",
+            "/attachments",
+        )
+
+    source_payloads: list[dict[str, object]] = []
+    text_sources: list[dict[str, str]] = []
+    payload_ids: list[str] = []
+
+    def add_payload(
+        *,
+        payload_id: str | None,
+        source: str,
+        content_type: str | None,
+        index: int | None = None,
+    ) -> None:
+        if payload_id is None or payload_id in payload_ids:
+            return
+        payload_ids.append(payload_id)
+        source_payloads.append(
+            {
+                "payload_id": payload_id,
+                "source": source,
+                "content_type": content_type or "unknown",
+                "index": index,
+            }
+        )
+
+    def add_text(source: str, field: str, value: Any, payload_id: str | None = None) -> None:
+        text = _text_or_none(value)
+        if text is None:
+            return
+        text_sources.append(
+            {
+                "source": source,
+                "field": field,
+                "text": text,
+                "payload_id": payload_id or "",
+            }
+        )
+
+    screenshot_payload_id = _text_or_none(request.get("screenshot_payload_id_nullable"))
+    add_payload(
+        payload_id=screenshot_payload_id,
+        source="screenshot",
+        content_type=_text_or_none(request.get("screenshot_content_type")) or "image/*",
+    )
+    add_text("issue_report", "title", request.get("title"))
+    add_text("issue_report", "description", request.get("description"))
+    add_text("issue_report", "reporter_text", request.get("reporter_text"))
+    add_text("screenshot", "extracted_text", request.get("extracted_text"), screenshot_payload_id)
+
+    for index, attachment_raw in enumerate(attachments_raw):
+        if not isinstance(attachment_raw, dict):
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "attachments entries must be objects",
+                f"/attachments/{index}",
+            )
+        payload_id = _text_or_none(attachment_raw.get("payload_id") or attachment_raw.get("id"))
+        content_type = _text_or_none(attachment_raw.get("content_type"))
+        add_payload(
+            payload_id=payload_id,
+            source=_text_or_none(attachment_raw.get("source")) or "attachment",
+            content_type=content_type,
+            index=index,
+        )
+        for field in ("filename", "name", "extracted_text", "text", "content_text", "summary"):
+            add_text("attachment", field, attachment_raw.get(field), payload_id)
+
+    seen_text: set[str] = set()
+    query_parts: list[str] = []
+    for source in text_sources:
+        text = source["text"]
+        if text in seen_text:
+            continue
+        seen_text.add(text)
+        query_parts.append(text)
+
+    return {
+        "screenshot_payload_id": screenshot_payload_id,
+        "attachment_payload_ids": payload_ids,
+        "source_payloads": source_payloads,
+        "text_sources": text_sources,
+        "query": " ".join(query_parts),
+        "source_counts": {
+            "payloads": len(source_payloads),
+            "attachments": len(attachments_raw),
+            "text_sources": len(text_sources),
+        },
+    }
+
+
+def _link_screenshot_intake_payloads(
+    store: SQLiteStore,
+    issue: dict[str, Any],
+    intake_evidence: dict[str, object],
+) -> None:
+    source_payloads = intake_evidence.get("source_payloads")
+    if not isinstance(source_payloads, list):
+        return
+    for source_payload in source_payloads:
+        if not isinstance(source_payload, dict):
+            continue
+        payload_id = _text_or_none(source_payload.get("payload_id"))
+        if payload_id is None:
+            continue
+        source = _text_or_none(source_payload.get("source")) or "attachment"
+        relation = "screenshot_payload" if source == "screenshot" else "source_attachment"
+        store.create_issue_link(
+            {
+                "project_id": issue["project_id"],
+                "issue_id": issue["issue_id"],
+                "target_type": "payload_object",
+                "target_id": payload_id,
+                "relation": relation,
+                "source": "screenshot_intake",
+                "metadata": {
+                    "source": source,
+                    "content_type": source_payload.get("content_type") or "unknown",
+                    "index": source_payload.get("index"),
+                },
+            }
+        )
+
+
 def _screenshot_seed_trace_candidates(
     store: SQLiteStore,
     request: dict[str, Any],
+    intake_evidence: dict[str, object],
 ) -> list[dict[str, object]]:
     project_id = request["project_id"]
-    query = request.get("extracted_text") or request.get("reporter_text") or request.get("title")
     filters = request.get("filters") or {}
-    traces = store.search_traces(
-        project_id,
-        filters=filters,
-        full_text_query=query,
-        limit=int(request.get("limit", 5)),
-    )
+    limit = int(request.get("limit", 5))
+    text_queries: list[str] = []
+    text_sources = intake_evidence.get("text_sources")
+    if isinstance(text_sources, list):
+        for source in text_sources:
+            if not isinstance(source, dict):
+                continue
+            text = _text_or_none(source.get("text"))
+            if text is not None and text not in text_queries:
+                text_queries.append(text)
+    traces_by_id: dict[str, dict[str, Any]] = {}
+    matched_queries_by_trace: dict[str, list[str]] = {}
+    for text_query in text_queries:
+        for trace in store.search_traces(
+            project_id,
+            filters=filters,
+            full_text_query=text_query,
+            limit=limit,
+        ):
+            trace_id = trace["trace_id"]
+            traces_by_id.setdefault(trace_id, trace)
+            matched_queries_by_trace.setdefault(trace_id, []).append(text_query)
+        if len(traces_by_id) >= limit:
+            break
+    traces = list(traces_by_id.values())[:limit]
     if not traces and request.get("session_id_hint"):
         traces = store.search_traces(
             project_id,
             filters={"session_id": request["session_id_hint"]},
-            limit=int(request.get("limit", 5)),
+            limit=limit,
         )
     candidates = []
     for trace in traces:
         reasons = []
-        if query:
-            reasons.append("matched extracted text or reporter text")
+        matched_queries = matched_queries_by_trace.get(trace["trace_id"], [])
+        if matched_queries:
+            reasons.append("matched screenshot or attachment intake text")
         if request.get("session_id_hint") and trace.get("session_id") == request["session_id_hint"]:
             reasons.append("matched session hint")
         candidates.append(
@@ -3444,6 +3607,7 @@ def _screenshot_seed_trace_candidates(
                 "status": trace.get("status"),
                 "confidence": "low" if not reasons else "medium",
                 "reasons": reasons or ["candidate from structured filters"],
+                "matched_queries": matched_queries[:3],
             }
         )
     return candidates

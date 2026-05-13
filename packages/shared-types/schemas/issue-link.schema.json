@@ -37,7 +37,8 @@
         "context_pack",
         "grounding_check",
         "novelty_run",
-        "automation"
+        "automation",
+        "payload_object"
       ]
     },
     "target_id": {"type": "string"},

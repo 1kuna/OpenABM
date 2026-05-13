@@ -1717,11 +1717,36 @@ def test_v1_screenshot_issue_and_chatops_create_canonical_artifacts(tmp_path) ->
             "title": "Screenshot shows damaged order refund failure",
             "screenshot_payload_id_nullable": "payload_screenshot_1",
             "extracted_text": "damaged order refund",
+            "attachments": [
+                {
+                    "payload_id": "payload_log_1",
+                    "content_type": "text/plain",
+                    "extracted_text": "order lookup refund",
+                }
+            ],
         },
     )
     assert screenshot_issue.status_code == 201
-    assert screenshot_issue.json()["source_type"] == "screenshot"
-    assert screenshot_issue.json()["candidate_seed_traces"][0]["trace_id"] == trace_id
+    screenshot_body = screenshot_issue.json()
+    assert screenshot_body["source_type"] == "screenshot"
+    assert screenshot_body["candidate_seed_traces"][0]["trace_id"] == trace_id
+    assert screenshot_body["intake_evidence"]["attachment_payload_ids"] == [
+        "payload_screenshot_1",
+        "payload_log_1",
+    ]
+    assert "order lookup refund" in screenshot_body["intake_evidence"]["query"]
+    screenshot_links = client.get(
+        f"/v1/issues/{screenshot_body['issue_id']}/links",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert screenshot_links.status_code == 200
+    screenshot_targets = {
+        (link["target_type"], link["target_id"], link["relation"])
+        for link in screenshot_links.json()["data"]
+    }
+    assert ("payload_object", "payload_screenshot_1", "screenshot_payload") in screenshot_targets
+    assert ("payload_object", "payload_log_1", "source_attachment") in screenshot_targets
 
     chatops = client.post(
         "/v1/chatops/investigate",

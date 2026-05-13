@@ -348,6 +348,7 @@ export interface IssueLink {
 
 export interface ScreenshotIssueResult extends IssueDefinition {
   candidate_seed_traces: Array<Record<string, unknown>>;
+  intake_evidence: Record<string, unknown>;
 }
 
 export interface ImpactReport {
