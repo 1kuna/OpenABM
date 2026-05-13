@@ -3092,6 +3092,122 @@
         }
       }
     },
+    "/v1/issues/{issue_id}/links": {
+      "get": {
+        "operationId": "listIssueLinks",
+        "summary": "List canonical issue artifact links.",
+        "x-required-scopes": [
+          "issues:read"
+        ],
+        "parameters": [
+          {
+            "name": "issue_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Issue links.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "../schemas/issue-link.schema.json"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createIssueLink",
+        "summary": "Create a provenance link from an issue to a related artifact.",
+        "x-required-scopes": [
+          "issues:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "target_type",
+                  "target_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "target_type": {
+                    "type": "string"
+                  },
+                  "target_id": {
+                    "type": "string"
+                  },
+                  "relation": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  },
+                  "evidence_trace_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "evidence_span_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "metadata": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Issue link created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/issue-link.schema.json"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/issues/from-screenshot": {
       "post": {
         "operationId": "createIssueFromScreenshot",

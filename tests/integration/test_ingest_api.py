@@ -1867,6 +1867,342 @@ def test_core_loop_acceptance_preserves_provenance_through_mcp(tmp_path, monkeyp
     ] == "span_wrong_tool_order_lookup"
 
 
+def test_reported_incident_investigation_acceptance_links_artifacts(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class StubProvider:
+        async def structured_completion(self, request, schema):
+            del request, schema
+            return {
+                "status": "succeeded",
+                "value": {
+                    "suspected_root_causes": [
+                        {
+                            "hypothesis": (
+                                "Refund traces used order lookup while asserting customer "
+                                "commitment values without policy evidence."
+                            ),
+                            "evidence_trace_ids": [
+                                "trace_wrong_tool",
+                                "trace_fabricated_commitment",
+                            ],
+                            "evidence_span_ids": [
+                                "span_wrong_tool_order_lookup",
+                                "span_fabricated_commitment_order_lookup",
+                            ],
+                            "confidence_or_uncertainty": "two fixture traces with same tool path",
+                        }
+                    ],
+                    "behavior_drafts": [
+                        {
+                            "name": "fabricated_commitment_after_order_lookup",
+                            "description": (
+                                "Refund task reaches order lookup before making a customer "
+                                "commitment claim."
+                            ),
+                            "positive_trace_ids": [
+                                "trace_wrong_tool",
+                                "trace_fabricated_commitment",
+                            ],
+                            "negative_trace_ids": ["trace_happy_support"],
+                        }
+                    ],
+                    "rubric_drafts": [
+                        {
+                            "name": "Unsupported customer commitment",
+                            "pass": "Customer commitment values are grounded in policy evidence.",
+                            "fail": "The trace makes a commitment after unrelated order lookup.",
+                            "unsure": "Trace lacks commitment or policy evidence.",
+                            "evidence_trace_ids": [
+                                "trace_wrong_tool",
+                                "trace_fabricated_commitment",
+                            ],
+                        }
+                    ],
+                    "recommended_next_actions": [
+                        "Backtest the candidate behavior.",
+                        "Create a regression dataset from matching traces.",
+                    ],
+                    "confidence_or_uncertainty": "fixture-scale incident cohort",
+                },
+                "provider": "stub",
+                "model": "stub-model",
+                "usage": {"total_tokens": 321},
+                "repaired": False,
+            }
+
+    monkeypatch.setattr(
+        "openabm_api.main.model_provider_from_settings",
+        lambda settings: StubProvider(),
+    )
+    client = make_client(tmp_path)
+    corpus = json.loads(FIXTURE_PATH.read_text())
+    happy = corpus["fixtures"][0]
+    wrong = corpus["fixtures"][1]
+    fabricated = _clone_trace_fixture(
+        wrong,
+        trace_id="trace_fabricated_commitment",
+        session_id="session_fabricated_commitment",
+        span_id_map={
+            "span_wrong_tool_root": "span_fabricated_commitment_root",
+            "span_wrong_tool_order_lookup": "span_fabricated_commitment_order_lookup",
+        },
+        summary="Agent fabricated a customer commitment value after order lookup.",
+    )
+    ingest = client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={
+            "traces": [happy["trace"], wrong["trace"], fabricated["trace"]],
+            "spans": [*happy["spans"], *wrong["spans"], *fabricated["spans"]],
+        },
+    )
+    assert ingest.status_code == 207
+    for trace_id, values in {
+        "trace_wrong_tool": {
+            "task_type": "refund",
+            "workflow": "refund_commitment",
+            "account_id": "acct_enterprise_1",
+            "plan": "enterprise",
+        },
+        "trace_fabricated_commitment": {
+            "task_type": "refund",
+            "workflow": "refund_commitment",
+            "account_id": "acct_enterprise_1",
+            "plan": "enterprise",
+        },
+        "trace_happy_support": {
+            "task_type": "policy_lookup",
+            "workflow": "refund_policy",
+            "account_id": "acct_starter_2",
+            "plan": "starter",
+        },
+    }.items():
+        for key, value in values.items():
+            response = client.post(
+                "/v1/trace-dimensions",
+                headers=auth_headers(),
+                json={
+                    "project_id": "proj_demo",
+                    "trace_id": trace_id,
+                    "key": key,
+                    "value": value,
+                },
+            )
+            assert response.status_code == 201
+
+    issue = client.post(
+        "/v1/issues",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "title": "agent fabricated a customer commitment value",
+            "description": "Customer-facing refund flow promised an unsupported commitment.",
+            "seed_trace_id_nullable": "trace_wrong_tool",
+        },
+    )
+    assert issue.status_code == 201
+    issue_id = issue.json()["issue_id"]
+    investigation = client.post(
+        "/v1/investigations",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "issue_id_nullable": issue_id,
+            "seed_trace_id_nullable": "trace_wrong_tool",
+            "natural_language_problem_nullable": (
+                "agent fabricated a customer commitment value"
+            ),
+            "filters": {"status": "error"},
+        },
+    )
+    assert investigation.status_code == 201
+    result = investigation.json()["result"]
+    impact = result["impact_report"]
+    assert set(result["evidence_trace_ids"]) == {
+        "trace_wrong_tool",
+        "trace_fabricated_commitment",
+    }
+    assert impact["matching_trace_count"] == 2
+    assert impact["task_type_distribution"] == {"refund": 2}
+    assert impact["dimension_distribution"]["workflow"] == {"refund_commitment": 2}
+    assert impact["affected_entity_count"] == 1
+    assert impact["affected_entities"][0]["entity_id"] == "acct_enterprise_1"
+    assert set(impact["representative_trace_ids"]) == {
+        "trace_wrong_tool",
+        "trace_fabricated_commitment",
+    }
+    assert result["model_assistance"]["suspected_root_causes"][0][
+        "evidence_span_ids"
+    ] == [
+        "span_wrong_tool_order_lookup",
+        "span_fabricated_commitment_order_lookup",
+    ]
+    assert set(result["model_assistance"]["behavior_drafts"][0]["positive_trace_ids"]) == {
+        "trace_wrong_tool",
+        "trace_fabricated_commitment",
+    }
+
+    behavior = client.post(
+        "/v1/behaviors",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "issue_id_nullable": issue_id,
+            "name": "fabricated_commitment_after_order_lookup",
+            "description": "Refund commitment incident uses order lookup evidence.",
+            "severity": "high",
+            "evidence_trace_ids": [
+                "trace_wrong_tool",
+                "trace_fabricated_commitment",
+            ],
+            "evidence_span_ids": [
+                "span_wrong_tool_order_lookup",
+                "span_fabricated_commitment_order_lookup",
+            ],
+            "detector": {
+                "type": "rule",
+                "scope": "span",
+                "match_semantics": "any_match_is_behavior",
+                "conditions": {
+                    "combine": "all",
+                    "items": [
+                        {
+                            "field": "attributes.tool.name",
+                            "op": "eq",
+                            "value": "order_lookup",
+                        }
+                    ],
+                },
+            },
+        },
+    )
+    assert behavior.status_code == 201
+    backtest = client.post(
+        f"/v1/behaviors/{behavior.json()['behavior_id']}/backtest",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "filters": {"status": "error"}},
+    )
+    assert backtest.status_code == 200
+    assert {item["trace_id"] for item in backtest.json()["positive_examples"]} == {
+        "trace_wrong_tool",
+        "trace_fabricated_commitment",
+    }
+
+    judge = client.post(
+        "/v1/judges/drafts",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "name": "Unsupported customer commitment",
+            "judge_type": "deterministic_rule",
+            "definition": _wrong_tool_judge(),
+            "trace_id": "trace_fabricated_commitment",
+        },
+    )
+    assert judge.status_code == 201
+    issue_judge_link = client.post(
+        f"/v1/issues/{issue_id}/links",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "target_type": "judge",
+            "target_id": judge.json()["judge_id"],
+            "relation": "proposed_judge",
+            "source": "acceptance_test",
+            "evidence_trace_ids": ["trace_fabricated_commitment"],
+            "evidence_span_ids": ["span_fabricated_commitment_order_lookup"],
+        },
+    )
+    assert issue_judge_link.status_code == 201
+
+    dataset = client.post(
+        "/v1/datasets",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "issue_id_nullable": issue_id,
+            "name": "Fabricated commitment regression",
+        },
+    )
+    assert dataset.status_code == 201
+    examples = []
+    for trace_id in ["trace_wrong_tool", "trace_fabricated_commitment"]:
+        example = client.post(
+            f"/v1/datasets/{dataset.json()['dataset_id']}/examples/from-trace",
+            headers=auth_headers(),
+            json={
+                "project_id": "proj_demo",
+                "issue_id_nullable": issue_id,
+                "trace_id": trace_id,
+                "labels": ["fabricated_commitment_after_order_lookup"],
+            },
+        )
+        assert example.status_code == 201
+        examples.append(example.json())
+    assert {example["source_trace_id"] for example in examples} == {
+        "trace_wrong_tool",
+        "trace_fabricated_commitment",
+    }
+
+    baseline = client.post(
+        "/v1/evals/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "issue_id_nullable": issue_id,
+            "dataset_version_id": dataset.json()["latest_version_id"],
+            "judges": [_wrong_tool_judge()],
+        },
+    )
+    candidate = client.post(
+        "/v1/evals/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "issue_id_nullable": issue_id,
+            "dataset_version_id": dataset.json()["latest_version_id"],
+            "judges": [_wrong_tool_judge()],
+            "baseline_eval_run_id": baseline.json()["eval_run_id"],
+        },
+    )
+    assert baseline.status_code == 201
+    assert candidate.status_code == 201
+    comparison = client.post(
+        "/v1/evals/compare",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "baseline_eval_run_id": baseline.json()["eval_run_id"],
+            "candidate_eval_run_id": candidate.json()["eval_run_id"],
+        },
+    )
+    assert comparison.status_code == 200
+    issue_links = client.get(
+        f"/v1/issues/{issue_id}/links",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert issue_links.status_code == 200
+    links = issue_links.json()["data"]
+    linked_targets = {(link["target_type"], link["target_id"]) for link in links}
+    assert {
+        ("investigation_run", investigation.json()["investigation_run_id"]),
+        ("impact_report", impact["report_id"]),
+        ("behavior", behavior.json()["behavior_id"]),
+        ("judge", judge.json()["judge_id"]),
+        ("dataset", dataset.json()["dataset_id"]),
+        ("eval_run", baseline.json()["eval_run_id"]),
+        ("eval_run", candidate.json()["eval_run_id"]),
+    } <= linked_targets
+    assert {
+        link["target_type"]
+        for link in links
+        if link["relation"] in {"evidence_example", "regression_dataset"}
+    } >= {"dataset", "dataset_example"}
+
+
 class _TestClientMcpAdapter:
     def __init__(self, client: TestClient) -> None:
         self.client = client
@@ -1910,3 +2246,34 @@ def _order_lookup_present_judge() -> dict[str, object]:
             },
         },
     }
+
+
+def _clone_trace_fixture(
+    fixture: dict[str, object],
+    *,
+    trace_id: str,
+    session_id: str,
+    span_id_map: dict[str, str],
+    summary: str,
+) -> dict[str, object]:
+    clone = json.loads(json.dumps(fixture))
+    clone["trace"]["trace_id"] = trace_id
+    clone["trace"]["session_id"] = session_id
+    clone["trace"]["root_span_id"] = span_id_map[clone["trace"]["root_span_id"]]
+    clone["trace"]["summary"] = summary
+    clone["trace"]["attributes"] = {
+        **clone["trace"].get("attributes", {}),
+        "incident.kind": "fabricated_customer_commitment",
+    }
+    for span in clone["spans"]:
+        span["trace_id"] = trace_id
+        if span["span_id"] in span_id_map:
+            span["span_id"] = span_id_map[span["span_id"]]
+        if span.get("parent_span_id") in span_id_map:
+            span["parent_span_id"] = span_id_map[span["parent_span_id"]]
+        if span["span_id"] == span_id_map["span_wrong_tool_order_lookup"]:
+            span["attributes"] = {
+                **span.get("attributes", {}),
+                "claim.text": "customer commitment value",
+            }
+    return clone

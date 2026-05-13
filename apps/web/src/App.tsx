@@ -46,6 +46,7 @@ import type {
   ImpactReport,
   InvestigationRun,
   IssueDefinition,
+  IssueLink,
   JudgeCalibrationReport,
   JudgeDefinition,
   JudgePromotionResult,
@@ -1401,6 +1402,7 @@ function IssueInvestigationWorkspace(props: {
   const [investigations, setInvestigations] = useState<InvestigationRun[]>([]);
   const [impactReports, setImpactReports] = useState<ImpactReport[]>([]);
   const [contextPacks, setContextPacks] = useState<AgentContextPack[]>([]);
+  const [issueLinks, setIssueLinks] = useState<IssueLink[]>([]);
   const [selectedIssueId, setSelectedIssueId] = useState("");
   const [selectedInvestigationId, setSelectedInvestigationId] = useState("");
   const [selectedContextPackId, setSelectedContextPackId] = useState("");
@@ -1441,6 +1443,8 @@ function IssueInvestigationWorkspace(props: {
   const assistance = asRecord(selectedInvestigation?.result.model_assistance);
   const behaviorDrafts = recordsFrom(assistance.behavior_drafts);
   const rubricDrafts = recordsFrom(assistance.rubric_drafts);
+  const evidenceSpanIds = recordsFrom(assistance.suspected_root_causes)
+    .flatMap((cause) => stringsFromUnknown(cause.evidence_span_ids));
 
   async function loadIssues() {
     if (connection !== "live") {
@@ -1448,6 +1452,7 @@ function IssueInvestigationWorkspace(props: {
       setInvestigations([]);
       setImpactReports([]);
       setContextPacks([]);
+      setIssueLinks([]);
       setStateText("fixture mode");
       return;
     }
@@ -1479,6 +1484,22 @@ function IssueInvestigationWorkspace(props: {
   useEffect(() => {
     void loadIssues();
   }, [client, connection, projectId]);
+
+  async function loadIssueLinks(issue: IssueDefinition | null = selectedIssue) {
+    if (connection !== "live" || !issue) {
+      setIssueLinks([]);
+      return;
+    }
+    try {
+      setIssueLinks(await client.listIssueLinks(projectId, issue.issue_id));
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "issue links unavailable");
+    }
+  }
+
+  useEffect(() => {
+    void loadIssueLinks();
+  }, [client, connection, projectId, selectedIssue?.issue_id]);
 
   async function loadContextPacks(issue: IssueDefinition | null = selectedIssue) {
     if (connection !== "live") {
@@ -1554,6 +1575,7 @@ function IssueInvestigationWorkspace(props: {
       ]);
       setSelectedIssueId(result.issue.issue_id);
       setSelectedInvestigationId(result.investigation_run.investigation_run_id);
+      setIssueLinks(await client.listIssueLinks(projectId, result.issue.issue_id));
       setStateText("ChatOps artifacts created");
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "ChatOps intake failed");
@@ -1578,6 +1600,7 @@ function IssueInvestigationWorkspace(props: {
         setImpactReports((current) => [impact, ...current.filter((report) => report.report_id !== impact.report_id)]);
       }
       setSelectedInvestigationId(run.investigation_run_id);
+      await loadIssueLinks();
       setStateText(`investigation ${run.status}`);
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "investigation failed");
@@ -1620,8 +1643,14 @@ function IssueInvestigationWorkspace(props: {
         name,
         description: String(draft.description ?? "Investigation behavior draft."),
         severity: "medium",
-        detector: { type: "manual_label", labels: [name] }
+        detector: { type: "manual_label", labels: [name] },
+        issueId: selectedIssue?.issue_id,
+        evidenceTraceIds: stringsFromUnknown(draft.positive_trace_ids).length
+          ? stringsFromUnknown(draft.positive_trace_ids)
+          : evidenceTraceIds,
+        evidenceSpanIds
       });
+      await loadIssueLinks();
       setStateText(`created behavior ${created.behavior_id}`);
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "behavior draft action failed");
@@ -1647,6 +1676,17 @@ function IssueInvestigationWorkspace(props: {
           evidence_trace_ids: stringsFromUnknown(draft.evidence_trace_ids)
         }
       });
+      if (selectedIssue) {
+        await client.createIssueLink(projectId, selectedIssue.issue_id, {
+          targetType: "judge",
+          targetId: created.judge_id,
+          relation: "proposed_judge",
+          source: "judge_draft_create",
+          evidenceTraceIds: stringsFromUnknown(draft.evidence_trace_ids),
+          evidenceSpanIds
+        });
+        await loadIssueLinks();
+      }
       setStateText(`created judge ${created.judge_id}`);
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "judge draft action failed");
@@ -1664,9 +1704,11 @@ function IssueInvestigationWorkspace(props: {
       const dataset = await client.createDataset(
         projectId,
         `Investigation ${shortIdentifier(selectedInvestigation.investigation_run_id)}`,
-        selectedInvestigation.natural_language_problem_nullable ?? "Investigation evidence dataset"
+        selectedInvestigation.natural_language_problem_nullable ?? "Investigation evidence dataset",
+        selectedIssue?.issue_id
       );
-      await Promise.all(traceIds.map((traceId) => client.addTraceToDataset(projectId, dataset.dataset_id, traceId, ["investigation"])));
+      await Promise.all(traceIds.map((traceId) => client.addTraceToDataset(projectId, dataset.dataset_id, traceId, ["investigation"], selectedIssue?.issue_id)));
+      await loadIssueLinks();
       setStateText(`created dataset ${dataset.dataset_id}`);
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "dataset draft action failed");
@@ -1769,6 +1811,22 @@ function IssueInvestigationWorkspace(props: {
             </div>
 
             <div className="issueSections">
+              <section className="issueSection">
+                <h4>Linked artifacts</h4>
+                <div className="sectionRows">
+                  {issueLinks.map((link) => (
+                    <div key={link.issue_link_id}>
+                      <strong>{link.target_type} · {link.relation}</strong>
+                      <span>{link.target_id}</span>
+                      {link.evidence_trace_ids.length ? (
+                        <span>traces: {link.evidence_trace_ids.join(", ")}</span>
+                      ) : null}
+                    </div>
+                  ))}
+                  {!issueLinks.length ? <p className="systemNote">No linked artifacts yet</p> : null}
+                </div>
+              </section>
+
               <section className="issueSection">
                 <h4>Start investigation</h4>
                 <input

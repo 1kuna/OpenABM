@@ -56,6 +56,23 @@ from openabm_api.settings import Settings
 from openabm_api.storage import SQLiteStore
 from openabm_api.time import utc_now
 
+ISSUE_LINK_TARGET_TYPES = {
+    "trace",
+    "span",
+    "investigation_run",
+    "impact_report",
+    "behavior",
+    "judge",
+    "dataset",
+    "dataset_example",
+    "eval_run",
+    "review_task",
+    "context_pack",
+    "grounding_check",
+    "novelty_run",
+    "automation",
+}
+
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
@@ -118,6 +135,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status_code=400,
             content=_error(exc.code, exc.message, path=exc.path, retryable=False),
         )
+
+    def link_issue_artifact_or_404(**kwargs: Any) -> dict[str, Any] | None:
+        try:
+            return store.link_issue_artifact(**kwargs)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
 
     @app.get("/health")
     def health() -> dict[str, object]:
@@ -1201,6 +1224,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             request["project_id"],
             behavior["behavior_id"],
         )
+        issue_link = link_issue_artifact_or_404(
+            project_id=request["project_id"],
+            issue_id=request.get("issue_id_nullable"),
+            target_type="behavior",
+            target_id=behavior["behavior_id"],
+            relation="proposed_behavior",
+            source="behavior_create",
+            evidence_trace_ids=request.get("evidence_trace_ids") or [],
+            evidence_span_ids=request.get("evidence_span_ids") or [],
+        )
+        if issue_link:
+            behavior["issue_link"] = issue_link
         return behavior
 
     @app.get("/api/behaviors/{behavior_id}")
@@ -1411,6 +1446,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             request["project_id"],
             dataset["dataset_id"],
         )
+        issue_link = link_issue_artifact_or_404(
+            project_id=request["project_id"],
+            issue_id=request.get("issue_id_nullable"),
+            target_type="dataset",
+            target_id=dataset["dataset_id"],
+            relation="regression_dataset",
+            source="dataset_create",
+        )
+        if issue_link:
+            dataset["issue_link"] = issue_link
         return dataset
 
     @app.get("/api/datasets/{dataset_id}/examples")
@@ -1449,6 +1494,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             example["dataset_example_id"],
             {"dataset_id": dataset_id, "trace_id": request["trace_id"]},
         )
+        issue_link = link_issue_artifact_or_404(
+            project_id=request["project_id"],
+            issue_id=request.get("issue_id_nullable"),
+            target_type="dataset_example",
+            target_id=example["dataset_example_id"],
+            relation="evidence_example",
+            source="dataset_example_create",
+            evidence_trace_ids=[request["trace_id"]],
+        )
+        if issue_link:
+            example["issue_link"] = issue_link
         return example
 
     @app.get("/api/evals")
@@ -1517,6 +1573,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             run["eval_run_id"],
             {"dataset_version_id": request["dataset_version_id"]},
         )
+        issue_link = link_issue_artifact_or_404(
+            project_id=request["project_id"],
+            issue_id=request.get("issue_id_nullable"),
+            target_type="eval_run",
+            target_id=run["eval_run_id"],
+            relation="regression_eval",
+            source="eval_run",
+            metadata={"dataset_version_id": request["dataset_version_id"]},
+        )
+        if issue_link:
+            run["issue_link"] = issue_link
         return run
 
     @app.get("/api/evals/{eval_run_id}")
@@ -1951,6 +2018,65 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if issue is None:
             raise HTTPException(status_code=404, detail=_error("not_found", "Issue not found."))
         return issue
+
+    @app.get("/api/issues/{issue_id}/links")
+    def list_issue_links(
+        issue_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["issues:read"])),
+    ) -> dict[str, object]:
+        del actor
+        if store.get_issue(project_id, issue_id) is None:
+            raise HTTPException(status_code=404, detail=_error("not_found", "Issue not found."))
+        return {"data": store.list_issue_links(project_id, issue_id)}
+
+    @app.post("/api/issues/{issue_id}/links", status_code=201)
+    def create_issue_link(
+        issue_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["issues:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "target_type", "target_id"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        if request["target_type"] not in ISSUE_LINK_TARGET_TYPES:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "target_type is invalid",
+                "/target_type",
+            )
+        try:
+            link = store.create_issue_link(
+                {
+                    **request,
+                    "issue_id": issue_id,
+                    "relation": request.get("relation", "related_to"),
+                    "source": request.get("source", "manual"),
+                    "evidence_trace_ids": request.get("evidence_trace_ids") or [],
+                    "evidence_span_ids": request.get("evidence_span_ids") or [],
+                    "metadata": request.get("metadata") or {},
+                }
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
+        store.append_audit(
+            "create_issue_link",
+            "issue_link",
+            request["project_id"],
+            link["issue_link_id"],
+            {
+                "issue_id": issue_id,
+                "target_type": link["target_type"],
+                "target_id": link["target_id"],
+                "relation": link["relation"],
+            },
+        )
+        return link
 
     @app.post("/api/issues/from-screenshot", status_code=201)
     def create_issue_from_screenshot(
@@ -2615,6 +2741,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "project_id is required",
                 "/project_id",
             )
+        if request.get("issue_id_nullable") and store.get_issue(
+            request["project_id"], request["issue_id_nullable"]
+        ) is None:
+            raise HTTPException(status_code=404, detail=_error("not_found", "Issue not found."))
         investigation_started = time.perf_counter()
         impact_started = time.perf_counter()
         run = run_investigation_workflow(store, request)

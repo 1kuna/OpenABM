@@ -328,6 +328,20 @@ export interface IssueDefinition {
   updated_at: string;
 }
 
+export interface IssueLink {
+  issue_link_id: string;
+  project_id: string;
+  issue_id: string;
+  target_type: string;
+  target_id: string;
+  relation: string;
+  source: string;
+  evidence_trace_ids: string[];
+  evidence_span_ids: string[];
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface ScreenshotIssueResult extends IssueDefinition {
   candidate_seed_traces: Array<Record<string, unknown>>;
 }

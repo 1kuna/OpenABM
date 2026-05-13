@@ -27,6 +27,7 @@ import type {
   ImpactReport,
   InvestigationRun,
   IssueDefinition,
+  IssueLink,
   JudgeCalibrationReport,
   JudgeDefinition,
   JudgePromotionResult,
@@ -274,6 +275,37 @@ export class OpenAbmClient {
     return this.get<IssueDefinition>(`/v1/issues/${issueId}?${params.toString()}`);
   }
 
+  async listIssueLinks(projectId: string, issueId: string): Promise<IssueLink[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: IssueLink[] }>(`/v1/issues/${issueId}/links?${params.toString()}`);
+    return body.data;
+  }
+
+  async createIssueLink(
+    projectId: string,
+    issueId: string,
+    request: {
+      targetType: string;
+      targetId: string;
+      relation?: string;
+      source?: string;
+      evidenceTraceIds?: string[];
+      evidenceSpanIds?: string[];
+      metadata?: Record<string, unknown>;
+    }
+  ): Promise<IssueLink> {
+    return this.post<IssueLink>(`/v1/issues/${issueId}/links`, {
+      project_id: projectId,
+      target_type: request.targetType,
+      target_id: request.targetId,
+      relation: request.relation || "related_to",
+      source: request.source || "manual",
+      evidence_trace_ids: request.evidenceTraceIds || [],
+      evidence_span_ids: request.evidenceSpanIds || [],
+      metadata: request.metadata || {}
+    });
+  }
+
   async createIssue(
     projectId: string,
     request: {
@@ -413,6 +445,9 @@ export class OpenAbmClient {
       description?: string;
       severity: string;
       detector: Record<string, unknown>;
+      issueId?: string;
+      evidenceTraceIds?: string[];
+      evidenceSpanIds?: string[];
     }
   ): Promise<BehaviorDefinition> {
     return this.post<BehaviorDefinition>("/v1/behaviors", {
@@ -420,7 +455,10 @@ export class OpenAbmClient {
       name: request.name,
       description: request.description || null,
       severity: request.severity,
-      detector: request.detector
+      detector: request.detector,
+      issue_id_nullable: request.issueId || null,
+      evidence_trace_ids: request.evidenceTraceIds || [],
+      evidence_span_ids: request.evidenceSpanIds || []
     });
   }
 
@@ -738,13 +776,15 @@ export class OpenAbmClient {
     projectId: string,
     datasetVersionId: string,
     judgeIds: string[],
-    baselineEvalRunId?: string
+    baselineEvalRunId?: string,
+    issueId?: string
   ): Promise<EvalRun> {
     return this.post<EvalRun>("/v1/evals/run", {
       project_id: projectId,
       dataset_version_id: datasetVersionId,
       judge_ids: judgeIds,
-      baseline_eval_run_id: baselineEvalRunId || null
+      baseline_eval_run_id: baselineEvalRunId || null,
+      issue_id_nullable: issueId || null
     });
   }
 
@@ -771,11 +811,12 @@ export class OpenAbmClient {
     return this.get<DatasetDefinition>(`/v1/datasets/${datasetId}?${params.toString()}`);
   }
 
-  async createDataset(projectId: string, name: string, description?: string): Promise<DatasetDefinition> {
+  async createDataset(projectId: string, name: string, description?: string, issueId?: string): Promise<DatasetDefinition> {
     return this.post<DatasetDefinition>("/v1/datasets", {
       project_id: projectId,
       name,
-      description: description || null
+      description: description || null,
+      issue_id_nullable: issueId || null
     });
   }
 
@@ -789,12 +830,14 @@ export class OpenAbmClient {
     projectId: string,
     datasetId: string,
     traceId: string,
-    labels: string[]
+    labels: string[],
+    issueId?: string
   ): Promise<DatasetExample> {
     return this.post<DatasetExample>(`/v1/datasets/${datasetId}/examples/from-trace`, {
       project_id: projectId,
       trace_id: traceId,
-      labels
+      labels,
+      issue_id_nullable: issueId || null
     });
   }
 

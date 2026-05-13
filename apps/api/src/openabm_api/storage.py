@@ -3092,6 +3092,82 @@ class SQLiteStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def create_issue_link(
+        self,
+        request: dict[str, Any],
+    ) -> dict[str, Any]:
+        project_id = request["project_id"]
+        issue_id = request["issue_id"]
+        if self.get_issue(project_id, issue_id) is None:
+            raise KeyError(f"issue not found: {issue_id}")
+        now = utc_now()
+        item = {
+            "issue_link_id": new_id("issue_link"),
+            "project_id": project_id,
+            "issue_id": issue_id,
+            "target_type": request["target_type"],
+            "target_id": request["target_id"],
+            "relation": request.get("relation", "related_to"),
+            "source": request.get("source", "manual"),
+            "evidence_trace_ids": request.get("evidence_trace_ids") or [],
+            "evidence_span_ids": request.get("evidence_span_ids") or [],
+            "metadata": request.get("metadata") or {},
+            "created_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO issue_links(
+                  issue_link_id, project_id, issue_id, target_type, target_id,
+                  relation, source, evidence_trace_ids_json, evidence_span_ids_json,
+                  metadata_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["issue_link_id"],
+                    project_id,
+                    issue_id,
+                    item["target_type"],
+                    item["target_id"],
+                    item["relation"],
+                    item["source"],
+                    encode_json(item["evidence_trace_ids"]),
+                    encode_json(item["evidence_span_ids"]),
+                    encode_json(item["metadata"]),
+                    now,
+                ),
+            )
+            row = conn.execute(
+                """
+                SELECT * FROM issue_links
+                WHERE project_id = ? AND issue_id = ? AND target_type = ?
+                  AND target_id = ? AND relation = ?
+                """,
+                (
+                    project_id,
+                    issue_id,
+                    item["target_type"],
+                    item["target_id"],
+                    item["relation"],
+                ),
+            ).fetchone()
+        if row is None:
+            raise KeyError("issue link was not persisted")
+        return self._issue_link_from_row(row)
+
+    def list_issue_links(self, project_id: str, issue_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM issue_links
+                WHERE project_id = ? AND issue_id = ?
+                ORDER BY created_at ASC
+                """,
+                (project_id, issue_id),
+            ).fetchall()
+        return [self._issue_link_from_row(row) for row in rows]
+
     def create_data_classification_policy(self, request: dict[str, Any]) -> dict[str, Any]:
         project_id = request["project_id"]
         self.ensure_project(project_id)
@@ -3577,6 +3653,35 @@ class SQLiteStore:
             ).fetchone()
         return dict(row) if row else None
 
+    def link_issue_artifact(
+        self,
+        *,
+        project_id: str,
+        issue_id: str | None,
+        target_type: str,
+        target_id: str,
+        relation: str,
+        source: str = "system",
+        evidence_trace_ids: list[str] | None = None,
+        evidence_span_ids: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        if not issue_id:
+            return None
+        return self.create_issue_link(
+            {
+                "project_id": project_id,
+                "issue_id": issue_id,
+                "target_type": target_type,
+                "target_id": target_id,
+                "relation": relation,
+                "source": source,
+                "evidence_trace_ids": evidence_trace_ids or [],
+                "evidence_span_ids": evidence_span_ids or [],
+                "metadata": metadata or {},
+            }
+        )
+
     def create_agent_context_pack(
         self,
         *,
@@ -3768,6 +3873,26 @@ class SQLiteStore:
             )
         report = self.persist_impact_report(report, run["investigation_run_id"])
         run["result"]["impact_report"] = report
+        evidence_trace_ids = [trace["trace_id"] for trace in traces]
+        self.link_issue_artifact(
+            project_id=project_id,
+            issue_id=run["issue_id_nullable"],
+            target_type="investigation_run",
+            target_id=run["investigation_run_id"],
+            relation="investigated_by",
+            source="investigation_workflow",
+            evidence_trace_ids=evidence_trace_ids,
+        )
+        self.link_issue_artifact(
+            project_id=project_id,
+            issue_id=run["issue_id_nullable"],
+            target_type="impact_report",
+            target_id=report["report_id"],
+            relation="scoped_by",
+            source="investigation_workflow",
+            evidence_trace_ids=evidence_trace_ids,
+            metadata={"matching_trace_count": report["matching_trace_count"]},
+        )
         return run
 
     def update_investigation_result(
@@ -4017,6 +4142,7 @@ class SQLiteStore:
             "dataset_examples": self._list_dataset_examples(project_id),
             "prompts": self.list_prompts(project_id),
             "issues": self.list_issues(project_id),
+            "issue_links": self._list_issue_links(project_id),
             "investigations": self.list_investigation_runs(project_id),
             "impact_reports": self.list_impact_reports(project_id),
             "affected_entities": self._list_affected_entities(project_id),
@@ -4140,6 +4266,37 @@ class SQLiteStore:
                 id_column="review_task_id",
                 json_column="evidence_ids_json",
                 removals=removal_ids,
+                updated_at=now,
+            )
+            issue_link_target_ids = [trace_id, *span_ids, *dataset_example_ids]
+            if issue_link_target_ids:
+                placeholders = ",".join("?" for _ in issue_link_target_ids)
+                cursor = conn.execute(
+                    f"""
+                    DELETE FROM issue_links
+                    WHERE project_id = ? AND target_id IN ({placeholders})
+                    """,
+                    (project_id, *issue_link_target_ids),
+                )
+                effects["issue_link_targets_removed"] = cursor.rowcount
+            else:
+                effects["issue_link_targets_removed"] = 0
+            effects["issue_link_trace_evidence_scrubbed"] = self._scrub_json_column_references(
+                conn,
+                project_id,
+                table="issue_links",
+                id_column="issue_link_id",
+                json_column="evidence_trace_ids_json",
+                removals={trace_id},
+                updated_at=now,
+            )
+            effects["issue_link_span_evidence_scrubbed"] = self._scrub_json_column_references(
+                conn,
+                project_id,
+                table="issue_links",
+                id_column="issue_link_id",
+                json_column="evidence_span_ids_json",
+                removals=set(span_ids),
                 updated_at=now,
             )
             effects["context_packs_scrubbed"] = self._scrub_context_packs(
@@ -4431,6 +4588,18 @@ class SQLiteStore:
                 (project_id,),
             ).fetchall()
         return [dict(row) | {"trace_ids": decode_json(row["trace_ids_json"], [])} for row in rows]
+
+    def _list_issue_links(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM issue_links
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._issue_link_from_row(row) for row in rows]
 
     def _audit_summary(self, project_id: str) -> dict[str, Any]:
         with self.connect() as conn:
@@ -4928,6 +5097,22 @@ class SQLiteStore:
             "evidence_ids": decode_json(row["evidence_ids_json"], []),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _issue_link_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "issue_link_id": row["issue_link_id"],
+            "project_id": row["project_id"],
+            "issue_id": row["issue_id"],
+            "target_type": row["target_type"],
+            "target_id": row["target_id"],
+            "relation": row["relation"],
+            "source": row["source"],
+            "evidence_trace_ids": decode_json(row["evidence_trace_ids_json"], []),
+            "evidence_span_ids": decode_json(row["evidence_span_ids_json"], []),
+            "metadata": decode_json(row["metadata_json"], {}),
+            "created_at": row["created_at"],
         }
 
     @staticmethod

@@ -373,6 +373,12 @@ Done:
   returns candidate seed traces with explicit match reasons.
 - Added ChatOps-style investigation endpoint that creates canonical issue and
   investigation artifacts without binding the product to a chat vendor.
+- Added canonical issue artifact links so issues can stay connected to
+  investigations, impact reports, behaviors, judges, datasets, dataset
+  examples, eval runs, and other follow-up artifacts. The API exposes
+  `/v1/issues/{issue_id}/links`, creation flows can auto-link issue-derived
+  artifacts, exports include issue links, and trace deletion scrubs linked
+  trace/span evidence.
 - Verified a live LM Studio investigation canary with `qwen3.5-9b-mlx`; the
   prompt revision produced a cited root cause, behavior draft, and rubric draft
   as valid unrepaired JSON with reasoning-token usage.
@@ -502,8 +508,9 @@ Blocked:
 Verified after the latest implementation slices:
 
 - `make lint`: passed.
-- `make test`: passed, 51 tests after the model-benchmark, LangGraph
-  investigation-adapter, and core-loop acceptance slices.
+- `make test`: passed, 52 tests after the model-benchmark, LangGraph
+  investigation-adapter, core-loop acceptance, and reported-incident acceptance
+  slices.
 - `npm --prefix apps/web run build`: passed.
 - Browser QA captured desktop and mobile Trace Detail, Operations, Issues, and
   Automations workspace screenshots under `artifacts/ui-qa/`; trace detail mode
@@ -558,6 +565,12 @@ Verified after the latest implementation slices:
   and versioning, rubric judge execution, behavior creation/backtest, dataset
   example creation, baseline/candidate eval runs, eval comparison, and MCP trace
   retrieval all preserve trace/span/score/dataset/eval provenance.
+- Reported incident acceptance regression passed: manual issue creation,
+  business-dimension annotation, LangGraph-backed investigation, impact report
+  recurrence/entity/task scoping, cited model-assisted root cause and behavior
+  draft, behavior backtest, judge draft link, dataset/eval creation, eval
+  comparison, and issue-to-artifact link retrieval all preserve canonical
+  provenance.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:

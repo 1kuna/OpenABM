@@ -1,0 +1,50 @@
+{
+  "$id": "https://openabm.dev/schemas/issue-link.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IssueLink",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "issue_link_id",
+    "project_id",
+    "issue_id",
+    "target_type",
+    "target_id",
+    "relation",
+    "source",
+    "evidence_trace_ids",
+    "evidence_span_ids",
+    "metadata",
+    "created_at"
+  ],
+  "properties": {
+    "issue_link_id": {"type": "string"},
+    "project_id": {"type": "string"},
+    "issue_id": {"type": "string"},
+    "target_type": {
+      "enum": [
+        "trace",
+        "span",
+        "investigation_run",
+        "impact_report",
+        "behavior",
+        "judge",
+        "dataset",
+        "dataset_example",
+        "eval_run",
+        "review_task",
+        "context_pack",
+        "grounding_check",
+        "novelty_run",
+        "automation"
+      ]
+    },
+    "target_id": {"type": "string"},
+    "relation": {"type": "string"},
+    "source": {"type": "string"},
+    "evidence_trace_ids": {"type": "array", "items": {"type": "string"}},
+    "evidence_span_ids": {"type": "array", "items": {"type": "string"}},
+    "metadata": {"type": "object"},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}
