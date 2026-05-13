@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import math
 from typing import Any
 
 TRACE_SIMILARITY_SCHEMA = {
@@ -91,6 +93,70 @@ async def rank_similar_traces(
     }
 
 
+async def rank_similar_traces_by_embeddings(
+    provider: Any,
+    *,
+    source_trace: dict[str, Any],
+    source_spans: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    candidate_spans: dict[str, list[dict[str, Any]]],
+    limit: int,
+) -> dict[str, Any]:
+    documents = _embedding_documents(
+        source_trace=source_trace,
+        source_spans=source_spans,
+        candidates=candidates,
+        candidate_spans=candidate_spans,
+    )
+    completion = await provider.embed_documents(documents)
+    if completion.get("status") != "succeeded":
+        return {
+            "status": "invalid_output",
+            "matches": [],
+            "uncertainty": "Embedding provider output was invalid.",
+            "model_metadata": _embedding_metadata(completion, "invalid_output"),
+        }
+    vectors = {
+        item["document_id"]: item["embedding"]
+        for item in completion.get("embeddings", [])
+        if isinstance(item, dict)
+    }
+    source_vector = vectors.get("source_trace")
+    if source_vector is None:
+        return {
+            "status": "invalid_output",
+            "matches": [],
+            "uncertainty": "Embedding response did not include the source trace vector.",
+            "model_metadata": _embedding_metadata(completion, "missing_source"),
+        }
+    matches = []
+    for trace in candidates:
+        trace_id = trace["trace_id"]
+        trace_vector = vectors.get(f"trace:{trace_id}")
+        if trace_vector is None:
+            continue
+        spans = candidate_spans.get(trace_id, [])
+        evidence_span_ids = _top_embedding_span_ids(source_vector, trace_id, spans, vectors)
+        matches.append(
+            {
+                "trace_id": trace_id,
+                "similarity_score": _cosine_similarity(source_vector, trace_vector),
+                "rationale": "Embedding similarity over trace and span representations.",
+                "evidence_span_ids": evidence_span_ids,
+            }
+        )
+    return {
+        "status": "succeeded",
+        "matches": sorted(
+            matches,
+            key=lambda item: item["similarity_score"],
+            reverse=True,
+        )[:limit],
+        "uncertainty": "Embedding similarity is deterministic over provider vectors.",
+        "model_metadata": _embedding_metadata(completion, "valid"),
+    }
+
+
 def _validate_and_sort_matches(
     matches: list[dict[str, Any]],
     candidate_trace_ids: list[str],
@@ -112,6 +178,107 @@ def _validate_and_sort_matches(
     return sorted(valid, key=lambda item: item["similarity_score"], reverse=True)[:limit]
 
 
+def _embedding_documents(
+    *,
+    source_trace: dict[str, Any],
+    source_spans: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    candidate_spans: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, str]]:
+    documents = [
+        {
+            "document_id": "source_trace",
+            "text": _trace_embedding_text(source_trace, source_spans),
+        }
+    ]
+    for trace in candidates:
+        trace_id = trace["trace_id"]
+        spans = candidate_spans.get(trace_id, [])
+        documents.append(
+            {
+                "document_id": f"trace:{trace_id}",
+                "text": _trace_embedding_text(trace, spans),
+            }
+        )
+        for span in spans:
+            documents.append(
+                {
+                    "document_id": f"span:{trace_id}:{span['span_id']}",
+                    "text": _span_embedding_text(span),
+                }
+            )
+    return documents
+
+
+def _trace_embedding_text(trace: dict[str, Any], spans: list[dict[str, Any]]) -> str:
+    return json.dumps(
+        {
+            "trace_id": trace.get("trace_id"),
+            "status": trace.get("status"),
+            "summary": trace.get("summary"),
+            "attributes": trace.get("attributes", {}),
+            "spans": [_span_embedding_payload(span) for span in spans[:20]],
+        },
+        sort_keys=True,
+    )
+
+
+def _span_embedding_text(span: dict[str, Any]) -> str:
+    return json.dumps(_span_embedding_payload(span), sort_keys=True)
+
+
+def _span_embedding_payload(span: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "span_id": span.get("span_id"),
+        "name": span.get("name"),
+        "span_type": span.get("span_type"),
+        "status": span.get("status"),
+        "input": _bounded_text(span.get("input")),
+        "output": _bounded_text(span.get("output")),
+        "attributes": span.get("attributes", {}),
+        "events": span.get("events", [])[:20],
+    }
+
+
+def _bounded_text(value: Any, max_chars: int = 4000) -> Any:
+    text = json.dumps(value, sort_keys=True) if not isinstance(value, str) else value
+    if len(text) <= max_chars:
+        return value
+    return {"summary_text": text[:max_chars], "omission_reason": "embedding_text_truncated"}
+
+
+def _top_embedding_span_ids(
+    source_vector: list[float],
+    trace_id: str,
+    spans: list[dict[str, Any]],
+    vectors: dict[str, list[float]],
+) -> list[str]:
+    scored = []
+    for span in spans:
+        span_id = span["span_id"]
+        vector = vectors.get(f"span:{trace_id}:{span_id}")
+        if vector is None:
+            continue
+        score = _cosine_similarity(source_vector, vector)
+        if score > 0.0:
+            scored.append((span_id, score))
+    return [
+        span_id
+        for span_id, _score in sorted(scored, key=lambda item: item[1], reverse=True)[:3]
+    ]
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    if len(left) != len(right) or not left:
+        return 0.0
+    dot = sum(a * b for a, b in zip(left, right, strict=True))
+    left_norm = math.sqrt(sum(value * value for value in left))
+    right_norm = math.sqrt(sum(value * value for value in right))
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+    return max(0.0, min(1.0, dot / (left_norm * right_norm)))
+
+
 def _metadata(completion: dict[str, Any], validation_status: str) -> dict[str, Any]:
     return {
         "provider": completion.get("provider"),
@@ -119,4 +286,14 @@ def _metadata(completion: dict[str, Any], validation_status: str) -> dict[str, A
         "usage": completion.get("usage"),
         "repaired": completion.get("repaired", False),
         "validation_status": validation_status,
+    }
+
+
+def _embedding_metadata(completion: dict[str, Any], validation_status: str) -> dict[str, Any]:
+    return {
+        "provider": completion.get("provider"),
+        "model": completion.get("model"),
+        "usage": completion.get("usage"),
+        "validation_status": validation_status,
+        "embedding_count": len(completion.get("embeddings", [])),
     }

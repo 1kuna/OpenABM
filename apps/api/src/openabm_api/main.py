@@ -33,6 +33,7 @@ from openabm_worker.judges import run_rubric_judge
 from openabm_worker.model_runtime import (
     ModelCallsDisabled,
     ModelConfigurationError,
+    embedding_provider_from_settings,
     model_provider_from_settings,
 )
 from openabm_worker.novelty import (
@@ -40,7 +41,7 @@ from openabm_worker.novelty import (
     group_novel_behavior_candidates_with_model,
 )
 from openabm_worker.offline_eval import run_eval
-from openabm_worker.similarity import rank_similar_traces
+from openabm_worker.similarity import rank_similar_traces, rank_similar_traces_by_embeddings
 
 from openabm_api.auth import SESSION_COOKIE_POLICY, auth_contract, require_api_key, role_matrix
 from openabm_api.classification import classify_payload, normalize_classification, redact_if_needed
@@ -1019,17 +1020,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         source_trace = store.get_trace(project_id, source_id)
         if source_trace is None:
             raise HTTPException(status_code=404, detail=_error("not_found", "Trace not found."))
-        try:
-            provider = _observed_model_provider(settings, metrics)
-        except ModelConfigurationError as exc:
-            return {
-                "data": [],
-                "disabled": True,
-                "reason": str(exc),
-                "representation_version": None,
-                "request": request,
-                "page": {"limit": limit, "next_cursor": None, "has_more": False},
-            }
         candidates = [
             trace
             for trace in store.search_traces(
@@ -1043,7 +1033,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             trace["trace_id"]: store.list_spans(project_id, trace["trace_id"])
             for trace in candidates
         }
+        representation = request.get("representation") or (
+            "embedding" if settings.embedding_model else "model_semantic_similarity"
+        )
+        if representation == "embedding":
+            try:
+                provider = _observed_embedding_provider(settings, metrics)
+                result = await rank_similar_traces_by_embeddings(
+                    provider,
+                    source_trace=source_trace,
+                    source_spans=store.list_spans(project_id, source_id),
+                    candidates=candidates,
+                    candidate_spans=candidate_spans,
+                    limit=limit,
+                )
+            except (ModelConfigurationError, ModelCallsDisabled) as exc:
+                return _disabled_similarity_response(request, limit, str(exc))
+            return {
+                "data": result["matches"],
+                "disabled": False,
+                "reason": result.get("uncertainty"),
+                "representation_version": "embedding_similarity_v1",
+                "model_metadata": result["model_metadata"],
+                "request": request,
+                "page": {"limit": limit, "next_cursor": None, "has_more": False},
+            }
         try:
+            provider = _observed_model_provider(settings, metrics)
             result = await rank_similar_traces(
                 provider,
                 source_trace=source_trace,
@@ -1053,14 +1069,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 limit=limit,
             )
         except ModelCallsDisabled as exc:
-            return {
-                "data": [],
-                "disabled": True,
-                "reason": str(exc),
-                "representation_version": None,
-                "request": request,
-                "page": {"limit": limit, "next_cursor": None, "has_more": False},
-            }
+            return _disabled_similarity_response(request, limit, str(exc))
+        except ModelConfigurationError as exc:
+            return _disabled_similarity_response(request, limit, str(exc))
         return {
             "data": result["matches"],
             "disabled": False,
@@ -3338,6 +3349,21 @@ class _ObservedModelProvider:
             **kwargs,
         )
 
+    async def embed_documents(
+        self,
+        documents: list[dict[str, Any]],
+        timeout_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        kwargs = {}
+        if timeout_seconds is not None:
+            kwargs["timeout_seconds"] = timeout_seconds
+        return await self._observe(
+            "embed_documents",
+            self._provider.embed_documents,
+            documents,
+            **kwargs,
+        )
+
     async def _observe(
         self,
         method: str,
@@ -3379,6 +3405,30 @@ def _observed_model_provider(settings: Settings, metrics: Metrics) -> _ObservedM
         metrics.increment("model_provider.configuration_errors")
         raise
     return _ObservedModelProvider(provider, metrics)
+
+
+def _observed_embedding_provider(settings: Settings, metrics: Metrics) -> _ObservedModelProvider:
+    try:
+        provider = embedding_provider_from_settings(settings)
+    except ModelConfigurationError:
+        metrics.increment("embedding_provider.configuration_errors")
+        raise
+    return _ObservedModelProvider(provider, metrics)
+
+
+def _disabled_similarity_response(
+    request: dict[str, Any],
+    limit: int,
+    reason: str,
+) -> dict[str, object]:
+    return {
+        "data": [],
+        "disabled": True,
+        "reason": reason,
+        "representation_version": None,
+        "request": request,
+        "page": {"limit": limit, "next_cursor": None, "has_more": False},
+    }
 
 
 def _refresh_observability_gauges(

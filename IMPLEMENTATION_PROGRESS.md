@@ -138,9 +138,10 @@ Target for this pass:
 
 LLM-dependent deferrals:
 
-- Embedding-index search remains configurable future work; current semantic
-  trace similarity uses the configured local chat model with cited candidate
-  span evidence.
+- Persisted embedding-index search remains configurable future work; current
+  semantic trace similarity can use either the configured local chat model with
+  cited candidate span evidence or an OpenAI-compatible embedding model with
+  deterministic cosine ranking.
 
 Done:
 
@@ -186,6 +187,11 @@ Done:
 - Replaced the old fail-closed similar-trace stub with model-backed semantic
   similarity ranking over candidate traces, preserving cited candidate span
   evidence and model metadata.
+- Added an OpenAI-compatible embedding provider plus an embedding-backed
+  similar-trace representation. When `OPENABM_EMBEDDING_MODEL` is configured,
+  `/v1/search/similar` can embed the source trace, candidate traces, and
+  candidate spans, then rank candidates deterministically by cosine similarity
+  while disclosing `embedding_similarity_v1`.
 - Verified a live LM Studio similarity canary with `qwen3.5-9b-mlx`; the
   model returned a cited candidate match, unrepaired structured output, and
   reasoning-token usage.
@@ -209,7 +215,7 @@ LLM-dependent deferrals:
 
 - Richer model-authored trace summaries beyond cited context packs and
   deterministic context-packet summaries.
-- Embeddings and reranking.
+- Cross-encoder/reranking beyond the new embedding representation path.
 - Larger calibration studies against model outputs.
 
 Done:
@@ -217,6 +223,10 @@ Done:
 - Added disabled chat/structured/embedding provider adapters that fail closed.
 - Added OpenAI-compatible local model provider with strict JSON parsing,
   bounded repair, no generation timeout, and a minimum 32k context guard.
+- Added OpenAI-compatible embedding provider support for local/self-hosted
+  `/embeddings` endpoints, with no generation timeout, provider metadata, usage
+  passthrough, dimension validation, and fail-closed disabled mode when no
+  embedding model is configured.
 - Added optional structured-output token caps for small JSON tasks to prevent
   runaway completions without adding a timeout or reducing model context.
 - Added OpenAI-compatible tool-call parsing to the local provider so semantic
@@ -739,8 +749,9 @@ Known remaining gaps before calling the whole spec complete:
   rollback helper; rollback adapters for external ticketing/workflow systems
   remain future work.
 - Passive novelty detection has deterministic exact-signature grouping plus
-  optional model semantic grouping/naming with validated membership; larger
-  clustering and embedding-backed discovery remain future work.
+  optional model semantic grouping/naming with validated membership; embedding-
+  backed trace similarity now exists, while larger clustering and persisted
+  embedding-index discovery remain future work.
 - Grounding/fabricated-value checks support explicit, deterministically split,
   and model-extracted claims with exact evidence matching, plus review-gated
   model contradiction adjudication with validated span citations; broad
@@ -883,6 +894,10 @@ Implemented in this pass:
 - Added review-gated model contradiction adjudication for grounding checks:
   requests can opt into a second tool call that cites contradictory spans, and
   OpenABM validates claim/span IDs before persisting contradicted status.
+- Added OpenAI-compatible embedding-provider support and an embedding-backed
+  `/v1/search/similar` representation, so local deployments with an embedding
+  model can use deterministic cosine similarity without waiting for a persisted
+  vector index.
 - Added `/v1/judges`, `/v1/judges/drafts`, `/v1/evals/run`,
   `/v1/evals/compare`, and `/v1/docs/search`, then wired the corresponding MCP
   tool handlers so the agent surface no longer reports those paths as

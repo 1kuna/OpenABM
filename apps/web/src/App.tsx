@@ -194,7 +194,11 @@ export function App() {
     }
     const result = await client.searchSimilar(projectId, selectedTraceId);
     setSimilarResult(result);
-    setSimilarState(result.disabled ? result.reason ?? "disabled" : `${result.data.length} similar traces`);
+    setSimilarState(
+      result.disabled
+        ? result.reason ?? "disabled"
+        : `${result.data.length} similar traces · ${result.representation_version ?? "model"}`
+    );
   }
 
   async function applySavedSearch(savedSearch: SavedSearch) {
@@ -5316,7 +5320,7 @@ function scaffoldRows(view: ViewKey) {
     behaviors: [
       { icon: <GitBranch />, title: "Manual labels", status: "schema and API surface pending", phase: "Phase 6" },
       { icon: <Braces />, title: "Rule detectors", status: "condition grammar available", phase: "Phase 6" },
-      { icon: <Network />, title: "Cluster discovery", status: "deferred until embeddings", phase: "Phase 6" }
+      { icon: <Network />, title: "Cluster discovery", status: "embedding path ready; clustering deferred", phase: "Phase 6" }
     ],
     automations: [
       { icon: <Play />, title: "Definitions", status: "trigger, condition, action, and cooldown records available", phase: "Phase 6" },

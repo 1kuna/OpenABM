@@ -10,7 +10,10 @@ from openabm_worker.model_benchmark import (
     compare_model_runtime_benchmarks,
     run_model_runtime_benchmark,
 )
-from openabm_worker.model_runtime import OpenAICompatibleModelProvider
+from openabm_worker.model_runtime import (
+    OpenAICompatibleEmbeddingProvider,
+    OpenAICompatibleModelProvider,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PATH = ROOT / "evals" / "golden-fixtures" / "trace_fixtures.json"
@@ -124,6 +127,43 @@ def test_tool_completion_parses_openai_compatible_tool_calls() -> None:
     assert result["status"] == "succeeded"
     assert result["tool_calls"][0]["name"] == "extract_claims"
     assert result["tool_calls"][0]["arguments"] == {"claims": ["delivered"]}
+
+
+def test_embedding_provider_parses_openai_compatible_embeddings_without_timeout() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert request.url.path == "/v1/embeddings"
+        assert body["model"] == "local-embed"
+        assert body["input"] == ["refund trace", "shipping trace"]
+        assert "timeout" not in body
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"index": 0, "embedding": [1.0, 0.0]},
+                    {"index": 1, "embedding": [0.0, 1.0]},
+                ],
+                "usage": {"total_tokens": 4},
+            },
+        )
+
+    provider = OpenAICompatibleEmbeddingProvider(
+        base_url="http://test/v1",
+        embedding_model="local-embed",
+        transport=httpx.MockTransport(handler),
+    )
+    result = asyncio.run(
+        provider.embed_documents(
+            [
+                {"document_id": "trace_refund", "text": "refund trace"},
+                {"document_id": "trace_shipping", "text": "shipping trace"},
+            ],
+        )
+    )
+    assert result["status"] == "succeeded"
+    assert result["model"] == "local-embed"
+    assert result["embeddings"][0]["document_id"] == "trace_refund"
+    assert result["embeddings"][0]["embedding"] == [1.0, 0.0]
 
 
 def test_rubric_judge_requires_preserved_span_citations() -> None:

@@ -69,12 +69,18 @@ class DisabledEmbeddingProvider:
     adapter_name = "disabled-embedding"
     supported_capabilities: list[str] = []
 
+    def __init__(
+        self,
+        reason: str = "Embeddings are disabled until a provider is configured.",
+    ) -> None:
+        self.reason = reason
+
     def health_check(self) -> ProviderHealth:
         return ProviderHealth(
             adapter_name=self.adapter_name,
             status="disabled",
             supported_capabilities=[],
-            details={"reason": "Embeddings are disabled until a provider is configured."},
+            details={"reason": self.reason},
         )
 
     async def embed_documents(
@@ -83,7 +89,7 @@ class DisabledEmbeddingProvider:
         timeout_seconds: int | None = None,
     ) -> dict[str, Any]:
         del documents, timeout_seconds
-        raise ModelCallsDisabled("Embedding generation is disabled.")
+        raise ModelCallsDisabled(self.reason)
 
 
 class OpenAICompatibleModelProvider:
@@ -304,6 +310,98 @@ class OpenAICompatibleModelProvider:
         return response.json()
 
 
+class OpenAICompatibleEmbeddingProvider:
+    adapter_name = "openai-compatible-embedding"
+    supported_capabilities = ["embedding"]
+    configuration_schema = {
+        "type": "object",
+        "required": ["base_url", "embedding_model"],
+        "properties": {
+            "base_url": {"type": "string"},
+            "embedding_model": {"type": "string"},
+        },
+    }
+    request_shape = "OpenAI-compatible /embeddings"
+    response_shape = "OpenAI-compatible data[index].embedding"
+    timeout_behavior = "No generation timeout is applied by OpenABM."
+    rate_limit_behavior = "Provider-defined; OpenABM surfaces transport errors."
+    cost_reporting_behavior = "Uses provider usage metadata when returned."
+    privacy_mode_support = "Local endpoints allowed without enabling external calls."
+    structured_output_support_level = "Not applicable for embeddings."
+    known_limitations = [
+        "Embedding dimensions are provider-defined and must be consistent per response.",
+        "This adapter only records vectors returned by the provider; it does not choose an index.",
+    ]
+    conformance_tests = ["tests/unit/test_model_runtime.py"]
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        embedding_model: str,
+        api_key: str | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.embedding_model = embedding_model
+        self.api_key = api_key
+        self._transport = transport
+
+    def health_check(self) -> ProviderHealth:
+        return ProviderHealth(
+            adapter_name=self.adapter_name,
+            status="configured",
+            supported_capabilities=self.supported_capabilities,
+            details={
+                "base_url": self.base_url,
+                "embedding_model": self.embedding_model,
+                "timeout_behavior": self.timeout_behavior,
+            },
+        )
+
+    async def embed_documents(
+        self,
+        documents: list[dict[str, Any]],
+        timeout_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        del timeout_seconds
+        payload = {
+            "model": self.embedding_model,
+            "input": [str(document.get("text") or "") for document in documents],
+        }
+        response = await self._post_embeddings(payload)
+        embeddings, errors = _embedding_vectors(response, documents)
+        if errors:
+            return {
+                "status": "invalid_output",
+                "embeddings": [],
+                "parse_errors": errors,
+                "usage": response.get("usage"),
+                "provider": self.adapter_name,
+                "model": self.embedding_model,
+            }
+        return {
+            "status": "succeeded",
+            "embeddings": embeddings,
+            "usage": response.get("usage"),
+            "provider": self.adapter_name,
+            "model": self.embedding_model,
+        }
+
+    async def _post_embeddings(self, payload: dict[str, Any]) -> dict[str, Any]:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        async with httpx.AsyncClient(timeout=None, transport=self._transport) as client:
+            response = await client.post(
+                f"{self.base_url}/embeddings",
+                headers=headers,
+                json=payload,
+            )
+        response.raise_for_status()
+        return response.json()
+
+
 def model_provider_from_settings(
     settings: Settings,
 ) -> DisabledModelProvider | OpenAICompatibleModelProvider:
@@ -322,6 +420,26 @@ def model_provider_from_settings(
         chat_model=settings.chat_model,
         api_key=settings.model_api_key,
         context_length=settings.model_context_length,
+    )
+
+
+def embedding_provider_from_settings(
+    settings: Settings,
+) -> DisabledEmbeddingProvider | OpenAICompatibleEmbeddingProvider:
+    if settings.model_mode == "disabled":
+        return DisabledEmbeddingProvider()
+    if settings.model_mode not in {"local", "external", "mixed"}:
+        raise ModelConfigurationError(f"Unknown model mode: {settings.model_mode}")
+    if not settings.embedding_model:
+        return DisabledEmbeddingProvider("OPENABM_EMBEDDING_MODEL is not configured.")
+    if not settings.model_endpoint_is_local and not settings.allow_external_model_calls:
+        raise ModelConfigurationError(
+            "External model endpoint configured while OPENABM_ALLOW_EXTERNAL_MODEL_CALLS is false."
+        )
+    return OpenAICompatibleEmbeddingProvider(
+        base_url=settings.model_base_url,
+        embedding_model=settings.embedding_model,
+        api_key=settings.model_api_key,
     )
 
 
@@ -422,3 +540,54 @@ def _structured_success(
         "provider": provider.adapter_name,
         "model": provider.chat_model,
     }
+
+
+def _embedding_vectors(
+    response: dict[str, Any],
+    documents: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    data = response.get("data")
+    if not isinstance(data, list):
+        return [], ["embedding response data must be a list"]
+    by_index = {}
+    errors = []
+    for item in data:
+        if not isinstance(item, dict):
+            errors.append("embedding data item must be an object")
+            continue
+        index = item.get("index")
+        raw_embedding = item.get("embedding")
+        if not isinstance(index, int):
+            errors.append("embedding data item index must be an integer")
+            continue
+        if not isinstance(raw_embedding, list) or not raw_embedding:
+            errors.append(f"embedding[{index}] must be a non-empty list")
+            continue
+        vector = []
+        for value in raw_embedding:
+            if not isinstance(value, int | float):
+                errors.append(f"embedding[{index}] contains a non-numeric value")
+                vector = []
+                break
+            vector.append(float(value))
+        if vector:
+            by_index[index] = vector
+    if errors:
+        return [], errors
+    if set(by_index) != set(range(len(documents))):
+        return [], ["embedding response indexes must match input document indexes"]
+    dimensions = {len(vector) for vector in by_index.values()}
+    if len(dimensions) != 1:
+        return [], ["embedding vectors must have a consistent dimension"]
+    return [
+        {
+            "document_id": str(
+                documents[index].get("document_id")
+                or documents[index].get("id")
+                or index
+            ),
+            "embedding": by_index[index],
+            "index": index,
+        }
+        for index in range(len(documents))
+    ], []

@@ -4024,6 +4024,14 @@
                       "span"
                     ]
                   },
+                  "representation": {
+                    "type": "string",
+                    "enum": [
+                      "model_semantic_similarity",
+                      "embedding"
+                    ],
+                    "default": "model_semantic_similarity"
+                  },
                   "limit": {
                     "type": "integer",
                     "default": 20
