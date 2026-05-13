@@ -1543,6 +1543,15 @@ pre {
   background: #fafafa;
 }
 
+.actionPreview {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #edf0f4;
+  border-radius: 7px;
+  min-width: 0;
+  padding: 9px;
+}
+
 .createStrip input,
 .createStrip select,
 .exampleAdd input,

@@ -421,6 +421,22 @@ export interface AutomationRun {
   duplicate?: boolean;
 }
 
+export interface AutomationPreviewMatch {
+  trace_id: string;
+  session_id: string | null;
+  status: string | null;
+  started_at: string | null;
+  condition_result: Record<string, unknown>;
+}
+
+export interface AutomationPreviewResult {
+  automation_id: string;
+  project_id: string;
+  trace_count: number;
+  match_count: number;
+  matches: AutomationPreviewMatch[];
+}
+
 export interface JudgeDefinition {
   judge_id: string;
   project_id: string;

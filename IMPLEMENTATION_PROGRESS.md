@@ -295,6 +295,10 @@ Done:
   creation, automation definition creation, run-once execution, idempotency-key
   input, cooldown/action result inspection, and target listing wired to
   `/v1/notification-targets` and `/v1/automations`.
+- Added automation preview and run-history APIs, then expanded the Automation
+  Builder with trigger selection, condition fields/operators, action-list
+  preview, cooldown key/seconds controls, matching-trace preview, test runs, run
+  history, and dead-lettered action inspection.
 
 ## Phase 7: Prompt Registry, MCP, And Investigation Agent
 
@@ -463,9 +467,11 @@ Verified after the latest implementation slices:
   ChatOps investigation, Judge Editor draft creation/version commit, Behavior
   Detail backtest/match/review/action rendering, matched-trace navigation,
   Eval Comparison baseline/candidate selection, delta/failure-list rendering,
-  eval-failure trace navigation, notification target creation, automation
-  creation, and automation run-once flows completed against the live local API
-  with no console errors or failing API responses.
+  eval-failure trace navigation, notification target creation, Automation
+  Builder trigger/condition/action/cooldown controls, matching-trace preview,
+  run history, dead-letter display, automation creation, and automation run-once
+  flows completed against the live local API with no console errors or failing
+  API responses.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
 - MCP stdio smoke: `tools/list` returned 35 tools and

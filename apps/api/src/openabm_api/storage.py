@@ -2385,6 +2385,24 @@ class SQLiteStore:
             ).fetchone()
         return self._automation_run_from_row(row) if row else None
 
+    def list_automation_runs(
+        self,
+        project_id: str,
+        automation_id: str,
+        limit: int = 25,
+    ) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM automation_runs
+                WHERE project_id = ? AND automation_id = ?
+                ORDER BY started_at DESC
+                LIMIT ?
+                """,
+                (project_id, automation_id, limit),
+            ).fetchall()
+        return [self._automation_run_from_row(row) for row in rows]
+
     def record_automation_run(self, run: dict[str, Any]) -> dict[str, Any]:
         with self.connect() as conn:
             conn.execute(

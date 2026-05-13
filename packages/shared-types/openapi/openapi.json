@@ -1028,6 +1028,62 @@
         }
       }
     },
+    "/v1/automations/{automation_id}/preview": {
+      "post": {
+        "operationId": "previewAutomationMatches",
+        "summary": "Preview traces matching an automation's deterministic conditions.",
+        "x-required-scopes": [
+          "automations:read"
+        ],
+        "parameters": [
+          {
+            "name": "automation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "filters": {
+                    "type": "object"
+                  },
+                  "query": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Previewed automation matches."
+          }
+        }
+      }
+    },
     "/v1/automations/{automation_id}/run": {
       "post": {
         "operationId": "runAutomation",
@@ -1078,6 +1134,48 @@
         "responses": {
           "201": {
             "description": "Automation run recorded."
+          }
+        }
+      }
+    },
+    "/v1/automations/{automation_id}/runs": {
+      "get": {
+        "operationId": "listAutomationRuns",
+        "summary": "List recent automation runs.",
+        "x-required-scopes": [
+          "automations:read"
+        ],
+        "parameters": [
+          {
+            "name": "automation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Automation runs."
           }
         }
       }

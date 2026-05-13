@@ -1897,6 +1897,69 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         return automation
 
+    @app.get("/api/automations/{automation_id}/runs")
+    def list_automation_runs(
+        automation_id: str,
+        project_id: str,
+        limit: int = 25,
+        actor: dict[str, object] = Depends(auth_dependency(["automations:read"])),
+    ) -> dict[str, object]:
+        del actor
+        if store.get_automation(project_id, automation_id) is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Automation not found."),
+            )
+        return {"data": store.list_automation_runs(project_id, automation_id, limit=limit)}
+
+    @app.post("/api/automations/{automation_id}/preview")
+    def preview_automation_matches(
+        automation_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["automations:read"])),
+    ) -> dict[str, object]:
+        del actor
+        project_id = request.get("project_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        automation = store.get_automation(project_id, automation_id)
+        if automation is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Automation not found."),
+            )
+        traces = store.search_traces(
+            project_id,
+            filters=request.get("filters") or {},
+            full_text_query=request.get("query"),
+            limit=int(request.get("limit", 100)),
+        )
+        matches = []
+        for trace in traces:
+            spans = store.list_spans(project_id, trace["trace_id"])
+            condition_result = evaluate_automation_conditions(automation, trace, spans)
+            if condition_result["passed"]:
+                matches.append(
+                    {
+                        "trace_id": trace["trace_id"],
+                        "session_id": trace.get("session_id"),
+                        "status": trace.get("status"),
+                        "started_at": trace.get("started_at"),
+                        "condition_result": condition_result,
+                    }
+                )
+        return {
+            "automation_id": automation_id,
+            "project_id": project_id,
+            "trace_count": len(traces),
+            "match_count": len(matches),
+            "matches": matches,
+        }
+
     @app.post("/api/automations/{automation_id}/run", status_code=201)
     def run_automation(
         automation_id: str,

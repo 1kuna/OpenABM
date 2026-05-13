@@ -698,6 +698,16 @@ def test_v1_automation_run_creates_review_task_and_notification_preview(tmp_path
         },
     )
     assert automation.status_code == 201
+    preview = client.post(
+        f"/v1/automations/{automation.json()['automation_id']}/preview",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "filters": {"status": "error"}},
+    )
+    assert preview.status_code == 200
+    assert preview.json()["match_count"] == 1
+    assert preview.json()["matches"][0]["trace_id"] == trace_id
+    assert preview.json()["matches"][0]["condition_result"]["passed"] is True
+
     run = client.post(
         f"/v1/automations/{automation.json()['automation_id']}/run",
         headers=auth_headers(),
@@ -739,6 +749,16 @@ def test_v1_automation_run_creates_review_task_and_notification_preview(tmp_path
     assert cooldown_body["status"] == "skipped_cooldown"
     assert cooldown_body["cooldown_result"]["active"] is True
     assert cooldown_body["action_results"] == []
+    runs = client.get(
+        f"/v1/automations/{automation.json()['automation_id']}/runs",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert runs.status_code == 200
+    assert sorted(item["status"] for item in runs.json()["data"]) == [
+        "skipped_cooldown",
+        "succeeded",
+    ]
 
     retrying = client.post(
         "/v1/automations",

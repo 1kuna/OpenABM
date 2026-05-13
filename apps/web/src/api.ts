@@ -3,6 +3,7 @@ import type {
   AgentConfigDefinition,
   AgentConfigVersion,
   AutomationDefinition,
+  AutomationPreviewResult,
   AutomationRun,
   BehaviorBacktestResult,
   BehaviorDefinition,
@@ -709,6 +710,27 @@ export class OpenAbmClient {
   async getAutomation(projectId: string, automationId: string): Promise<AutomationDefinition> {
     const params = new URLSearchParams({ project_id: projectId });
     return this.get<AutomationDefinition>(`/v1/automations/${automationId}?${params.toString()}`);
+  }
+
+  async listAutomationRuns(projectId: string, automationId: string): Promise<AutomationRun[]> {
+    const params = new URLSearchParams({ project_id: projectId, limit: "25" });
+    const body = await this.get<{ data: AutomationRun[] }>(`/v1/automations/${automationId}/runs?${params.toString()}`);
+    return body.data;
+  }
+
+  async previewAutomationMatches(
+    projectId: string,
+    automationId: string,
+    request: { status?: string; query?: string; limit?: number }
+  ): Promise<AutomationPreviewResult> {
+    const filters: Record<string, unknown> = {};
+    if (request.status) filters.status = request.status;
+    return this.post<AutomationPreviewResult>(`/v1/automations/${automationId}/preview`, {
+      project_id: projectId,
+      filters,
+      query: request.query || null,
+      limit: request.limit ?? 100
+    });
   }
 
   async createAutomation(projectId: string, request: {

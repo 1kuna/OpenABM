@@ -23,6 +23,7 @@ import type {
   AgentConfigCompareResult,
   AgentConfigDefinition,
   AutomationDefinition,
+  AutomationPreviewResult,
   AutomationRun,
   BehaviorBacktestResult,
   BehaviorDefinition,
@@ -1930,15 +1931,25 @@ function AutomationWorkspace(props: {
   const { client, connection, projectId, traces } = props;
   const [targets, setTargets] = useState<NotificationTarget[]>([]);
   const [automations, setAutomations] = useState<AutomationDefinition[]>([]);
+  const [runHistory, setRunHistory] = useState<AutomationRun[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [targetName, setTargetName] = useState("Local preview");
   const [targetType, setTargetType] = useState<NotificationTarget["type"]>("webhook");
   const [secretRefs, setSecretRefs] = useState("secret_webhook_url");
   const [automationName, setAutomationName] = useState("Review refund traces");
-  const [conditionStatus, setConditionStatus] = useState("");
+  const [triggerType, setTriggerType] = useState("trace_completed");
+  const [conditionField, setConditionField] = useState("trace.status");
+  const [conditionOp, setConditionOp] = useState("eq");
+  const [conditionValue, setConditionValue] = useState("error");
   const [actionType, setActionType] = useState("create_review_task");
   const [notificationMessage, setNotificationMessage] = useState("Trace needs review");
   const [cooldownSeconds, setCooldownSeconds] = useState("0");
+  const [cooldownKey, setCooldownKey] = useState("automation_id + project_id");
+  const [retryAttempts, setRetryAttempts] = useState("1");
+  const [onFailure, setOnFailure] = useState("stop");
+  const [previewStatus, setPreviewStatus] = useState("");
+  const [previewQuery, setPreviewQuery] = useState("");
+  const [preview, setPreview] = useState<AutomationPreviewResult | null>(null);
   const [runTraceId, setRunTraceId] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(`web-${Date.now()}`);
   const [runResult, setRunResult] = useState<AutomationRun | null>(null);
@@ -1946,12 +1957,23 @@ function AutomationWorkspace(props: {
 
   const selectedAutomation = automations.find((automation) => automation.automation_id === selectedId) ?? automations[0] ?? null;
   const selectedTarget = targets[0] ?? null;
+  const draftConditions = automationDraftConditions(conditionField, conditionOp, conditionValue);
+  const draftActions = automationDraftActions(
+    actionType,
+    selectedTarget?.target_id,
+    notificationMessage,
+    Number.parseInt(retryAttempts, 10),
+    onFailure
+  );
+  const deadLetteredActions = automationDeadLetteredActions(runHistory, runResult);
 
   async function loadAutomations() {
     if (connection !== "live") {
       setTargets([]);
       setAutomations([]);
+      setRunHistory([]);
       setSelectedId("");
+      setPreview(null);
       setRunResult(null);
       setStateText("fixture mode");
       return;
@@ -1978,6 +2000,23 @@ function AutomationWorkspace(props: {
     void loadAutomations();
   }, [client, connection, projectId]);
 
+  async function loadRunHistory(automation: AutomationDefinition | null = selectedAutomation) {
+    if (connection !== "live" || !automation) {
+      setRunHistory([]);
+      return;
+    }
+    try {
+      const runs = await client.listAutomationRuns(projectId, automation.automation_id);
+      setRunHistory(runs);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "automation history unavailable");
+    }
+  }
+
+  useEffect(() => {
+    void loadRunHistory();
+  }, [client, connection, projectId, selectedAutomation?.automation_id]);
+
   async function createTarget() {
     if (connection !== "live" || !targetName.trim()) return;
     const refs = secretRefs.split(",").map((item) => item.trim()).filter(Boolean);
@@ -1998,38 +2037,44 @@ function AutomationWorkspace(props: {
   async function createAutomation() {
     if (connection !== "live" || !automationName.trim()) return;
     const seconds = Number.parseInt(cooldownSeconds, 10);
-    const targetId = selectedTarget?.target_id;
-    const conditions = conditionStatus
-      ? {
-          combine: "all",
-          items: [{ field: "trace.status", op: "eq", value: conditionStatus }]
-        }
-      : { combine: "all", items: [] };
-    const actions =
-      actionType === "send_notification"
-        ? [{ type: "send_notification", target_id: targetId, message: notificationMessage }]
-        : [{ type: "create_review_task", task_type: "behavior_candidate" }];
-    if (actionType === "send_notification" && !targetId) {
+    if ((actionType === "send_notification" || actionType === "review_and_notification") && !selectedTarget) {
       setStateText("Create a notification target before adding notification actions");
       return;
     }
     try {
       const created = await client.createAutomation(projectId, {
         name: automationName.trim(),
-        trigger: { type: "trace_completed" },
-        conditions,
-        actions,
+        trigger: { type: triggerType },
+        conditions: draftConditions,
+        actions: draftActions,
         cooldown: Number.isFinite(seconds) && seconds > 0
-          ? { seconds, key: "automation_id + project_id" }
+          ? { seconds, key: cooldownKey.trim() || "automation_id + project_id" }
           : null,
         status: "active"
       });
       setAutomations((current) => [created, ...current.filter((automation) => automation.automation_id !== created.automation_id)]);
       setSelectedId(created.automation_id);
       setRunResult(null);
+      setRunHistory([]);
+      setPreview(null);
       setStateText(`created ${created.name}`);
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "automation creation failed");
+    }
+  }
+
+  async function previewMatchingTraces() {
+    if (connection !== "live" || !selectedAutomation) return;
+    try {
+      const result = await client.previewAutomationMatches(projectId, selectedAutomation.automation_id, {
+        status: previewStatus || undefined,
+        query: previewQuery,
+        limit: 100
+      });
+      setPreview(result);
+      setStateText(`preview ${result.match_count}/${result.trace_count} matches`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "preview failed");
     }
   }
 
@@ -2041,6 +2086,10 @@ function AutomationWorkspace(props: {
         idempotencyKey: idempotencyKey.trim() || undefined
       });
       setRunResult(result);
+      setRunHistory((current) => [
+        result,
+        ...current.filter((run) => run.automation_run_id !== result.automation_run_id)
+      ]);
       setIdempotencyKey(`web-${Date.now()}`);
       setStateText(result.duplicate ? `duplicate ${result.status}` : `run ${result.status}`);
     } catch (error) {
@@ -2077,20 +2126,57 @@ function AutomationWorkspace(props: {
         <div className="automationCreate secondaryCreate">
           <input value={automationName} onChange={(event) => setAutomationName(event.target.value)} placeholder="Automation name" />
           <div className="inlineControls">
-            <select value={conditionStatus} onChange={(event) => setConditionStatus(event.target.value)}>
-              <option value="">Any trace status</option>
+            <select value={triggerType} onChange={(event) => setTriggerType(event.target.value)}>
+              <option value="trace_completed">trace completed</option>
+              <option value="trace_failed">trace failed</option>
+              <option value="manual_test">manual test</option>
+            </select>
+            <select value={conditionField} onChange={(event) => setConditionField(event.target.value)}>
+              <option value="">No condition</option>
+              <option value="trace.status">trace status</option>
+              <option value="trace.environment">trace environment</option>
+              <option value="trace.trace_id">trace id</option>
+              <option value="attributes.openabm.environment">attribute environment</option>
+            </select>
+          </div>
+          <div className="ruleControls">
+            <select value={conditionOp} onChange={(event) => setConditionOp(event.target.value)}>
+              <option value="eq">eq</option>
+              <option value="neq">neq</option>
+              <option value="contains">contains</option>
+              <option value="exists">exists</option>
+            </select>
+            <input value={conditionValue} onChange={(event) => setConditionValue(event.target.value)} placeholder="condition value" />
+            <select value={previewStatus} onChange={(event) => setPreviewStatus(event.target.value)}>
+              <option value="">Preview any</option>
               <option value="error">error</option>
               <option value="ok">ok</option>
               <option value="timeout">timeout</option>
               <option value="incomplete">incomplete</option>
             </select>
+          </div>
+          <div className="inlineControls">
             <select value={actionType} onChange={(event) => setActionType(event.target.value)}>
               <option value="create_review_task">create review task</option>
               <option value="send_notification">send notification</option>
+              <option value="review_and_notification">review and notification</option>
+            </select>
+            <select value={onFailure} onChange={(event) => setOnFailure(event.target.value)}>
+              <option value="stop">stop on failure</option>
+              <option value="continue">continue on failure</option>
+              <option value="compensate">compensate on failure</option>
             </select>
           </div>
           <input value={notificationMessage} onChange={(event) => setNotificationMessage(event.target.value)} placeholder="Notification message" />
-          <input value={cooldownSeconds} onChange={(event) => setCooldownSeconds(event.target.value)} placeholder="cooldown seconds" />
+          <div className="inlineControls">
+            <input value={cooldownSeconds} onChange={(event) => setCooldownSeconds(event.target.value)} placeholder="cooldown seconds" />
+            <input value={cooldownKey} onChange={(event) => setCooldownKey(event.target.value)} placeholder="cooldown key" />
+          </div>
+          <input value={retryAttempts} onChange={(event) => setRetryAttempts(event.target.value)} placeholder="retry attempts" />
+          <div className="actionPreview">
+            <strong>Action list</strong>
+            <pre>{JSON.stringify({ trigger: { type: triggerType }, conditions: draftConditions, actions: draftActions }, null, 2)}</pre>
+          </div>
           <button onClick={() => void createAutomation()}>
             <Play size={15} />
             Create automation
@@ -2128,7 +2214,8 @@ function AutomationWorkspace(props: {
             <div className="metricsRow automationMetrics">
               <Metric icon={<Play />} label="Trigger" value={String(selectedAutomation.trigger.type ?? "unknown")} />
               <Metric icon={<CheckCircle2 />} label="Actions" value={String(selectedAutomation.actions.length)} />
-              <Metric icon={<TimerReset />} label="Cooldown" value={selectedAutomation.cooldown ? `${String(selectedAutomation.cooldown.seconds ?? 0)}s` : "none"} />
+              <Metric icon={<TimerReset />} label="Runs" value={String(runHistory.length)} />
+              <Metric icon={<AlertTriangle />} label="Dead letters" value={String(deadLetteredActions.length)} />
             </div>
             <div className="automationSections">
               <section className="automationSection">
@@ -2142,7 +2229,46 @@ function AutomationWorkspace(props: {
               </section>
 
               <section className="automationSection">
-                <h4>Run once</h4>
+                <h4>Preview matching traces</h4>
+                <div className="evalForm">
+                  <label>
+                    Trace status
+                    <select value={previewStatus} onChange={(event) => setPreviewStatus(event.target.value)}>
+                      <option value="">Any</option>
+                      <option value="ok">ok</option>
+                      <option value="error">error</option>
+                      <option value="timeout">timeout</option>
+                      <option value="incomplete">incomplete</option>
+                    </select>
+                  </label>
+                  <label>
+                    Query
+                    <input value={previewQuery} onChange={(event) => setPreviewQuery(event.target.value)} placeholder="optional text search" />
+                  </label>
+                  <button className="primaryButton" onClick={() => void previewMatchingTraces()}>
+                    <FileSearch size={15} />
+                    Preview
+                  </button>
+                </div>
+                {preview ? (
+                  <div className="sectionRows">
+                    <div>
+                      <strong>{preview.match_count}/{preview.trace_count} matches</strong>
+                      <span>{preview.automation_id}</span>
+                    </div>
+                    {preview.matches.slice(0, 8).map((match) => (
+                      <div key={match.trace_id}>
+                        <strong>{match.trace_id}</strong>
+                        <span>{match.status ?? "unknown"} · {match.session_id ?? "no session"} · {String(match.condition_result.passed ?? "unknown")}</span>
+                      </div>
+                    ))}
+                    {!preview.matches.length ? <p className="systemNote">No matching traces</p> : null}
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="automationSection">
+                <h4>Test run</h4>
                 <select value={runTraceId} onChange={(event) => setRunTraceId(event.target.value)}>
                   <option value="">No trace trigger</option>
                   {traces.map((trace) => (
@@ -2164,6 +2290,34 @@ function AutomationWorkspace(props: {
                     <pre>{JSON.stringify(runResult, null, 2)}</pre>
                   </div>
                 ) : null}
+              </section>
+
+              <section className="automationSection">
+                <h4>Run history</h4>
+                <div className="sectionRows">
+                  {runHistory.map((run) => (
+                    <div key={run.automation_run_id}>
+                      <strong>{run.status}</strong>
+                      <span>{run.trigger_entity_id ?? "manual"} · {formatTime(run.started_at)} · {run.action_results.length} actions</span>
+                      <small>{run.automation_run_id}</small>
+                    </div>
+                  ))}
+                  {!runHistory.length ? <p className="systemNote">No runs recorded</p> : null}
+                </div>
+              </section>
+
+              <section className="automationSection">
+                <h4>Dead-lettered actions</h4>
+                <div className="sectionRows">
+                  {deadLetteredActions.map((item) => (
+                    <div key={`${item.runId}-${item.index}`}>
+                      <strong>{automationActionType(item.action)}</strong>
+                      <span>{item.runId} · {automationActionReason(item.action)}</span>
+                      <small>{JSON.stringify(item.action)}</small>
+                    </div>
+                  ))}
+                  {!deadLetteredActions.length ? <p className="systemNote">No dead-lettered actions</p> : null}
+                </div>
               </section>
 
               <section className="automationSection">
@@ -4407,6 +4561,58 @@ function behaviorReviewLabel(task: ReviewTask) {
   if (task.status === "rejected") return "false_positive";
   if (task.status === "accepted") return "accepted_positive";
   return task.status;
+}
+
+function automationDraftConditions(field: string, op: string, value: string) {
+  if (!field.trim()) return { combine: "all", items: [] };
+  const item: Record<string, unknown> = { field: field.trim(), op };
+  if (op !== "exists") item.value = value.trim();
+  return { combine: "all", items: [item] };
+}
+
+function automationDraftActions(
+  actionType: string,
+  targetId: string | undefined,
+  message: string,
+  retryAttempts: number,
+  onFailure: string
+) {
+  const attempts = Number.isFinite(retryAttempts) && retryAttempts > 1 ? retryAttempts : null;
+  const failureBehavior = onFailure === "stop" ? null : onFailure;
+  const withPolicy = (action: Record<string, unknown>) => ({
+    ...action,
+    ...(attempts ? { retry: { attempts } } : {}),
+    ...(failureBehavior ? { on_failure: failureBehavior } : {})
+  });
+  const reviewAction = withPolicy({ type: "create_review_task", task_type: "behavior_candidate" });
+  const notificationAction = withPolicy({
+    type: "send_notification",
+    target_id: targetId,
+    message
+  });
+  if (actionType === "send_notification") return [notificationAction];
+  if (actionType === "review_and_notification") return [reviewAction, notificationAction];
+  return [reviewAction];
+}
+
+function automationDeadLetteredActions(runHistory: AutomationRun[], runResult: AutomationRun | null) {
+  const runs = [
+    ...(runResult ? [runResult] : []),
+    ...runHistory.filter((run) => run.automation_run_id !== runResult?.automation_run_id)
+  ];
+  return runs.flatMap((run) =>
+    run.action_results
+      .map((action, index) => ({ runId: run.automation_run_id, index, action }))
+      .filter((item) => item.action.status === "dead_lettered" || item.action.dead_lettered === true)
+  );
+}
+
+function automationActionType(action: Record<string, unknown>) {
+  return String(action.type ?? asRecord(action.action).type ?? "action");
+}
+
+function automationActionReason(action: Record<string, unknown>) {
+  return String(action.reason ?? action.original_status ?? action.status ?? "dead_lettered");
 }
 
 function automationReferencesBehavior(automation: AutomationDefinition, behavior: BehaviorDefinition) {
