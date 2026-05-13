@@ -277,6 +277,7 @@ export interface AgentConfigDefinition {
   project_id: string;
   name: string;
   config_type: string;
+  tags: Record<string, string>;
   created_at: string;
   versions?: AgentConfigVersion[];
 }
@@ -297,6 +298,15 @@ export interface AgentConfigCompareResult {
   new_commit_id: string;
   content_diff: string;
   metadata_changed: boolean;
+  tag_movement_history: Array<{
+    agent_config_tag_event_id: string;
+    agent_config_id: string;
+    project_id: string;
+    tag: string;
+    previous_commit_id: string | null;
+    new_commit_id: string;
+    created_at: string;
+  }>;
 }
 
 export interface HealthStatus {

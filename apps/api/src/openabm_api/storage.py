@@ -637,6 +637,7 @@ class SQLiteStore:
             self._ensure_score_failure_reason_column(conn)
             self._ensure_dataset_trace_assertions_column(conn)
             self._ensure_eval_result_assertion_results_column(conn)
+            self._ensure_agent_config_tag_tables(conn)
             self.ensure_project("proj_demo", "Demo Project")
 
     @staticmethod
@@ -766,6 +767,30 @@ class SQLiteStore:
                 "ALTER TABLE eval_results "
                 "ADD COLUMN assertion_results_json TEXT NOT NULL DEFAULT '{}'"
             )
+
+    @staticmethod
+    def _ensure_agent_config_tag_tables(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(agent_configs)").fetchall()
+        }
+        if "tags_json" not in columns:
+            conn.execute(
+                "ALTER TABLE agent_configs ADD COLUMN tags_json TEXT NOT NULL DEFAULT '{}'"
+            )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_config_tag_events (
+              agent_config_tag_event_id TEXT PRIMARY KEY,
+              agent_config_id TEXT NOT NULL,
+              project_id TEXT NOT NULL,
+              tag TEXT NOT NULL,
+              previous_commit_id TEXT,
+              new_commit_id TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            )
+            """
+        )
 
     def ensure_project(self, project_id: str, name: str | None = None) -> None:
         now = utc_now()
@@ -3693,21 +3718,23 @@ class SQLiteStore:
             "project_id": request["project_id"],
             "name": request["name"],
             "config_type": request["config_type"],
+            "tags": request.get("tags") or {},
             "created_at": now,
         }
         with self.connect() as conn:
             conn.execute(
                 """
                 INSERT INTO agent_configs(
-                  agent_config_id, project_id, name, config_type, created_at
+                  agent_config_id, project_id, name, config_type, tags_json, created_at
                 )
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     config["agent_config_id"],
                     config["project_id"],
                     config["name"],
                     config["config_type"],
+                    encode_json(config["tags"]),
                     config["created_at"],
                 ),
             )
@@ -3761,6 +3788,7 @@ class SQLiteStore:
         *,
         content: dict[str, Any],
         metadata: dict[str, Any] | None = None,
+        tag: str | None = None,
     ) -> dict[str, Any]:
         if self.get_agent_config(project_id, agent_config_id) is None:
             raise KeyError(f"agent config not found: {agent_config_id}")
@@ -3807,6 +3835,15 @@ class SQLiteStore:
                     now,
                 ),
             )
+            if tag:
+                self._move_agent_config_tag(
+                    conn,
+                    project_id,
+                    agent_config_id,
+                    tag,
+                    commit_id,
+                    now,
+                )
         return version
 
     def compare_agent_config_versions(
@@ -3839,7 +3876,87 @@ class SQLiteStore:
             "new_commit_id": new_commit_id,
             "content_diff": diff,
             "metadata_changed": old["metadata"] != new["metadata"],
+            "tag_movement_history": self._agent_config_tag_history_for_commits(
+                project_id,
+                agent_config_id,
+                {old_commit_id, new_commit_id},
+            ),
         }
+
+    def list_agent_config_tag_events(
+        self,
+        project_id: str,
+        agent_config_id: str,
+    ) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM agent_config_tag_events
+                WHERE project_id = ? AND agent_config_id = ?
+                ORDER BY created_at ASC
+                """,
+                (project_id, agent_config_id),
+            ).fetchall()
+        return [self._agent_config_tag_event_from_row(row) for row in rows]
+
+    def _agent_config_tag_history_for_commits(
+        self,
+        project_id: str,
+        agent_config_id: str,
+        commit_ids: set[str],
+    ) -> list[dict[str, Any]]:
+        return [
+            event
+            for event in self.list_agent_config_tag_events(project_id, agent_config_id)
+            if event["new_commit_id"] in commit_ids
+            or event.get("previous_commit_id") in commit_ids
+        ]
+
+    def _move_agent_config_tag(
+        self,
+        conn: sqlite3.Connection,
+        project_id: str,
+        agent_config_id: str,
+        tag: str,
+        commit_id: str,
+        now: str,
+    ) -> None:
+        row = conn.execute(
+            """
+            SELECT tags_json FROM agent_configs
+            WHERE project_id = ? AND agent_config_id = ?
+            """,
+            (project_id, agent_config_id),
+        ).fetchone()
+        tags = decode_json(row["tags_json"], {}) if row else {}
+        previous = tags.get(tag)
+        tags[tag] = commit_id
+        conn.execute(
+            """
+            UPDATE agent_configs
+            SET tags_json = ?
+            WHERE project_id = ? AND agent_config_id = ?
+            """,
+            (encode_json(tags), project_id, agent_config_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO agent_config_tag_events(
+              agent_config_tag_event_id, agent_config_id, project_id, tag,
+              previous_commit_id, new_commit_id, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                new_id("agent_config_tag_event"),
+                agent_config_id,
+                project_id,
+                tag,
+                previous,
+                commit_id,
+                now,
+            ),
+        )
 
     def create_issue(self, request: dict[str, Any]) -> dict[str, Any]:
         project_id = request["project_id"]
@@ -6674,6 +6791,7 @@ class SQLiteStore:
             "project_id": row["project_id"],
             "name": row["name"],
             "config_type": row["config_type"],
+            "tags": decode_json(row["tags_json"], {}),
             "created_at": row["created_at"],
         }
 
@@ -6686,6 +6804,18 @@ class SQLiteStore:
             "commit_id": row["commit_id"],
             "content": decode_json(row["content_json"], {}),
             "metadata": decode_json(row["metadata_json"], {}),
+            "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _agent_config_tag_event_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "agent_config_tag_event_id": row["agent_config_tag_event_id"],
+            "agent_config_id": row["agent_config_id"],
+            "project_id": row["project_id"],
+            "tag": row["tag"],
+            "previous_commit_id": row["previous_commit_id"],
+            "new_commit_id": row["new_commit_id"],
             "created_at": row["created_at"],
         }
 

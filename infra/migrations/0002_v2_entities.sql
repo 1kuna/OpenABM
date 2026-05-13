@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   project_id TEXT NOT NULL,
   name TEXT NOT NULL,
   config_type TEXT NOT NULL,
+  tags_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL
 );
 

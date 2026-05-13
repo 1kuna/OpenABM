@@ -650,12 +650,14 @@ export class OpenAbmClient {
     projectId: string,
     agentConfigId: string,
     content: Record<string, unknown>,
-    metadata: Record<string, unknown>
+    metadata: Record<string, unknown>,
+    tag?: string
   ): Promise<AgentConfigVersion> {
     return this.post<AgentConfigVersion>(`/v1/agent-configs/${agentConfigId}/versions`, {
       project_id: projectId,
       content,
-      metadata
+      metadata,
+      tag: tag || undefined
     });
   }
 

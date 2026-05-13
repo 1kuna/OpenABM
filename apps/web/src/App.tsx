@@ -365,6 +365,7 @@ function AgentConfigWorkspace(props: {
     JSON.stringify({ model: "qwen3.5-9b-mlx", tools: ["trace_search"], context_window: 262144 }, null, 2)
   );
   const [metadataText, setMetadataText] = useState(JSON.stringify({ source: "web-ui" }, null, 2));
+  const [configTag, setConfigTag] = useState("prod");
   const [oldCommitId, setOldCommitId] = useState("");
   const [newCommitId, setNewCommitId] = useState("");
   const [comparison, setComparison] = useState<AgentConfigCompareResult | null>(null);
@@ -432,7 +433,13 @@ function AgentConfigWorkspace(props: {
       return;
     }
     try {
-      const version = await client.commitAgentConfigVersion(projectId, selectedConfig.agent_config_id, content, metadata);
+      const version = await client.commitAgentConfigVersion(
+        projectId,
+        selectedConfig.agent_config_id,
+        content,
+        metadata,
+        configTag.trim() || undefined
+      );
       const hydrated = await client.getAgentConfig(projectId, selectedConfig.agent_config_id);
       setConfigs((current) => current.map((config) => (config.agent_config_id === hydrated.agent_config_id ? hydrated : config)));
       setNewCommitId(version.commit_id);
@@ -508,6 +515,7 @@ function AgentConfigWorkspace(props: {
             <div className="metricsRow configMetrics">
               <Metric icon={<KeyRound />} label="Versions" value={String(versions.length)} />
               <Metric icon={<GitBranch />} label="Latest" value={versions[0]?.commit_id ?? "none"} />
+              <Metric icon={<Shield />} label="Tags" value={formatTags(selectedConfig.tags)} />
               <Metric icon={<Activity />} label="Created" value={formatTime(selectedConfig.created_at)} />
             </div>
             <div className="configSections">
@@ -520,6 +528,10 @@ function AgentConfigWorkspace(props: {
                 <label className="notesBox">
                   Metadata
                   <textarea value={metadataText} onChange={(event) => setMetadataText(event.target.value)} />
+                </label>
+                <label>
+                  Tag pointer
+                  <input value={configTag} onChange={(event) => setConfigTag(event.target.value)} />
                 </label>
                 <button className="primaryButton" onClick={() => void commitConfigVersion()}>
                   <GitBranch size={15} />
@@ -575,6 +587,9 @@ function AgentConfigWorkspace(props: {
                   </button>
                 </div>
                 {comparison ? <pre>{comparison.content_diff || "No content changes"}</pre> : null}
+                {comparison?.tag_movement_history.length ? (
+                  <pre>{JSON.stringify(comparison.tag_movement_history, null, 2)}</pre>
+                ) : null}
               </section>
             </div>
           </>

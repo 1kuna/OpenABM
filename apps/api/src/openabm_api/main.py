@@ -2339,6 +2339,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 agent_config_id,
                 content=request["content"],
                 metadata=request.get("metadata"),
+                tag=request.get("tag"),
             )
         except KeyError as exc:
             raise HTTPException(
@@ -2350,7 +2351,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "agent_config",
             request["project_id"],
             agent_config_id,
-            {"commit_id": version["commit_id"]},
+            {"commit_id": version["commit_id"], "tag": request.get("tag")},
         )
         return version
 

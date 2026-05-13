@@ -1561,12 +1561,16 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
     cfg_v1 = client.post(
         f"/v1/agent-configs/{config_id}/versions",
         headers=auth_headers(),
-        json={"project_id": "proj_demo", "content": {"model": "local-9b"}},
+        json={"project_id": "proj_demo", "content": {"model": "local-9b"}, "tag": "prod"},
     )
     cfg_v2 = client.post(
         f"/v1/agent-configs/{config_id}/versions",
         headers=auth_headers(),
-        json={"project_id": "proj_demo", "content": {"model": "local-9b", "tools": ["lookup"]}},
+        json={
+            "project_id": "proj_demo",
+            "content": {"model": "local-9b", "tools": ["lookup"]},
+            "tag": "prod",
+        },
     )
     compare = client.post(
         f"/v1/agent-configs/{config_id}/compare",
@@ -1578,6 +1582,21 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
         },
     )
     assert '"tools":["lookup"]' in compare.json()["content_diff"]
+    config_detail = client.get(
+        f"/v1/agent-configs/{config_id}",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert config_detail.json()["tags"]["prod"] == cfg_v2.json()["commit_id"]
+    assert [
+        event["new_commit_id"]
+        for event in compare.json()["tag_movement_history"]
+        if event["tag"] == "prod"
+    ] == [cfg_v1.json()["commit_id"], cfg_v2.json()["commit_id"]]
+    prod_config_tag_events = [
+        event for event in compare.json()["tag_movement_history"] if event["tag"] == "prod"
+    ]
+    assert prod_config_tag_events[1]["previous_commit_id"] == cfg_v1.json()["commit_id"]
 
     fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
     trace = {

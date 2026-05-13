@@ -4,12 +4,13 @@
   "title": "AgentConfig",
   "type": "object",
   "additionalProperties": false,
-  "required": ["agent_config_id", "project_id", "name", "config_type", "created_at"],
+  "required": ["agent_config_id", "project_id", "name", "config_type", "tags", "created_at"],
   "properties": {
     "agent_config_id": {"type": "string"},
     "project_id": {"type": "string"},
     "name": {"type": "string"},
     "config_type": {"enum": ["tool", "retrieval", "guardrail", "memory", "routing", "workflow", "feature_flags", "runtime", "instruction_bundle"]},
+    "tags": {"type": "object", "additionalProperties": {"type": "string"}},
     "created_at": {"type": "string", "format": "date-time"}
   }
 }
