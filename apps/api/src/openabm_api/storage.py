@@ -510,6 +510,7 @@ class SQLiteStore:
             self._ensure_eval_run_provenance_columns(conn)
             self._ensure_auth_api_key_columns(conn)
             self._ensure_automation_run_cooldown_columns(conn)
+            self._ensure_mcp_tool_observation_payload_columns(conn)
             self.ensure_project("proj_demo", "Demo Project")
 
     @staticmethod
@@ -580,6 +581,22 @@ class SQLiteStore:
               WHERE cooldown_key IS NOT NULL
             """
         )
+
+    @staticmethod
+    def _ensure_mcp_tool_observation_payload_columns(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(mcp_tool_observations)").fetchall()
+        }
+        column_specs = {
+            "request_json": "TEXT NOT NULL DEFAULT '{}'",
+            "response_json": "TEXT NOT NULL DEFAULT '{}'",
+            "citations_json": "TEXT NOT NULL DEFAULT '[]'",
+            "confirmation_required": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for column, spec in column_specs.items():
+            if column not in columns:
+                conn.execute(f"ALTER TABLE mcp_tool_observations ADD COLUMN {column} {spec}")
 
     def ensure_project(self, project_id: str, name: str | None = None) -> None:
         now = utc_now()
@@ -1525,6 +1542,10 @@ class SQLiteStore:
             "tool_name": request["tool_name"],
             "status": request.get("status") or "succeeded",
             "latency_ms": _non_negative_int(request.get("latency_ms")),
+            "request": request.get("request") or {},
+            "response": request.get("response") or {},
+            "citations": request.get("citations") or [],
+            "confirmation_required": bool(request.get("confirmation_required")),
             "error_type_nullable": request.get("error_type_nullable"),
             "error_message_nullable": request.get("error_message_nullable"),
             "created_at": utc_now(),
@@ -1534,9 +1555,10 @@ class SQLiteStore:
                 """
                 INSERT INTO mcp_tool_observations(
                   observation_id, project_id, tool_name, status, latency_ms,
+                  request_json, response_json, citations_json, confirmation_required,
                   error_type_nullable, error_message_nullable, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item["observation_id"],
@@ -1544,6 +1566,10 @@ class SQLiteStore:
                     item["tool_name"],
                     item["status"],
                     item["latency_ms"],
+                    encode_json(item["request"]),
+                    encode_json(item["response"]),
+                    encode_json(item["citations"]),
+                    int(item["confirmation_required"]),
                     item["error_type_nullable"],
                     item["error_message_nullable"],
                     item["created_at"],
@@ -1577,7 +1603,16 @@ class SQLiteStore:
                     """,
                     (max(1, min(limit, 200)),),
                 ).fetchall()
-        return [dict(row) for row in rows]
+        return [self._mcp_tool_observation_from_row(row) for row in rows]
+
+    @staticmethod
+    def _mcp_tool_observation_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        item = dict(row)
+        item["request"] = decode_json(item.pop("request_json", None), {})
+        item["response"] = decode_json(item.pop("response_json", None), {})
+        item["citations"] = decode_json(item.pop("citations_json", None), [])
+        item["confirmation_required"] = bool(item.get("confirmation_required"))
+        return item
 
     def mcp_tool_observability_summary(self, project_id: str) -> dict[str, Any]:
         with self.connect() as conn:

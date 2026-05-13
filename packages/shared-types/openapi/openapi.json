@@ -5065,6 +5065,21 @@
                   "latency_ms": {
                     "type": "integer"
                   },
+                  "request": {
+                    "type": "object"
+                  },
+                  "response": {
+                    "type": "object"
+                  },
+                  "citations": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "confirmation_required": {
+                    "type": "boolean"
+                  },
                   "error_type_nullable": {
                     "type": [
                       "string",

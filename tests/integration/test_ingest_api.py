@@ -210,6 +210,7 @@ def test_secret_refs_are_encrypted_redacted_rotatable_and_audited(tmp_path) -> N
 def test_observability_status_metrics_dead_letters_and_heartbeats(tmp_path) -> None:
     client = make_client(tmp_path)
     fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][0]
+    trace_id = fixture["trace"]["trace_id"]
     ingest = client.post(
         "/v1/ingest/batch",
         headers=auth_headers(),
@@ -239,9 +240,13 @@ def test_observability_status_metrics_dead_letters_and_heartbeats(tmp_path) -> N
             "tool_name": "get_trace",
             "status": "succeeded",
             "latency_ms": 12,
+            "request": {"trace_id": trace_id},
+            "response": {"trace": {"trace_id": trace_id}},
+            "citations": [trace_id],
         },
     )
     assert mcp_observation.status_code == 201
+    assert mcp_observation.json()["confirmation_required"] is False
 
     status = client.get(
         "/v1/ops/status",
@@ -278,6 +283,8 @@ def test_observability_status_metrics_dead_letters_and_heartbeats(tmp_path) -> N
     )
     assert observations.status_code == 200
     assert observations.json()["data"][0]["tool_name"] == "get_trace"
+    assert observations.json()["data"][0]["request"]["trace_id"] == trace_id
+    assert observations.json()["data"][0]["citations"] == [trace_id]
 
     dead_letters = client.get(
         "/v1/ops/dead-letter",
@@ -2297,6 +2304,15 @@ def test_core_loop_acceptance_preserves_provenance_through_mcp(tmp_path, monkeyp
     assert mcp_trace["reconstruction"]["span_tree"][0]["children"][0]["span"][
         "span_id"
     ] == "span_wrong_tool_order_lookup"
+    mcp_observations = client.get(
+        "/v1/ops/mcp-tool-observations",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    mcp_row = mcp_observations.json()["data"][0]
+    assert mcp_row["request"]["trace_id"] == "trace_wrong_tool"
+    assert mcp_row["response"]["trace"]["trace_id"] == "trace_wrong_tool"
+    assert "trace_wrong_tool" in mcp_row["citations"]
 
 
 def test_reported_incident_investigation_acceptance_links_artifacts(

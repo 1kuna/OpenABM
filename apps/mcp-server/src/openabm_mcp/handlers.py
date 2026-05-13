@@ -29,6 +29,10 @@ RESOURCE_TEMPLATES = [
     "agent-context-pack://{context_pack_id}",
 ]
 
+MAX_OBSERVATION_STRING_LENGTH = 2000
+MAX_OBSERVATION_ITEMS = 25
+MAX_OBSERVATION_DEPTH = 5
+
 
 @dataclass(frozen=True)
 class OpenABMApiClient:
@@ -72,8 +76,10 @@ def call_tool(
     status = "succeeded"
     error_type = None
     error_message = None
+    response_payload: dict[str, Any] | None = None
     try:
         result = _call_tool_impl(name, arguments, client=api_client)
+        response_payload = result
         if result.get("status") == "unsupported":
             status = "unsupported"
         return result
@@ -81,6 +87,10 @@ def call_tool(
         status = "failed"
         error_type = type(exc).__name__
         error_message = str(exc)
+        response_payload = {
+            "error_type": error_type,
+            "error_message": error_message,
+        }
         raise
     finally:
         _record_tool_observation(
@@ -91,6 +101,9 @@ def call_tool(
             latency_ms=int((time.perf_counter() - started) * 1000),
             error_type=error_type,
             error_message=error_message,
+            request_payload=arguments,
+            response_payload=response_payload,
+            confirmation_required=_tool_requires_confirmation(name),
         )
 
 
@@ -296,6 +309,9 @@ def _record_tool_observation(
     latency_ms: int,
     error_type: str | None,
     error_message: str | None,
+    request_payload: dict[str, Any],
+    response_payload: dict[str, Any] | None,
+    confirmation_required: bool,
 ) -> None:
     if not isinstance(project_id, str) or not project_id:
         return
@@ -310,7 +326,68 @@ def _record_tool_observation(
                 "latency_ms": latency_ms,
                 "error_type_nullable": error_type,
                 "error_message_nullable": error_message,
+                "request": _bounded_observation_payload(request_payload),
+                "response": _bounded_observation_payload(response_payload or {}),
+                "citations": _extract_observation_citations(response_payload or {}),
+                "confirmation_required": confirmation_required,
             },
         )
     except Exception:
         return
+
+
+def _tool_requires_confirmation(tool_name: str) -> bool:
+    for tool in all_tool_definitions():
+        if tool["name"] == tool_name:
+            return bool(tool.get("confirmation_required"))
+    return False
+
+
+def _bounded_observation_payload(value: Any, *, depth: int = 0) -> Any:
+    if depth >= MAX_OBSERVATION_DEPTH:
+        return {"truncated": True, "type": type(value).__name__}
+    if isinstance(value, dict):
+        items = list(value.items())
+        bounded = {
+            str(key): _bounded_observation_payload(item, depth=depth + 1)
+            for key, item in items[:MAX_OBSERVATION_ITEMS]
+        }
+        if len(items) > MAX_OBSERVATION_ITEMS:
+            bounded["_truncated_keys"] = len(items) - MAX_OBSERVATION_ITEMS
+        return bounded
+    if isinstance(value, list):
+        bounded_items = [
+            _bounded_observation_payload(item, depth=depth + 1)
+            for item in value[:MAX_OBSERVATION_ITEMS]
+        ]
+        if len(value) > MAX_OBSERVATION_ITEMS:
+            bounded_items.append({"truncated_items": len(value) - MAX_OBSERVATION_ITEMS})
+        return bounded_items
+    if isinstance(value, str):
+        if len(value) > MAX_OBSERVATION_STRING_LENGTH:
+            return value[:MAX_OBSERVATION_STRING_LENGTH] + "...[truncated]"
+        return value
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _extract_observation_citations(value: Any) -> list[str]:
+    citations: set[str] = set()
+
+    def visit(item: Any) -> None:
+        if isinstance(item, dict):
+            for key, nested in item.items():
+                if key.endswith("_id") and isinstance(nested, str):
+                    citations.add(nested)
+                elif key.endswith("_ids") and isinstance(nested, list):
+                    for candidate in nested:
+                        if isinstance(candidate, str):
+                            citations.add(candidate)
+                visit(nested)
+        elif isinstance(item, list):
+            for nested in item:
+                visit(nested)
+
+    visit(value)
+    return sorted(citations)[:MAX_OBSERVATION_ITEMS]
