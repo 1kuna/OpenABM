@@ -9,11 +9,16 @@ from openabm_api.prompts import diff_prompt_text, prompt_commit_id, render_promp
 from openabm_mcp.handlers import call_tool, read_resource, resource_template_manifest, tool_manifest
 from openabm_mcp.server import _handle_jsonrpc_message
 from openabm_mcp.tools import REQUIRED_TOOL_NAMES, all_tool_definitions
+from openabm_worker import adapters
 from openabm_worker.code_sandbox import run_code_judge_dev_sandbox
 from openabm_worker.conditions import evaluate_condition_group
 from openabm_worker.eval_assertions import evaluate_trace_assertions
 from openabm_worker.judges import run_deterministic_rule_judge, validate_judge_output
-from openabm_worker.model_runtime import DisabledModelProvider, ModelCallsDisabled
+from openabm_worker.model_runtime import (
+    DisabledEmbeddingProvider,
+    DisabledModelProvider,
+    ModelCallsDisabled,
+)
 
 
 def test_disabled_model_provider_fails_closed() -> None:
@@ -22,6 +27,33 @@ def test_disabled_model_provider_fails_closed() -> None:
     assert health.status == "disabled"
     with pytest.raises(ModelCallsDisabled):
         asyncio.run(provider.structured_completion({}, {}, 1))
+
+
+def test_adapter_contracts_cover_spec_interface_signatures() -> None:
+    expected = {
+        "ModelProviderAdapter",
+        "EmbeddingProviderAdapter",
+        "TraceStore",
+        "MetadataStore",
+        "PayloadStore",
+        "SearchIndex",
+        "SimilarityIndex",
+        "QueueAdapter",
+        "CodeSandboxAdapter",
+        "EvalRunner",
+        "NotificationAdapter",
+        "SdkIntegrationPlugin",
+        "InvestigationRunner",
+        "ImpactReportBuilder",
+        "RootCauseAnalyzer",
+        "AgentContextPackBuilder",
+        "GroundingCheckAdapter",
+    }
+    assert adapters.ADAPTER_CONTRACT_NAMES == expected
+    for name in expected:
+        assert hasattr(adapters, name)
+    assert isinstance(DisabledModelProvider(), adapters.ModelProviderAdapter)
+    assert isinstance(DisabledEmbeddingProvider(), adapters.EmbeddingProviderAdapter)
 
 
 def test_condition_grammar_supports_nested_groups() -> None:

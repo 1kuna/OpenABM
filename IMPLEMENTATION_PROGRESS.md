@@ -78,6 +78,7 @@ Prompt-to-artifact checklist:
 | Prefer OSS orchestration over reinvention | `docs/decisions/0006-agent-orchestration-framework.md`; LangGraph investigation adapter in `apps/worker/src/openabm_worker/investigation_workflow.py`; MCP remains the audited tool boundary. | Complete for current scaffold |
 | Keep semantic judgment in model/runtime, mechanical guarantees in code | Grounding, investigation, novelty, and similarity flows persist model metadata while deterministic code validates schemas, citations, membership, review gates, and provenance. | Complete for implemented flows |
 | Public API/data contracts exist | JSON Schemas in `packages/shared-types/schemas/`; OpenAPI in `packages/shared-types/openapi/openapi.json`; contract tests under `tests/contracts/`. | Complete |
+| Adapter interfaces from spec section 41 exist | `apps/worker/src/openabm_worker/adapters.py` defines typed protocols for every listed adapter; unit tests assert the expected contract names and local provider conformance. | Complete |
 | Core loop works end to end | Integration tests cover trace ingest/detail, judges, behavior/dataset/eval loop, MCP trace/context-pack access, and reported incident investigation acceptance. | Complete for local fixtures |
 | Security/privacy/ops scaffold exists | RBAC/API keys, sessions, invite outbox, encrypted secrets, retention/export/delete, worker heartbeats, MCP observability, ops status, and deployment contract are implemented. | Complete for local reference |
 | Required decision records exist | Governance records now cover license boundary, storage, search, model runtime, sandbox, local stack, similarity experiments, production deployment, and orchestration. | Complete |
@@ -144,6 +145,10 @@ Done:
 - Added initial synthetic trace fixtures for happy path, wrong tool, missing
   parent, and clock skew cases.
 - Added contract tests and verified them with `make contracts`.
+- Added a worker adapter contract module that turns the spec's conceptual
+  adapter signatures for model, embedding, stores, indexes, queues, sandbox,
+  eval, notification, SDK integration, investigation, impact, root-cause,
+  context-pack, and grounding adapters into typed Python protocols.
 
 LLM-dependent deferrals:
 
