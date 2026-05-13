@@ -51,10 +51,11 @@ Remaining blockers or explicit non-local-reference work:
 - Final license text still needs owner choice before adding a `LICENSE` file.
 - Phase 9 real-world pilots, usability feedback, performance reports, and
   revisit decisions require real users/workloads.
-- External IdP/OAuth, SMTP/vendor invite delivery, production secret-manager
-  adapters, vendor-specific ChatOps connectors, production observability
-  exporters, and external deployment supervision remain integration work beyond
-  the local reference implementation.
+- External IdP/OAuth, vendor-specific invite providers, production
+  secret-manager adapters, vendor-specific ChatOps connectors, production
+  observability backends, and external deployment supervision remain integration
+  work beyond the local reference implementation; a default-off SMTP invite
+  adapter and configurable local metrics scrape project now exist.
 - Image OCR, production vector-store/ANN choices, broader clustering
   experiments, and broader UI usability polish remain future hardening.
 - Any semantic task that the local 9B model cannot handle after prompt/runtime
@@ -85,7 +86,7 @@ Prompt-to-artifact checklist:
 | Required decision records exist | Governance records now cover license boundary, storage, search, model runtime, sandbox, local stack, similarity experiments, production deployment, and orchestration. | Complete |
 | Final license file | `governance/decisions/008-license-selection.md` records owner-review-required status. | Blocked on owner choice |
 | Real-world pilot and revisit decisions | Phase 9 requires 5-10 pilots, performance/quality reports, and post-pilot revisits. | Blocked on real users/workloads |
-| External integrations beyond local reference | External IdP/OAuth, SMTP/vendor invite delivery, production secret managers, vendor ChatOps, production observability exporters, and deployment supervision are adapter boundaries. | Deferred until concrete integration target |
+| External integrations beyond local reference | External IdP/OAuth, vendor-specific invite providers, production secret managers, vendor ChatOps, production observability backends, and deployment supervision are adapter boundaries; generic SMTP invite delivery and local metrics export are implemented. | Deferred until concrete integration target |
 
 ## Phase 0: Product, Legal, And Decision Infrastructure
 
@@ -1139,6 +1140,9 @@ Implemented in this pass:
   operators can explicitly enable `OPENABM_ENABLE_SMTP_INVITES`, successful
   sends mark the invite delivery `smtp/sent`, and failures are persisted as
   audited `smtp/failed` records without storing SMTP secrets.
+- Added `OPENABM_METRICS_PROJECT_ID`, passed SMTP/metrics env through the
+  Compose deployment, and expanded the deployment smoke script to verify the
+  metrics exporter in addition to health/readiness/auth/ops status.
 - Notification target creation now rejects plaintext config blobs and validates
   `config_secret_refs`; active targets require at least one secret ref, while
   paused placeholders can be created without mounting secrets.

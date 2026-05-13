@@ -497,6 +497,7 @@ def test_observability_status_metrics_dead_letters_and_heartbeats(tmp_path) -> N
 
     metrics = client.get("/metrics")
     assert metrics.status_code == 200
+    assert metrics.headers["content-type"].startswith("text/plain; version=0.0.4")
     text = metrics.text
     assert "openabm_api_requests" in text
     assert "openabm_api_request_latency_ms_count" in text

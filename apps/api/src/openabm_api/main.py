@@ -189,9 +189,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ready", "service": "openabm-api", "details": {"store": "sqlite"}}
 
     @app.get("/metrics", response_class=PlainTextResponse)
-    def metrics_endpoint() -> str:
-        _refresh_observability_gauges(metrics, store, "proj_demo")
-        return metrics.render_text()
+    def metrics_endpoint() -> PlainTextResponse:
+        _refresh_observability_gauges(metrics, store, settings.metrics_project_id)
+        return PlainTextResponse(
+            metrics.render_text(),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
 
     @app.get("/api/auth/contract")
     def get_auth_contract() -> dict[str, object]:

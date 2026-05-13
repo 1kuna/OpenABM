@@ -42,6 +42,7 @@ class Settings:
     smtp_from_email: str | None = None
     smtp_use_starttls: bool = True
     smtp_timeout_seconds: float = 30.0
+    metrics_project_id: str = "proj_demo"
     cors_origins: tuple[str, ...] = ("http://127.0.0.1:5173", "http://localhost:5173")
 
     @classmethod
@@ -122,6 +123,7 @@ class Settings:
             smtp_timeout_seconds=float(
                 os.getenv("OPENABM_SMTP_TIMEOUT_SECONDS", str(cls.smtp_timeout_seconds))
             ),
+            metrics_project_id=os.getenv("OPENABM_METRICS_PROJECT_ID", cls.metrics_project_id),
             cors_origins=_csv_env(
                 "OPENABM_CORS_ORIGINS",
                 cls.cors_origins,

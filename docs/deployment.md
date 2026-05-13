@@ -36,6 +36,10 @@ generic SMTP server, set `OPENABM_ENABLE_SMTP_INVITES=true` and populate
 `OPENABM_SMTP_HOST`, `OPENABM_SMTP_PORT`, `OPENABM_SMTP_FROM_EMAIL`, and the
 username/password fields when your SMTP server requires authentication.
 
+Prometheus-style metrics are exposed at `/metrics`; set
+`OPENABM_METRICS_PROJECT_ID` to the project whose queue, worker, dead-letter,
+and storage gauges should be refreshed during scrapes.
+
 ## Smoke Check
 
 ```bash
@@ -45,7 +49,7 @@ python scripts/deployment_smoke.py
 ```
 
 The smoke check verifies health, readiness, authenticated project listing, auth
-contract visibility, and ops status.
+contract visibility, ops status, and the metrics exporter.
 
 ## Local Model Runtime
 
