@@ -66,17 +66,17 @@ Remaining blockers or explicit non-local-reference work:
 
 Current validation gate:
 
-- Latest local gates: `make ci` and `make deploy-config-check` passed after the
-  most recent implementation/doc slices.
-- Latest pushed commits are being validated by GitHub Actions as each slice is
-  pushed.
+- Latest local gates: `make ci` and `make deploy-config-check` passed after
+  `d048a48`.
+- Latest pushed commit: `d048a48 Audit classified metadata writes`.
+- Latest GitHub Actions run: `25825202543` completed successfully on `main`.
 
 Prompt-to-artifact checklist:
 
 | Requirement | Evidence | Status |
 | --- | --- | --- |
 | Preserve ignored implementation spec as SSOT | `.gitignore` excludes `openabm_implementation_spec.md`; progress doc records the guardrail; no spec file is staged or committed. | Complete |
-| Make coherent commits as progress lands | `git log` shows focused slices for MCP confirmations/resources, LangGraph event provenance, root-cause comparison, model runtime ADR, completion audit, and decision records. | Complete |
+| Make coherent commits as progress lands | `git log` shows focused slices through `d048a48`, including classification access, export redaction, trend analytics, affected-entity review tasks, and audit metadata. | Complete |
 | Document progress and blockers | This `IMPLEMENTATION_PROGRESS.md` tracks phases, completed slices, validation, blockers, and deferrals. | Complete |
 | Use local LM Studio/qwen lane for semantic work | Model runtime ADR accepts OpenAI-compatible local providers; live canary notes cover `qwen3.5-9b-mlx`; settings/docs preserve no-timeout/high-context rules and `OPENABM_MODEL_MIN_AVAILABLE_MEMORY_MB`. | Complete for local reference |
 | Prefer OSS orchestration over reinvention | `docs/decisions/0006-agent-orchestration-framework.md`; LangGraph investigation adapter in `apps/worker/src/openabm_worker/investigation_workflow.py`; MCP remains the audited tool boundary. | Complete for current local reference |
@@ -92,7 +92,7 @@ Prompt-to-artifact checklist:
 
 ## Phase 0: Product, Legal, And Decision Infrastructure
 
-Status: in progress
+Status: local-reference complete; final `LICENSE` file blocked on owner choice
 
 Done:
 
@@ -130,7 +130,7 @@ Skipped or deferred:
 
 ## Phase 1: Contracts And Fixtures
 
-Status: in progress
+Status: local-reference complete
 
 Target for this pass:
 
@@ -166,7 +166,7 @@ LLM-dependent deferrals:
 
 ## Phase 2: SDK, Ingest, And Storage Slice
 
-Status: in progress
+Status: local-reference complete
 
 Target for this pass:
 
@@ -228,7 +228,7 @@ Done:
 
 ## Phase 3: Trace Explorer And Reconstruction
 
-Status: in progress
+Status: local-reference complete
 
 Target for this pass:
 
@@ -317,7 +317,7 @@ Done:
 
 ## Phase 4: Model Runtime And Judge Runtime
 
-Status: in progress
+Status: local-reference complete; broader calibration requires pilot data
 
 Target for this pass:
 
@@ -423,7 +423,7 @@ Done:
 
 ## Phase 5: Datasets And Offline Evals
 
-Status: in progress
+Status: local-reference complete; broader calibration requires pilot data
 
 Target for this pass:
 
@@ -472,7 +472,7 @@ Done:
 
 ## Phase 6: Behaviors And Automations
 
-Status: in progress
+Status: local-reference complete; external rollback adapters deferred
 
 Target for this pass:
 
@@ -537,7 +537,7 @@ Done:
 
 ## Phase 7: Prompt Registry, MCP, And Investigation Agent
 
-Status: in progress
+Status: local-reference complete; vendor ChatOps/docs integrations deferred
 
 Target for this pass:
 
@@ -730,7 +730,7 @@ Done:
 
 ## Phase 8: Security, Privacy, And Operations Hardening
 
-Status: in progress
+Status: local-reference complete; production integrations deferred
 
 Target for this pass:
 
@@ -808,7 +808,7 @@ Done:
 
 ## Phase 9: Real-World Pilot And Revisit Decisions
 
-Status: not started
+Status: blocked on real users, owner direction, and pilot workloads
 
 Blocked:
 
@@ -1056,7 +1056,8 @@ Known remaining gaps before calling the whole spec complete:
 
 ## Spec V2 Delta Incorporated
 
-Status: in progress
+Status: incorporated into the local-reference scaffold; remaining items are
+blocked/deferred as listed above
 
 Compared with the original spec, the temporary v2 spec revision added these
 implementation targets. The v2 contents have since replaced
