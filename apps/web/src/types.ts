@@ -608,6 +608,17 @@ export interface OpsStatus {
   automation_action_failures: number;
   dead_letter_count: number;
   worker_heartbeats: WorkerHeartbeat[];
+  mcp_tool_observability: {
+    total_calls: number;
+    error_count: number;
+    tools: Array<{
+      tool_name: string;
+      call_count: number;
+      error_count: number;
+      avg_latency_ms: number;
+      max_latency_ms: number;
+    }>;
+  };
   metrics?: MetricsSnapshot;
 }
 

@@ -164,6 +164,9 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
     )
     assert result["path"] == "/v1/traces/trace_1"
     assert client.calls[0]["params"] == {"project_id": "proj_demo"}
+    assert client.calls[1]["path"] == "/v1/ops/mcp-tool-observations"
+    assert client.calls[1]["json_body"]["tool_name"] == "get_trace"
+    assert client.calls[1]["json_body"]["status"] == "succeeded"
 
     prompt_result = call_tool("list_prompts", {"project_id": "proj_demo"}, client=client)
     assert prompt_result["path"] == "/v1/prompts"

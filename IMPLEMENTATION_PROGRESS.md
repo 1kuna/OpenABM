@@ -494,6 +494,11 @@ Done:
   over the same deterministic runner, and each run records heartbeats plus
   `apply_retention_policy` audit entries so `/v1/ops/status` reflects retention
   job status.
+- Added MCP tool observability: the MCP handler records best-effort tool
+  latency/status observations through `/v1/ops/mcp-tool-observations`, ops
+  status summarizes MCP call and error counts by tool, metrics expose MCP tool
+  latency/call/error counters, exports include the observation rows, and the
+  Operations workspace surfaces MCP call health.
 
 ## Phase 9: Real-World Pilot And Revisit Decisions
 
@@ -580,6 +585,9 @@ Verified after the latest implementation slices:
   dry-run or applied by the worker runner, trace tombstoning is performed by the
   same storage contract as the API, and worker heartbeat plus ops retention
   status are updated.
+- MCP observability regression passed: MCP tool calls record latency/status
+  observations without changing tool results, `/v1/ops/status` summarizes those
+  observations, and the observation list endpoint returns the recorded rows.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:
@@ -611,9 +619,8 @@ Known remaining gaps before calling the whole spec complete:
 - External IdP/OAuth login, real invite delivery, and production secret-manager
   provider adapters remain beyond the local reference scaffold.
 - Production-grade observability exporters, log aggregation, retention-worker
-  deployment supervision, MCP-server metrics ingestion, and external
-  notification delivery are still future hardening beyond the local reference
-  surfaces.
+  deployment supervision, and external notification delivery are still future
+  hardening beyond the local reference surfaces.
 
 ## Spec V2 Delta Incorporated
 

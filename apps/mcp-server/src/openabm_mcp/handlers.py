@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -66,13 +67,45 @@ def call_tool(
     *,
     client: OpenABMApiClient | None = None,
 ) -> dict[str, Any]:
+    started = time.perf_counter()
+    api_client = client or OpenABMApiClient.from_env()
+    status = "succeeded"
+    error_type = None
+    error_message = None
+    try:
+        result = _call_tool_impl(name, arguments, client=api_client)
+        if result.get("status") == "unsupported":
+            status = "unsupported"
+        return result
+    except Exception as exc:
+        status = "failed"
+        error_type = type(exc).__name__
+        error_message = str(exc)
+        raise
+    finally:
+        _record_tool_observation(
+            api_client,
+            project_id=arguments.get("project_id"),
+            tool_name=name,
+            status=status,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            error_type=error_type,
+            error_message=error_message,
+        )
+
+
+def _call_tool_impl(
+    name: str,
+    arguments: dict[str, Any],
+    *,
+    client: OpenABMApiClient,
+) -> dict[str, Any]:
     if name in UNSUPPORTED_TOOLS:
         return {
             "status": "unsupported",
             "tool": name,
             "reason": UNSUPPORTED_TOOLS[name],
         }
-    client = client or OpenABMApiClient.from_env()
     if name == "search_traces":
         return client.request("POST", "/v1/search/traces", json_body=arguments)
     if name == "get_trace":
@@ -252,3 +285,32 @@ def call_tool(
         "tool": name,
         "reason": "Tool is declared but no handler is registered.",
     }
+
+
+def _record_tool_observation(
+    client: OpenABMApiClient,
+    *,
+    project_id: Any,
+    tool_name: str,
+    status: str,
+    latency_ms: int,
+    error_type: str | None,
+    error_message: str | None,
+) -> None:
+    if not isinstance(project_id, str) or not project_id:
+        return
+    try:
+        client.request(
+            "POST",
+            "/v1/ops/mcp-tool-observations",
+            json_body={
+                "project_id": project_id,
+                "tool_name": tool_name,
+                "status": status,
+                "latency_ms": latency_ms,
+                "error_type_nullable": error_type,
+                "error_message_nullable": error_message,
+            },
+        )
+    except Exception:
+        return

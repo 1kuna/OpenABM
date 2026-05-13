@@ -1019,6 +1019,7 @@ function OpsWorkspace(props: {
               <Metric icon={<Database />} label="Rows" value={String(storageRows)} />
               <Metric icon={<Box />} label="Payload bytes" value={String(opsStatus?.payload_store_growth.total_bytes ?? 0)} />
               <Metric icon={<Activity />} label="Queue" value={String(queueDepth)} />
+              <Metric icon={<Network />} label="MCP calls" value={String(opsStatus?.mcp_tool_observability.total_calls ?? 0)} />
             </div>
             <dl className="reviewFacts">
               <div>
@@ -1032,6 +1033,10 @@ function OpsWorkspace(props: {
               <div>
                 <dt>Automation failures</dt>
                 <dd>{String(opsStatus?.automation_action_failures ?? 0)}</dd>
+              </div>
+              <div>
+                <dt>MCP errors</dt>
+                <dd>{String(opsStatus?.mcp_tool_observability.error_count ?? 0)}</dd>
               </div>
             </dl>
             <button onClick={() => void sendWorkerHeartbeat()}>
@@ -1047,6 +1052,16 @@ function OpsWorkspace(props: {
                 </div>
               ))}
               {!workerHeartbeats.length ? <div className="emptyState">No worker heartbeats</div> : null}
+            </div>
+            <div className="sectionRows">
+              {(opsStatus?.mcp_tool_observability.tools ?? []).slice(0, 4).map((tool) => (
+                <div key={tool.tool_name}>
+                  <strong>{tool.tool_name}</strong>
+                  <span>{tool.call_count} calls · {tool.error_count} errors</span>
+                  <small>{Math.round(tool.avg_latency_ms)} ms avg · {tool.max_latency_ms} ms max</small>
+                </div>
+              ))}
+              {opsStatus && !opsStatus.mcp_tool_observability.tools.length ? <div className="emptyState">No MCP calls recorded</div> : null}
             </div>
             <div className="sectionRows">
               {deadLetterRuns.slice(0, 4).map((run) => (

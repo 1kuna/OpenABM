@@ -83,6 +83,7 @@ REQUIRED_QUERY_PATHS = {
     "/v1/secrets/{secret_ref}/resolve",
     "/v1/secrets/{secret_ref}/rotate",
     "/v1/ops/dead-letter",
+    "/v1/ops/mcp-tool-observations",
     "/v1/ops/status",
     "/v1/ops/worker-heartbeats",
     "/v1/traces",

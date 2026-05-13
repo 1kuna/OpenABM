@@ -540,6 +540,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return heartbeat
 
+    @app.get("/api/ops/mcp-tool-observations")
+    def list_mcp_tool_observations(
+        project_id: str,
+        limit: int = 50,
+        actor: dict[str, object] = Depends(auth_dependency(["ops:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_mcp_tool_observations(project_id, limit=limit)}
+
+    @app.post("/api/ops/mcp-tool-observations", status_code=201)
+    def record_mcp_tool_observation(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["ops:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "tool_name", "status", "latency_ms"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        observation = store.record_mcp_tool_observation(request)
+        metrics.increment("mcp.tool.calls")
+        metrics.increment(f"mcp.tool.{observation['tool_name']}.calls")
+        metrics.observe("mcp.tool.latency_ms", observation["latency_ms"])
+        metrics.observe(
+            f"mcp.tool.{observation['tool_name']}.latency_ms",
+            observation["latency_ms"],
+        )
+        if observation["status"] == "failed":
+            metrics.increment("mcp.tool.errors")
+            metrics.increment(f"mcp.tool.{observation['tool_name']}.errors")
+        return observation
+
     @app.get("/api/ops/dead-letter")
     def list_dead_letters(
         project_id: str,
@@ -3171,6 +3206,13 @@ def _refresh_observability_gauges(
     for heartbeat in status["worker_heartbeats"]:
         worker_id = heartbeat["worker_id"]
         metrics.set_gauge(f"worker.{worker_id}.queue_depth", heartbeat["queue_depth"])
+
+    mcp_summary = status["mcp_tool_observability"]
+    metrics.set_gauge("mcp.tool.total_calls", mcp_summary["total_calls"])
+    metrics.set_gauge("mcp.tool.error_count", mcp_summary["error_count"])
+    for tool in mcp_summary["tools"]:
+        tool_name = tool["tool_name"]
+        metrics.set_gauge(f"mcp.tool.{tool_name}.avg_latency_ms", tool["avg_latency_ms"])
 
 
 def _behavior_backtest_evidence_ids(result: dict[str, Any]) -> list[str]:

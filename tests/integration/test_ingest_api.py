@@ -230,6 +230,17 @@ def test_observability_status_metrics_dead_letters_and_heartbeats(tmp_path) -> N
     )
     assert heartbeat.status_code == 201
     assert heartbeat.json()["queue_depth"] == 3
+    mcp_observation = client.post(
+        "/v1/ops/mcp-tool-observations",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "tool_name": "get_trace",
+            "status": "succeeded",
+            "latency_ms": 12,
+        },
+    )
+    assert mcp_observation.status_code == 201
 
     status = client.get(
         "/v1/ops/status",
@@ -242,7 +253,16 @@ def test_observability_status_metrics_dead_letters_and_heartbeats(tmp_path) -> N
     assert body["storage_growth"]["trace_spans"] == len(fixture["spans"])
     assert body["queue_depth"]["worker_jobs"] == 3
     assert body["worker_heartbeats"][0]["worker_id"] == "pytest-worker"
+    assert body["mcp_tool_observability"]["total_calls"] == 1
+    assert body["mcp_tool_observability"]["tools"][0]["tool_name"] == "get_trace"
     assert "metrics" in body
+    observations = client.get(
+        "/v1/ops/mcp-tool-observations",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert observations.status_code == 200
+    assert observations.json()["data"][0]["tool_name"] == "get_trace"
 
     dead_letters = client.get(
         "/v1/ops/dead-letter",

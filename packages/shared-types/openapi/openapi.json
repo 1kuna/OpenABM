@@ -4821,6 +4821,87 @@
         }
       }
     },
+    "/v1/ops/mcp-tool-observations": {
+      "get": {
+        "summary": "List MCP tool latency and status observations.",
+        "operationId": "listMcpToolObservations",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MCP tool observations."
+          }
+        }
+      },
+      "post": {
+        "summary": "Record one MCP tool latency and status observation.",
+        "operationId": "recordMcpToolObservation",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "tool_name",
+                  "status",
+                  "latency_ms"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "tool_name": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "latency_ms": {
+                    "type": "integer"
+                  },
+                  "error_type_nullable": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "error_message_nullable": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "MCP tool observation recorded."
+          }
+        }
+      }
+    },
     "/v1/ops/dead-letter": {
       "get": {
         "summary": "List dead-lettered or partial-failure automation runs.",

@@ -1322,6 +1322,99 @@ class SQLiteStore:
             ).fetchall()
         return [self._automation_run_from_row(row) for row in rows]
 
+    def record_mcp_tool_observation(self, request: dict[str, Any]) -> dict[str, Any]:
+        item = {
+            "observation_id": request.get("observation_id") or new_id("mcp_tool_observation"),
+            "project_id": request.get("project_id"),
+            "tool_name": request["tool_name"],
+            "status": request.get("status") or "succeeded",
+            "latency_ms": _non_negative_int(request.get("latency_ms")),
+            "error_type_nullable": request.get("error_type_nullable"),
+            "error_message_nullable": request.get("error_message_nullable"),
+            "created_at": utc_now(),
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO mcp_tool_observations(
+                  observation_id, project_id, tool_name, status, latency_ms,
+                  error_type_nullable, error_message_nullable, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["observation_id"],
+                    item["project_id"],
+                    item["tool_name"],
+                    item["status"],
+                    item["latency_ms"],
+                    item["error_type_nullable"],
+                    item["error_message_nullable"],
+                    item["created_at"],
+                ),
+            )
+        return item
+
+    def list_mcp_tool_observations(
+        self,
+        project_id: str | None = None,
+        *,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            if project_id:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM mcp_tool_observations
+                    WHERE project_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (project_id, max(1, min(limit, 200))),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM mcp_tool_observations
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (max(1, min(limit, 200)),),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mcp_tool_observability_summary(self, project_id: str) -> dict[str, Any]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT tool_name,
+                       COUNT(*) AS call_count,
+                       SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS error_count,
+                       AVG(latency_ms) AS avg_latency_ms,
+                       MAX(latency_ms) AS max_latency_ms
+                FROM mcp_tool_observations
+                WHERE project_id = ?
+                GROUP BY tool_name
+                ORDER BY call_count DESC, tool_name ASC
+                """,
+                (project_id,),
+            ).fetchall()
+        tools = [
+            {
+                "tool_name": row["tool_name"],
+                "call_count": int(row["call_count"]),
+                "error_count": int(row["error_count"]),
+                "avg_latency_ms": float(row["avg_latency_ms"] or 0),
+                "max_latency_ms": int(row["max_latency_ms"] or 0),
+            }
+            for row in rows
+        ]
+        return {
+            "total_calls": sum(tool["call_count"] for tool in tools),
+            "error_count": sum(tool["error_count"] for tool in tools),
+            "tools": tools,
+        }
+
     def ops_status(self, project_id: str) -> dict[str, Any]:
         with self.connect() as conn:
             storage_counts = {
@@ -1342,6 +1435,7 @@ class SQLiteStore:
                     "review_tasks",
                     "automation_runs",
                     "secret_refs",
+                    "mcp_tool_observations",
                     "audit_log",
                 ]
             }
@@ -1381,6 +1475,7 @@ class SQLiteStore:
             ).fetchone()
         worker_heartbeats = self.list_worker_heartbeats(project_id)
         worker_queue_depth = sum(int(item["queue_depth"]) for item in worker_heartbeats)
+        mcp_tool_observability = self.mcp_tool_observability_summary(project_id)
         return {
             "project_id": project_id,
             "generated_at": utc_now(),
@@ -1397,6 +1492,7 @@ class SQLiteStore:
             "automation_action_failures": int(automation_failures["count"]),
             "dead_letter_count": int(automation_failures["count"]),
             "worker_heartbeats": worker_heartbeats,
+            "mcp_tool_observability": mcp_tool_observability,
         }
 
     @staticmethod
@@ -4150,6 +4246,7 @@ class SQLiteStore:
             "review_tasks": self.list_review_tasks(project_id),
             "grounding_checks": self.list_grounding_checks(project_id),
             "novelty_runs": self.list_novelty_runs(project_id),
+            "mcp_tool_observations": self.list_mcp_tool_observations(project_id, limit=10000),
             "secret_refs": self.list_secret_refs(project_id),
             "audit_summary": audit_summary,
         }
