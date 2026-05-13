@@ -329,6 +329,31 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
         client=client,
     )
     assert registered_code_context["path"] == "/v1/code-contexts"
+    notify_gate = call_tool(
+        "notify_affected_entity",
+        {
+            "project_id": "proj_demo",
+            "affected_entity_id": "affected_entity_1",
+            "target_id": "notification_target_1",
+        },
+        client=client,
+    )
+    assert notify_gate["status"] == "confirmation_required"
+    confirmed_notify = call_tool(
+        "notify_affected_entity",
+        {
+            "project_id": "proj_demo",
+            "affected_entity_id": "affected_entity_1",
+            "target_id": "notification_target_1",
+            "delivery_mode": "preview",
+            "confirmed": True,
+        },
+        client=client,
+    )
+    assert confirmed_notify["path"] == (
+        "/v1/affected-entities/affected_entity_1/notifications"
+    )
+    assert "confirmed" not in client.calls[-2]["json_body"]
     prompt_result = call_tool("list_prompts", {"project_id": "proj_demo"}, client=client)
     assert prompt_result["path"] == "/v1/prompts"
     agent_config_result = call_tool(

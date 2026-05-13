@@ -1,5 +1,6 @@
 import type {
   AffectedEntity,
+  AffectedEntityNotificationResult,
   AgentConfigCompareResult,
   AgentConfigDefinition,
   AgentConfigVersion,
@@ -548,6 +549,30 @@ export class OpenAbmClient {
       remediation_target_id: request.remediationTargetId ?? null,
       remediation_relation: request.remediationRelation ?? null
     });
+  }
+
+  async notifyAffectedEntity(
+    projectId: string,
+    affectedEntityId: string,
+    request: {
+      targetId: string;
+      deliveryMode?: "preview" | "live";
+      message?: string;
+      groupKey?: string;
+      idempotencyKey?: string;
+    }
+  ): Promise<AffectedEntityNotificationResult> {
+    return this.post<AffectedEntityNotificationResult>(
+      `/v1/affected-entities/${affectedEntityId}/notifications`,
+      {
+        project_id: projectId,
+        target_id: request.targetId,
+        delivery_mode: request.deliveryMode ?? "preview",
+        message: request.message ?? null,
+        group_key: request.groupKey ?? null,
+        idempotency_key: request.idempotencyKey ?? null
+      }
+    );
   }
 
   async listJudges(projectId: string): Promise<JudgeDefinition[]> {

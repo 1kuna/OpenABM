@@ -495,6 +495,12 @@ export interface AffectedEntity {
   updated_at: string;
 }
 
+export interface AffectedEntityNotificationResult {
+  affected_entity: AffectedEntity;
+  notification: Record<string, unknown>;
+  audit_id: string;
+}
+
 export interface InvestigationRun {
   investigation_run_id: string;
   project_id: string;

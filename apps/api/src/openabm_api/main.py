@@ -3794,6 +3794,98 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return entity
 
+    @app.post("/api/affected-entities/{affected_entity_id}/notifications", status_code=201)
+    def notify_affected_entity(
+        affected_entity_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(
+            auth_dependency(["investigations:write", "notifications:write"])
+        ),
+    ) -> dict[str, object]:
+        del actor
+        project_id = request.get("project_id")
+        target_id = request.get("target_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        if not target_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "target_id is required",
+                "/target_id",
+            )
+        delivery_mode = request.get("delivery_mode", "preview")
+        if delivery_mode not in {"preview", "live"}:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "delivery_mode is invalid",
+                "/delivery_mode",
+            )
+        entity = store.get_affected_entity(project_id, affected_entity_id)
+        if entity is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Affected entity not found."),
+            )
+        if store.get_notification_target(project_id, target_id) is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Notification target not found."),
+            )
+        trace_ids = entity["trace_ids"]
+        trace_id = trace_ids[0] if trace_ids else None
+        message = request.get("message") or (
+            f"Remediate {entity['entity_type']} {entity['entity_id']} for issue "
+            f"{entity['issue_id']}."
+        )
+        group_key = request.get("group_key") or f"affected_entity:{affected_entity_id}"
+        planned = {
+            "index": 0,
+            "type": "send_notification",
+            "status": "planned",
+            "idempotency_key": request.get("idempotency_key")
+            or f"{project_id}:{affected_entity_id}:{target_id}:{delivery_mode}",
+            "action": {
+                "type": "send_notification",
+                "target_id": target_id,
+                "message": message,
+                "delivery_mode": delivery_mode,
+                "group_key": group_key,
+                "context": {
+                    "affected_entity_id": affected_entity_id,
+                    "issue_id": entity["issue_id"],
+                    "entity_type": entity["entity_type"],
+                    "entity_id": entity["entity_id"],
+                    "status": entity["status"],
+                    "trace_ids": trace_ids,
+                },
+            },
+        }
+        result = _execute_notification_action(
+            store,
+            settings,
+            secret_cipher,
+            project_id,
+            planned,
+            trace_id,
+        )
+        audit_id = store.append_audit(
+            "notify_affected_entity",
+            "affected_entity",
+            project_id,
+            affected_entity_id,
+            {
+                "target_id": target_id,
+                "delivery_mode": delivery_mode,
+                "delivery_status": result.get("delivery_status"),
+                "notification_audit_id": result.get("audit_id"),
+            },
+        )
+        return {"affected_entity": entity, "notification": result, "audit_id": audit_id}
+
     _register_v1_aliases(app)
     return app
 
@@ -5236,11 +5328,13 @@ def _execute_notification_action(
     if target is None:
         return {**planned, "status": "failed", "reason": "target not found"}
     group_key = action.get("group_key") or f"{project_id}:{target_id}:{trace_id or 'none'}"
+    context = action.get("context") if isinstance(action.get("context"), dict) else {}
     metadata = {
         "trace_id": trace_id,
         "message": action.get("message"),
         "group_key": group_key,
         "delivery_mode": action.get("delivery_mode", "preview"),
+        "context": context,
     }
     if action.get("delivery_mode") != "live":
         audit_id = store.append_audit(
@@ -5301,6 +5395,7 @@ def _execute_notification_action(
         "trace_id": trace_id,
         "message": action.get("message"),
         "group_key": group_key,
+        "context": context,
     }
     try:
         response = httpx.post(webhook_url, json=payload, timeout=10.0)
@@ -5357,6 +5452,7 @@ def _queue_notification_adapter_delivery(
         "trace_id": trace_id,
         "message": action.get("message"),
         "group_key": group_key,
+        "context": action.get("context") if isinstance(action.get("context"), dict) else {},
     }
     audit_id = store.append_audit(
         "queue_notification_adapter_delivery",

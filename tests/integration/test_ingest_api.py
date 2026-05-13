@@ -3703,7 +3703,7 @@ def test_reported_incident_investigation_acceptance_links_artifacts(
         "openabm_api.main.model_provider_from_settings",
         lambda settings: StubProvider(),
     )
-    client = make_client(tmp_path)
+    client = make_client_with_settings(tmp_path, enable_external_notifications=True)
     corpus = json.loads(FIXTURE_PATH.read_text())
     happy = corpus["fixtures"][0]
     wrong = corpus["fixtures"][1]
@@ -3907,6 +3907,33 @@ def test_reported_incident_investigation_acceptance_links_artifacts(
         client=_TestClientMcpAdapter(client),
     )
     assert mcp_remediated["status"] == "contacted"
+    ticket_target = client.post(
+        "/v1/notification-targets",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "type": "issue_tracker",
+            "display_name": "Ticket adapter",
+            "config_secret_refs": ["secret_ticket_adapter"],
+        },
+    )
+    assert ticket_target.status_code == 201
+    notified = client.post(
+        f"/v1/affected-entities/{affected_entity['affected_entity_id']}/notifications",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "target_id": ticket_target.json()["target_id"],
+            "delivery_mode": "live",
+            "message": "Create remediation ticket for affected account.",
+        },
+    )
+    assert notified.status_code == 201
+    notification = notified.json()["notification"]
+    assert notification["status"] == "succeeded"
+    assert notification["delivery_status"] == "queued_for_adapter"
+    assert notification["target_type"] == "issue_tracker"
+    assert notification["group_key"] == f"affected_entity:{affected_entity['affected_entity_id']}"
     assert set(impact["representative_trace_ids"]) == {
         "trace_wrong_tool",
         "trace_fabricated_commitment",

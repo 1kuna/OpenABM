@@ -2779,6 +2779,93 @@
         }
       }
     },
+    "/v1/affected-entities/{affected_entity_id}/notifications": {
+      "post": {
+        "operationId": "notifyAffectedEntity",
+        "summary": "Send or queue a remediation notification for an affected entity.",
+        "x-required-scopes": [
+          "investigations:write",
+          "notifications:write"
+        ],
+        "parameters": [
+          {
+            "name": "affected_entity_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "target_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "target_id": {
+                    "type": "string"
+                  },
+                  "delivery_mode": {
+                    "type": "string",
+                    "enum": [
+                      "preview",
+                      "live"
+                    ],
+                    "default": "preview"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "group_key": {
+                    "type": "string"
+                  },
+                  "idempotency_key": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Affected entity notification result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "affected_entity",
+                    "notification",
+                    "audit_id"
+                  ],
+                  "properties": {
+                    "affected_entity": {
+                      "$ref": "../schemas/affected-entity.schema.json"
+                    },
+                    "notification": {
+                      "type": "object"
+                    },
+                    "audit_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/ingest/batch": {
       "post": {
         "operationId": "ingestBatch",

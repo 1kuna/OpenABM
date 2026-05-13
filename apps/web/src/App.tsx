@@ -1587,6 +1587,7 @@ function IssueInvestigationWorkspace(props: {
   const [affectedEntities, setAffectedEntities] = useState<AffectedEntity[]>([]);
   const [contextPacks, setContextPacks] = useState<AgentContextPack[]>([]);
   const [issueLinks, setIssueLinks] = useState<IssueLink[]>([]);
+  const [notificationTargets, setNotificationTargets] = useState<NotificationTarget[]>([]);
   const [selectedIssueId, setSelectedIssueId] = useState("");
   const [selectedInvestigationId, setSelectedInvestigationId] = useState("");
   const [selectedContextPackId, setSelectedContextPackId] = useState("");
@@ -1641,18 +1642,21 @@ function IssueInvestigationWorkspace(props: {
       setAffectedEntities([]);
       setContextPacks([]);
       setIssueLinks([]);
+      setNotificationTargets([]);
       setStateText("fixture mode");
       return;
     }
     try {
-      const [loadedIssues, loadedInvestigations, loadedReports] = await Promise.all([
+      const [loadedIssues, loadedInvestigations, loadedReports, loadedTargets] = await Promise.all([
         client.listIssues(projectId),
         client.listInvestigations(projectId),
-        client.listImpactReports(projectId)
+        client.listImpactReports(projectId),
+        client.listNotificationTargets(projectId).catch(() => [] as NotificationTarget[])
       ]);
       setIssues(loadedIssues);
       setInvestigations(loadedInvestigations);
       setImpactReports(loadedReports);
+      setNotificationTargets(loadedTargets);
       setSelectedIssueId((current) =>
         loadedIssues.some((issue) => issue.issue_id === current)
           ? current
@@ -1663,7 +1667,9 @@ function IssueInvestigationWorkspace(props: {
           ? current
           : loadedInvestigations[0]?.investigation_run_id ?? ""
       );
-      setStateText(`${loadedIssues.length} issues · ${loadedInvestigations.length} investigations`);
+      setStateText(
+        `${loadedIssues.length} issues · ${loadedInvestigations.length} investigations · ${loadedTargets.length} targets`
+      );
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "issue refresh failed");
     }
@@ -1947,6 +1953,26 @@ function IssueInvestigationWorkspace(props: {
     }
   }
 
+  async function notifyAffectedEntity(affectedEntityId: string, targetId: string) {
+    if (!writeConfirmation) {
+      setStateText("enable Confirm writes before remediation notifications");
+      return;
+    }
+    if (!window.confirm("Queue remediation notification for this affected entity?")) return;
+    try {
+      const result = await client.notifyAffectedEntity(projectId, affectedEntityId, {
+        targetId,
+        deliveryMode: "preview",
+        message: `Remediation follow-up for ${affectedEntityId}`,
+        groupKey: `affected_entity:${affectedEntityId}`
+      });
+      const status = String(result.notification.delivery_status ?? result.notification.status ?? "queued");
+      setStateText(`affected entity notification ${status}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "affected entity notification failed");
+    }
+  }
+
   return (
     <div className="issueGrid">
       <section className="panel issueList">
@@ -2172,7 +2198,11 @@ function IssueInvestigationWorkspace(props: {
                       <ImpactAffectedEntityRows
                         canWrite={writeConfirmation}
                         entities={affectedEntities.length ? affectedEntities : selectedImpact.affected_entities}
+                        notificationTargets={notificationTargets}
                         onOpenTrace={props.onOpenTrace}
+                        onNotify={(affectedEntityId, targetId) =>
+                          void notifyAffectedEntity(affectedEntityId, targetId)
+                        }
                         onUpdateStatus={(affectedEntityId, status) =>
                           void updateAffectedEntityStatus(affectedEntityId, status)
                         }
@@ -2304,7 +2334,9 @@ function IssueInvestigationWorkspace(props: {
 function ImpactAffectedEntityRows(props: {
   canWrite: boolean;
   entities: Array<AffectedEntity | Record<string, unknown>>;
+  notificationTargets: NotificationTarget[];
   onOpenTrace: (traceId: string) => void;
+  onNotify?: (affectedEntityId: string, targetId: string) => void;
   onUpdateStatus?: (affectedEntityId: string, status: AffectedEntity["status"]) => void;
 }) {
   if (!props.entities.length) {
@@ -2328,6 +2360,7 @@ function ImpactAffectedEntityRows(props: {
         const affectedEntityId =
           typeof entity.affected_entity_id === "string" ? entity.affected_entity_id : "";
         const status = affectedEntityStatus(entity.status);
+        const notificationTarget = props.notificationTargets[0];
         return (
           <div key={`${entityType}-${entityId}-${index}`}>
             <strong>{entityType}: {entityId}</strong>
@@ -2344,6 +2377,14 @@ function ImpactAffectedEntityRows(props: {
                     {affectedEntityStatusLabel(nextStatus)}
                   </button>
                 ))}
+                {notificationTarget ? (
+                  <button
+                    disabled={!props.canWrite}
+                    onClick={() => props.onNotify?.(affectedEntityId, notificationTarget.target_id)}
+                  >
+                    Notify {notificationTarget.type}
+                  </button>
+                ) : null}
               </span>
             ) : (
               <small>Remediation actions load after the canonical affected-entity record is available.</small>
