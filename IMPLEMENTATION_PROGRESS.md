@@ -1033,8 +1033,9 @@ Known remaining gaps before calling the whole spec complete:
   broader usability polish; behavior review actions, impact-report drilldowns,
   eval comparison behavior-shift drilldown, prompt/config diff summaries, and
   prompt/config version usage histories are now wired into their workspaces,
-  impact-report affected-entity remediation actions are now available, and trace
-  detail resolves captured prompt/config/deployment/tool runtime context.
+  impact-report affected-entity remediation actions and direct affected-entity
+  resource fetches are now available, and trace detail resolves captured
+  prompt/config/deployment/tool runtime context.
 - External IdP/OAuth login, vendor-specific invite providers, and production
   secret-manager provider adapters remain beyond the local reference scaffold;
   invite delivery now has a default-off SMTP adapter layered on the local
@@ -1162,6 +1163,10 @@ Implemented in this pass:
 - Added affected-entity remediation controls to the Issues/Investigations
   impact workspace, backed by the canonical `/v1/affected-entities/{id}` update
   path and gated by the existing write-confirmation checkbox.
+- Added direct affected-entity fetch support through
+  `/v1/affected-entities/{id}`, the web client, MCP `get_affected_entity`, and
+  `affected-entity://...` resources so issue links can cite remediation records
+  without relying on project-wide list scans.
 - Notification target creation now rejects plaintext config blobs and validates
   `config_secret_refs`; active targets require at least one secret ref, while
   paused placeholders can be created without mounting secrets.

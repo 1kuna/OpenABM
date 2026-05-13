@@ -3568,6 +3568,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         del actor
         return {"data": store.list_affected_entities(project_id, issue_id=issue_id)}
 
+    @app.get("/api/affected-entities/{affected_entity_id}")
+    def get_affected_entity(
+        affected_entity_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["investigations:read"])),
+    ) -> dict[str, object]:
+        del actor
+        entity = store.get_affected_entity(project_id, affected_entity_id)
+        if entity is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Affected entity not found."),
+            )
+        return entity
+
     @app.patch("/api/affected-entities/{affected_entity_id}")
     def update_affected_entity(
         affected_entity_id: str,

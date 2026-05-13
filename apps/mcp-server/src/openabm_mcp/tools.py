@@ -96,6 +96,7 @@ REQUIRED_TOOL_NAMES = [
     "get_investigation_run",
     "get_impact_report",
     "list_affected_entities",
+    "get_affected_entity",
     "update_affected_entity",
     "get_agent_context_pack",
     "create_agent_context_pack",
@@ -275,6 +276,20 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         scopes=READ_INVESTIGATION_SCOPE,
         example_request={"project_id": "proj_demo", "issue_id": "issue_123"},
         example_response={"data": []},
+    ),
+    _tool(
+        "get_affected_entity",
+        "Fetch one affected entity remediation record.",
+        _schema(
+            ["project_id", "affected_entity_id"],
+            {"project_id": STRING, "affected_entity_id": STRING},
+        ),
+        scopes=READ_INVESTIGATION_SCOPE,
+        example_request={
+            "project_id": "proj_demo",
+            "affected_entity_id": "affected_entity_123",
+        },
+        example_response={"affected_entity_id": "affected_entity_123"},
     ),
     _tool(
         "update_affected_entity",

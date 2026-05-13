@@ -469,6 +469,11 @@ export class OpenAbmClient {
     return body.data;
   }
 
+  async getAffectedEntity(projectId: string, affectedEntityId: string): Promise<AffectedEntity> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<AffectedEntity>(`/v1/affected-entities/${affectedEntityId}?${params.toString()}`);
+  }
+
   async updateAffectedEntity(
     projectId: string,
     affectedEntityId: string,

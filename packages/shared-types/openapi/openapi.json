@@ -2663,6 +2663,43 @@
       }
     },
     "/v1/affected-entities/{affected_entity_id}": {
+      "get": {
+        "operationId": "getAffectedEntity",
+        "summary": "Fetch one affected entity remediation record.",
+        "x-required-scopes": [
+          "investigations:read"
+        ],
+        "parameters": [
+          {
+            "name": "affected_entity_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Affected entity.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/affected-entity.schema.json"
+                }
+              }
+            }
+          }
+        }
+      },
       "patch": {
         "operationId": "updateAffectedEntity",
         "summary": "Update affected entity remediation status.",

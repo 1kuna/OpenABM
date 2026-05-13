@@ -5474,6 +5474,21 @@ class SQLiteStore:
             ).fetchall()
         return [self._affected_entity_from_row(row) for row in rows]
 
+    def get_affected_entity(
+        self,
+        project_id: str,
+        affected_entity_id: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM affected_entities
+                WHERE project_id = ? AND affected_entity_id = ?
+                """,
+                (project_id, affected_entity_id),
+            ).fetchone()
+        return self._affected_entity_from_row(row) if row else None
+
     def update_affected_entity(
         self,
         project_id: str,

@@ -371,6 +371,13 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
     agent_config_payload = json.loads(agent_config_resource["text"])
     assert agent_config_payload["path"] == "/v1/agent-configs/agent_config_1"
     assert client.calls[-1]["params"] == {"project_id": "proj_demo"}
+    affected_resource = read_resource(
+        "affected-entity://affected_entity_1?project_id=proj_demo",
+        client=client,
+    )
+    affected_payload = json.loads(affected_resource["text"])
+    assert affected_payload["path"] == "/v1/affected-entities/affected_entity_1"
+    assert client.calls[-1]["params"] == {"project_id": "proj_demo"}
 
     templates = resource_template_manifest()
     assert templates[0]["uriTemplate"] == "trace://{trace_id}"
@@ -378,6 +385,7 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
     assert all(template["name"] for template in templates)
     assert "trace://{trace_id}" in tool_manifest()["resource_templates"]
     assert "agent-config://{agent_config_id}" in tool_manifest()["resource_templates"]
+    assert "affected-entity://{affected_entity_id}" in tool_manifest()["resource_templates"]
 
 
 def test_mcp_jsonrpc_exposes_readable_resources(monkeypatch) -> None:

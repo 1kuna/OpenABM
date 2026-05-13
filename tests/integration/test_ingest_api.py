@@ -10,7 +10,7 @@ import httpx
 from fastapi.testclient import TestClient
 from openabm_api.main import create_app
 from openabm_api.settings import Settings
-from openabm_mcp.handlers import call_tool
+from openabm_mcp.handlers import call_tool, read_resource
 from openabm_worker.offline_eval import run_deterministic_eval
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -3755,6 +3755,15 @@ def test_reported_incident_investigation_acceptance_links_artifacts(
         "trace_wrong_tool",
         "trace_fabricated_commitment",
     }
+    fetched_affected = client.get(
+        f"/v1/affected-entities/{affected_entity['affected_entity_id']}",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert fetched_affected.status_code == 200
+    assert fetched_affected.json()["affected_entity_id"] == affected_entity[
+        "affected_entity_id"
+    ]
     remediated = client.patch(
         f"/v1/affected-entities/{affected_entity['affected_entity_id']}",
         headers=auth_headers(),
@@ -3773,6 +3782,22 @@ def test_reported_incident_investigation_acceptance_links_artifacts(
         client=_TestClientMcpAdapter(client),
     )
     assert mcp_affected["data"][0]["affected_entity_id"] == affected_entity["affected_entity_id"]
+    mcp_single_affected = call_tool(
+        "get_affected_entity",
+        {
+            "project_id": "proj_demo",
+            "affected_entity_id": affected_entity["affected_entity_id"],
+        },
+        client=_TestClientMcpAdapter(client),
+    )
+    assert mcp_single_affected["affected_entity_id"] == affected_entity["affected_entity_id"]
+    affected_resource = read_resource(
+        f"affected-entity://{affected_entity['affected_entity_id']}?project_id=proj_demo",
+        client=_TestClientMcpAdapter(client),
+    )
+    assert json.loads(affected_resource["text"])["affected_entity_id"] == affected_entity[
+        "affected_entity_id"
+    ]
     mcp_remediated = call_tool(
         "update_affected_entity",
         {

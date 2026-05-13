@@ -86,6 +86,11 @@ RESOURCE_TEMPLATE_DEFINITIONS = [
         "description": "Fetch an investigation impact report.",
     },
     {
+        "uriTemplate": "affected-entity://{affected_entity_id}",
+        "name": "OpenABM affected entity",
+        "description": "Fetch one affected entity remediation record.",
+    },
+    {
         "uriTemplate": "agent-context-pack://{context_pack_id}",
         "name": "OpenABM agent context pack",
         "description": "Fetch a bounded cited context pack for agent review.",
@@ -285,6 +290,12 @@ def _call_tool_impl(
         if arguments.get("issue_id"):
             params["issue_id"] = arguments["issue_id"]
         return client.request("GET", "/v1/affected-entities", params=params)
+    if name == "get_affected_entity":
+        return client.request(
+            "GET",
+            f"/v1/affected-entities/{arguments['affected_entity_id']}",
+            params={"project_id": arguments["project_id"]},
+        )
     if name == "update_affected_entity":
         return client.request(
             "PATCH",
@@ -488,6 +499,7 @@ def _resource_tool_arguments(
         "issue": ("get_issue", "issue_id"),
         "investigation-run": ("get_investigation_run", "investigation_run_id"),
         "impact-report": ("get_impact_report", "report_id"),
+        "affected-entity": ("get_affected_entity", "affected_entity_id"),
         "agent-context-pack": ("get_agent_context_pack", "context_pack_id"),
     }
     if resource_type not in tool_by_resource:
