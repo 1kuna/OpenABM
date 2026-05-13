@@ -321,6 +321,9 @@ Done:
   and eval comparison wired to `/v1/datasets` and `/v1/evals`.
 - Added a live Behavior Monitoring workspace in the web app with manual/rule
   detector creation and deterministic backtesting wired to `/v1/behaviors`.
+- Added a live Prompt Registry workspace in the web app with prompt creation,
+  immutable version commits, tag movement, render, and diff wired to
+  `/v1/prompts`.
 - Expanded the MCP tool contract registry to match the v2 required tool list,
   added resource templates, and added API-backed deterministic handlers for the
   implemented read/draft paths with explicit unsupported responses for gaps.
@@ -403,8 +406,9 @@ Verified after the latest implementation slices:
 Known remaining gaps before calling the whole spec complete:
 
 - Prompt registry and agent runtime configuration registry now have storage/API
-  and MCP-backed lifecycle flows, but the web UI still needs full version
-  history, tag movement, and eval-linked comparison views.
+  and MCP-backed lifecycle flows; prompt version history, tag movement, render,
+  and diff have a live UI, while agent config history/comparison UI remains
+  pending.
 - Judge registry, model-backed judge drafting, local eval launch, eval
   comparison, judge calibration reporting, promotion gates, and the judge
   lifecycle workspace now exist; richer prompt/config-linked comparison screens

@@ -11,6 +11,9 @@ import type {
   JudgeDefinition,
   JudgePromotionResult,
   Project,
+  PromptDefinition,
+  PromptDiffResult,
+  PromptVersion,
   ReviewTask,
   TraceDetail,
   TraceEnvelope
@@ -108,6 +111,70 @@ export class OpenAbmClient {
       query: request.query || null,
       limit: request.limit ?? 100,
       sample_limit: request.sampleLimit ?? 10
+    });
+  }
+
+  async listPrompts(projectId: string): Promise<PromptDefinition[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: PromptDefinition[] }>(`/v1/prompts?${params.toString()}`);
+    return body.data;
+  }
+
+  async createPrompt(projectId: string, name: string, description?: string): Promise<PromptDefinition> {
+    return this.post<PromptDefinition>("/v1/prompts", {
+      project_id: projectId,
+      name,
+      description: description || null
+    });
+  }
+
+  async getPrompt(projectId: string, promptId: string): Promise<PromptDefinition> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<PromptDefinition>(`/v1/prompts/${promptId}?${params.toString()}`);
+  }
+
+  async commitPromptVersion(
+    projectId: string,
+    promptId: string,
+    request: {
+      templateText: string;
+      variablesSchema: Record<string, unknown>;
+      parentCommitId?: string;
+      tag?: string;
+    }
+  ): Promise<PromptVersion> {
+    return this.post<PromptVersion>(`/v1/prompts/${promptId}/versions`, {
+      project_id: projectId,
+      template_text: request.templateText,
+      variables_schema: request.variablesSchema,
+      parent_commit_id: request.parentCommitId || null,
+      tag: request.tag || null
+    });
+  }
+
+  async renderPrompt(
+    projectId: string,
+    promptId: string,
+    commitId: string,
+    variables: Record<string, unknown>
+  ): Promise<{ prompt_id: string; commit_id: string; rendered: string }> {
+    return this.post<{ prompt_id: string; commit_id: string; rendered: string }>(`/v1/prompts/${promptId}/render`, {
+      project_id: projectId,
+      commit_id: commitId,
+      variables
+    });
+  }
+
+  async diffPromptVersions(
+    projectId: string,
+    promptId: string,
+    oldCommitId: string,
+    newCommitId: string
+  ): Promise<PromptDiffResult> {
+    return this.post<PromptDiffResult>(`/v1/prompts/${promptId}/diff`, {
+      project_id: projectId,
+      old_commit_id: oldCommitId,
+      new_commit_id: newCommitId
     });
   }
 

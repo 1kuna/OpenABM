@@ -31,6 +31,8 @@ import type {
   JudgeDefinition,
   JudgePromotionResult,
   Project,
+  PromptDefinition,
+  PromptDiffResult,
   ReviewTask,
   SpanEnvelope,
   TimelineRow,
@@ -224,6 +226,8 @@ export function App() {
           <DatasetEvalWorkspace client={client} connection={connection} projectId={projectId} />
         ) : activeView === "behaviors" ? (
           <BehaviorWorkspace client={client} connection={connection} projectId={projectId} />
+        ) : activeView === "prompts" ? (
+          <PromptRegistryWorkspace client={client} connection={connection} projectId={projectId} />
         ) : (
           <ScaffoldView
             activeView={activeView}
@@ -234,6 +238,297 @@ export function App() {
         )}
       </section>
     </main>
+  );
+}
+
+function PromptRegistryWorkspace(props: {
+  client: OpenAbmClient;
+  connection: ConnectionState;
+  projectId: string;
+}) {
+  const { client, connection, projectId } = props;
+  const [prompts, setPrompts] = useState<PromptDefinition[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [newName, setNewName] = useState("Refund assistant");
+  const [newDescription, setNewDescription] = useState("Customer support refund workflow prompt.");
+  const [templateText, setTemplateText] = useState("Hi {{name}}, I can help with refund status.");
+  const [schemaText, setSchemaText] = useState('{\"type\":\"object\",\"required\":[\"name\"]}');
+  const [tag, setTag] = useState("prod");
+  const [parentCommitId, setParentCommitId] = useState("");
+  const [renderCommitId, setRenderCommitId] = useState("");
+  const [renderVariables, setRenderVariables] = useState('{\"name\":\"OpenABM\"}');
+  const [rendered, setRendered] = useState("");
+  const [oldCommitId, setOldCommitId] = useState("");
+  const [newCommitId, setNewCommitId] = useState("");
+  const [diff, setDiff] = useState<PromptDiffResult | null>(null);
+  const [stateText, setStateText] = useState("Prompt registry needs a live API");
+
+  const selectedPrompt = prompts.find((prompt) => prompt.prompt_id === selectedId) ?? prompts[0] ?? null;
+  const versions = selectedPrompt?.versions ?? [];
+
+  async function loadPrompts() {
+    if (connection !== "live") {
+      setPrompts([]);
+      setSelectedId("");
+      setStateText("fixture mode");
+      return;
+    }
+    try {
+      const listed = await client.listPrompts(projectId);
+      const hydrated = await Promise.all(listed.map((prompt) => client.getPrompt(projectId, prompt.prompt_id)));
+      setPrompts(hydrated);
+      setSelectedId((current) =>
+        hydrated.some((prompt) => prompt.prompt_id === current)
+          ? current
+          : hydrated[0]?.prompt_id ?? ""
+      );
+      setStateText(`${hydrated.length} prompts`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "request failed");
+    }
+  }
+
+  useEffect(() => {
+    void loadPrompts();
+  }, [client, connection, projectId]);
+
+  useEffect(() => {
+    const latest = versions[0]?.commit_id ?? "";
+    setRenderCommitId((current) => current || latest);
+    setNewCommitId((current) => current || latest);
+    setOldCommitId((current) => current || versions[1]?.commit_id || latest);
+    setParentCommitId((current) => current || latest);
+  }, [selectedPrompt?.prompt_id, versions.length]);
+
+  async function createPrompt() {
+    if (connection !== "live" || !newName.trim()) return;
+    try {
+      const created = await client.createPrompt(projectId, newName.trim(), newDescription.trim());
+      const hydrated = await client.getPrompt(projectId, created.prompt_id);
+      setPrompts((current) => [hydrated, ...current]);
+      setSelectedId(hydrated.prompt_id);
+      setStateText(`created ${hydrated.name}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "prompt creation failed");
+    }
+  }
+
+  async function commitVersion() {
+    if (connection !== "live" || !selectedPrompt) return;
+    let variablesSchema: Record<string, unknown>;
+    try {
+      variablesSchema = parseJsonObject(schemaText);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "invalid variables schema");
+      return;
+    }
+    try {
+      const version = await client.commitPromptVersion(projectId, selectedPrompt.prompt_id, {
+        templateText,
+        variablesSchema,
+        parentCommitId,
+        tag
+      });
+      const hydrated = await client.getPrompt(projectId, selectedPrompt.prompt_id);
+      setPrompts((current) => current.map((prompt) => (prompt.prompt_id === hydrated.prompt_id ? hydrated : prompt)));
+      setRenderCommitId(version.commit_id);
+      setNewCommitId(version.commit_id);
+      setParentCommitId(version.commit_id);
+      setStateText(`committed ${version.commit_id}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "version commit failed");
+    }
+  }
+
+  async function renderSelectedPrompt() {
+    if (connection !== "live" || !selectedPrompt || !renderCommitId) return;
+    let variables: Record<string, unknown>;
+    try {
+      variables = parseJsonObject(renderVariables);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "invalid render variables");
+      return;
+    }
+    try {
+      const result = await client.renderPrompt(projectId, selectedPrompt.prompt_id, renderCommitId, variables);
+      setRendered(result.rendered);
+      setStateText("rendered prompt");
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "render failed");
+    }
+  }
+
+  async function diffSelectedPrompt() {
+    if (connection !== "live" || !selectedPrompt || !oldCommitId || !newCommitId) return;
+    try {
+      const result = await client.diffPromptVersions(projectId, selectedPrompt.prompt_id, oldCommitId, newCommitId);
+      setDiff(result);
+      setStateText("diff ready");
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "diff failed");
+    }
+  }
+
+  return (
+    <div className="promptGrid">
+      <section className="panel promptList">
+        <div className="toolbar">
+          <button className="iconButton" onClick={() => void loadPrompts()} aria-label="Refresh prompts">
+            <TimerReset size={16} />
+          </button>
+          <span className="systemNote">{stateText}</span>
+        </div>
+        <div className="createStrip">
+          <input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Prompt name" />
+          <input value={newDescription} onChange={(event) => setNewDescription(event.target.value)} placeholder="Description" />
+          <button onClick={() => void createPrompt()}>
+            <Split size={15} />
+            Create prompt
+          </button>
+        </div>
+        <div className="promptRows">
+          {prompts.map((prompt) => (
+            <button
+              className={prompt.prompt_id === selectedPrompt?.prompt_id ? "selectedPrompt" : ""}
+              key={prompt.prompt_id}
+              onClick={() => {
+                setSelectedId(prompt.prompt_id);
+                setRendered("");
+                setDiff(null);
+              }}
+            >
+              <span className="judgeStatus active">{Object.keys(prompt.tags).length || 0} tags</span>
+              <strong>{prompt.name}</strong>
+              <small>{prompt.versions?.length ?? 0} versions · {prompt.prompt_id}</small>
+            </button>
+          ))}
+          {!prompts.length ? <div className="emptyState">No prompts</div> : null}
+        </div>
+      </section>
+
+      <section className="panel promptDetail">
+        {selectedPrompt ? (
+          <>
+            <div className="detailHeader">
+              <div>
+                <p className="sectionLabel">prompt</p>
+                <h3>{selectedPrompt.name}</h3>
+              </div>
+              <span className="judgeStatus active">{Object.keys(selectedPrompt.tags).join(", ") || "untagged"}</span>
+            </div>
+            <p className="entityDescription">{selectedPrompt.description ?? selectedPrompt.prompt_id}</p>
+            <div className="metricsRow promptMetrics">
+              <Metric icon={<Split />} label="Versions" value={String(versions.length)} />
+              <Metric icon={<GitBranch />} label="Latest" value={versions[0]?.commit_id ?? "none"} />
+              <Metric icon={<Shield />} label="Tags" value={formatTags(selectedPrompt.tags)} />
+            </div>
+            <div className="promptSections">
+              <section className="promptSection">
+                <h4>Commit version</h4>
+                <label className="notesBox">
+                  Template
+                  <textarea value={templateText} onChange={(event) => setTemplateText(event.target.value)} />
+                </label>
+                <label className="notesBox">
+                  Variables schema
+                  <textarea value={schemaText} onChange={(event) => setSchemaText(event.target.value)} />
+                </label>
+                <div className="inlineControls">
+                  <select value={parentCommitId} onChange={(event) => setParentCommitId(event.target.value)}>
+                    <option value="">No parent</option>
+                    {versions.map((version) => (
+                      <option key={version.commit_id} value={version.commit_id}>{version.commit_id}</option>
+                    ))}
+                  </select>
+                  <input value={tag} onChange={(event) => setTag(event.target.value)} placeholder="tag" />
+                </div>
+                <button className="primaryButton" onClick={() => void commitVersion()}>
+                  <GitBranch size={15} />
+                  Commit
+                </button>
+              </section>
+
+              <section className="promptSection">
+                <h4>Versions</h4>
+                <div className="versionRows">
+                  {versions.map((version) => (
+                    <button
+                      key={version.prompt_version_id}
+                      onClick={() => {
+                        setTemplateText(version.template_text);
+                        setSchemaText(JSON.stringify(version.variables_schema));
+                        setRenderCommitId(version.commit_id);
+                        setNewCommitId(version.commit_id);
+                      }}
+                    >
+                      <strong>{version.commit_id}</strong>
+                      <span>{version.parent_commit_id ? `parent ${version.parent_commit_id}` : "root"}</span>
+                      <small>{formatTime(version.created_at)}</small>
+                    </button>
+                  ))}
+                  {!versions.length ? <p className="systemNote">No versions yet</p> : null}
+                </div>
+              </section>
+
+              <section className="promptSection">
+                <h4>Render</h4>
+                <div className="evalForm">
+                  <label>
+                    Commit
+                    <select value={renderCommitId} onChange={(event) => setRenderCommitId(event.target.value)}>
+                      <option value="">Select commit</option>
+                      {versions.map((version) => (
+                        <option key={version.commit_id} value={version.commit_id}>{version.commit_id}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Variables
+                    <input value={renderVariables} onChange={(event) => setRenderVariables(event.target.value)} />
+                  </label>
+                  <button onClick={() => void renderSelectedPrompt()}>
+                    <Play size={15} />
+                    Render
+                  </button>
+                </div>
+                {rendered ? <pre>{rendered}</pre> : null}
+              </section>
+
+              <section className="promptSection">
+                <h4>Diff</h4>
+                <div className="evalForm">
+                  <label>
+                    Old
+                    <select value={oldCommitId} onChange={(event) => setOldCommitId(event.target.value)}>
+                      <option value="">Select old</option>
+                      {versions.map((version) => (
+                        <option key={version.commit_id} value={version.commit_id}>{version.commit_id}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    New
+                    <select value={newCommitId} onChange={(event) => setNewCommitId(event.target.value)}>
+                      <option value="">Select new</option>
+                      {versions.map((version) => (
+                        <option key={version.commit_id} value={version.commit_id}>{version.commit_id}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button onClick={() => void diffSelectedPrompt()}>
+                    <FileSearch size={15} />
+                    Diff
+                  </button>
+                </div>
+                {diff ? <pre>{diff.text_diff || "No text changes"}</pre> : null}
+              </section>
+            </div>
+          </>
+        ) : (
+          <div className="emptyState">{stateText}</div>
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -1622,6 +1917,19 @@ function formatSigned(value: number | null | undefined) {
   if (value == null) return "none";
   const rounded = Math.round(value * 1000) / 10;
   return `${rounded > 0 ? "+" : ""}${rounded}%`;
+}
+
+function parseJsonObject(value: string): Record<string, unknown> {
+  const parsed = JSON.parse(value) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Expected a JSON object");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function formatTags(tags: Record<string, string>) {
+  const entries = Object.entries(tags);
+  return entries.map(([key, value]) => `${key}: ${value}`).join(", ") || "none";
 }
 
 function connectionLabel(connection: ConnectionState) {

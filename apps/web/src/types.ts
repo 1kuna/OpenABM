@@ -128,6 +128,36 @@ export interface BehaviorBacktestResult {
   review_task?: ReviewTask;
 }
 
+export interface PromptDefinition {
+  prompt_id: string;
+  project_id: string;
+  name: string;
+  description: string | null;
+  tags: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+  versions?: PromptVersion[];
+}
+
+export interface PromptVersion {
+  prompt_version_id: string;
+  prompt_id: string;
+  commit_id: string;
+  parent_commit_id: string | null;
+  template_text: string;
+  variables_schema: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface PromptDiffResult {
+  prompt_id: string;
+  old_commit_id: string;
+  new_commit_id: string;
+  text_diff: string;
+  variables_schema_changed: boolean;
+}
+
 export interface JudgeDefinition {
   judge_id: string;
   project_id: string;

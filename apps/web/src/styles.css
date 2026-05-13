@@ -232,6 +232,13 @@ button {
   gap: 18px;
 }
 
+.promptGrid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(360px, 0.75fr) minmax(560px, 1.25fr);
+  gap: 18px;
+}
+
 .panel {
   min-width: 0;
   min-height: 0;
@@ -271,9 +278,15 @@ button {
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
+.promptList {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
 .judgeList .toolbar,
 .datasetList .toolbar,
-.behaviorList .toolbar {
+.behaviorList .toolbar,
+.promptList .toolbar {
   border-bottom: 1px solid #e5e7eb;
   justify-content: space-between;
   padding: 12px;
@@ -311,6 +324,14 @@ button {
   padding: 10px;
 }
 
+.promptRows {
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 10px;
+}
+
 .reviewRows button {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -339,7 +360,9 @@ button {
 
 .datasetRows button,
 .evalRows button,
-.behaviorRows button {
+.behaviorRows button,
+.promptRows button,
+.versionRows button {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 4px 10px;
@@ -361,9 +384,23 @@ button {
 .evalRows button:hover,
 .evalRows .selectedEval,
 .behaviorRows button:hover,
-.behaviorRows .selectedBehavior {
+.behaviorRows .selectedBehavior,
+.promptRows button:hover,
+.promptRows .selectedPrompt,
+.versionRows button:hover {
   border-color: #9ca3af;
   background: #f8fafc;
+}
+
+.promptSection .versionRows button {
+  grid-template-columns: 1fr;
+}
+
+.promptSection .versionRows span,
+.promptSection .versionRows small {
+  grid-column: auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .reviewRows strong,
@@ -375,7 +412,10 @@ button {
 .evalRows strong,
 .evalRows small,
 .behaviorRows strong,
-.behaviorRows small {
+.behaviorRows small,
+.promptRows strong,
+.promptRows small,
+.versionRows strong {
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -384,7 +424,9 @@ button {
 .judgeRows small,
 .datasetRows small,
 .evalRows small,
-.behaviorRows small {
+.behaviorRows small,
+.promptRows small,
+.versionRows small {
   grid-column: 2;
   color: #6b7280;
 }
@@ -558,6 +600,14 @@ td span {
   padding: 16px;
 }
 
+.promptDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  padding: 16px;
+}
+
 .detailHeader {
   display: flex;
   align-items: flex-start;
@@ -591,6 +641,10 @@ td span {
 }
 
 .behaviorMetrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.promptMetrics {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -885,7 +939,9 @@ pre {
 .evalForm select,
 .evalForm input,
 .behaviorCreate input,
-.behaviorCreate select {
+.behaviorCreate select,
+.promptSection input,
+.promptSection select {
   min-width: 0;
   min-height: 34px;
   border: 1px solid #d1d5db;
@@ -933,6 +989,12 @@ pre {
   gap: 12px;
 }
 
+.promptSections {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+  gap: 12px;
+}
+
 .datasetSection {
   border: 1px solid #e5e7eb;
   border-radius: 7px;
@@ -945,8 +1007,15 @@ pre {
   padding: 12px;
 }
 
+.promptSection {
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  padding: 12px;
+}
+
 .datasetSection h4,
-.behaviorSection h4 {
+.behaviorSection h4,
+.promptSection h4 {
   margin: 0 0 10px;
   font-size: 14px;
 }
@@ -957,8 +1026,16 @@ pre {
   grid-row: span 2;
 }
 
+.promptSection:first-child {
+  grid-row: span 3;
+}
+
 .positiveExamples {
   grid-column: 1 / -1;
+}
+
+.promptSection .primaryButton {
+  margin-top: 10px;
 }
 
 .exampleAdd,
@@ -1164,7 +1241,9 @@ pre {
   .datasetGrid,
   .datasetSections,
   .behaviorGrid,
-  .behaviorSections {
+  .behaviorSections,
+  .promptGrid,
+  .promptSections {
     grid-template-columns: 1fr;
   }
 
@@ -1175,6 +1254,10 @@ pre {
   .positiveExamples {
     grid-row: auto;
     grid-column: auto;
+  }
+
+  .promptSection:first-child {
+    grid-row: auto;
   }
 }
 
@@ -1201,6 +1284,7 @@ pre {
   .judgeMetrics,
   .datasetMetrics,
   .behaviorMetrics,
+  .promptMetrics,
   .policyGrid {
     grid-template-columns: 1fr;
   }
