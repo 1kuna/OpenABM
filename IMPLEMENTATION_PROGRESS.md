@@ -412,8 +412,8 @@ LLM-dependent deferrals:
 
 Done:
 
-- Added prompt commit hashing, deterministic variable rendering, secret
-  interpolation rejection, and text diff helper.
+- Added prompt commit hashing, deterministic variable rendering, explicit
+  audited secret-ref interpolation, and text diff helper.
 - Added prompt registry storage/API lifecycle: prompt definitions, immutable
   prompt versions, content-addressed commit IDs, mutable tag pointers with tag
   events, deterministic render, and version diff.

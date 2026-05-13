@@ -2222,7 +2222,9 @@ function PromptRegistryWorkspace(props: {
   const [parentCommitId, setParentCommitId] = useState("");
   const [renderCommitId, setRenderCommitId] = useState("");
   const [renderVariables, setRenderVariables] = useState('{\"name\":\"OpenABM\"}');
+  const [resolveSecretRefs, setResolveSecretRefs] = useState(false);
   const [rendered, setRendered] = useState("");
+  const [renderSecretInterpolations, setRenderSecretInterpolations] = useState<Array<Record<string, unknown>>>([]);
   const [oldCommitId, setOldCommitId] = useState("");
   const [newCommitId, setNewCommitId] = useState("");
   const [diff, setDiff] = useState<PromptDiffResult | null>(null);
@@ -2315,8 +2317,15 @@ function PromptRegistryWorkspace(props: {
       return;
     }
     try {
-      const result = await client.renderPrompt(projectId, selectedPrompt.prompt_id, renderCommitId, variables);
+      const result = await client.renderPrompt(
+        projectId,
+        selectedPrompt.prompt_id,
+        renderCommitId,
+        variables,
+        resolveSecretRefs
+      );
       setRendered(result.rendered);
+      setRenderSecretInterpolations(result.secret_interpolations ?? []);
       setStateText("rendered prompt");
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "render failed");
@@ -2451,12 +2460,23 @@ function PromptRegistryWorkspace(props: {
                     Variables
                     <input value={renderVariables} onChange={(event) => setRenderVariables(event.target.value)} />
                   </label>
+                  <label className="checkboxLabel">
+                    <input
+                      type="checkbox"
+                      checked={resolveSecretRefs}
+                      onChange={(event) => setResolveSecretRefs(event.target.checked)}
+                    />
+                    Resolve secret refs
+                  </label>
                   <button onClick={() => void renderSelectedPrompt()}>
                     <Play size={15} />
                     Render
                   </button>
                 </div>
                 {rendered ? <pre>{rendered}</pre> : null}
+                {renderSecretInterpolations.length ? (
+                  <pre>{JSON.stringify(renderSecretInterpolations, null, 2)}</pre>
+                ) : null}
               </section>
 
               <section className="promptSection">
@@ -5437,7 +5457,7 @@ function scaffoldRows(view: ViewKey) {
     prompts: [
       { icon: <Split />, title: "Prompt commit IDs", status: "available", phase: "Phase 7" },
       { icon: <FileSearch />, title: "Prompt diff", status: "available", phase: "Phase 7" },
-      { icon: <Shield />, title: "Secret interpolation", status: "blocked by renderer", phase: "Phase 7" }
+      { icon: <Shield />, title: "Secret interpolation", status: "explicit audited refs", phase: "Phase 7" }
     ],
     configs: [
       { icon: <KeyRound />, title: "Config versions", status: "immutable commits available", phase: "Phase 7" },

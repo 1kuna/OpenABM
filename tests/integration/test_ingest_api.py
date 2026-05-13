@@ -1333,6 +1333,80 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
         },
     )
     assert rendered.json()["rendered"] == "Hi OpenABM"
+    prompt_secret = client.post(
+        "/v1/secrets",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "secret_ref": "secret_prompt_api_key",
+            "purpose": "prompt_render",
+            "value": "prompt-secret-value",
+        },
+    )
+    assert prompt_secret.status_code == 201
+    secret_version = client.post(
+        f"/v1/prompts/{prompt_id}/versions",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "template_text": "Use {{secret:secret_prompt_api_key}} for {{name}}",
+            "variables_schema": {"type": "object", "required": ["name"]},
+            "parent_commit_id": version_2.json()["commit_id"],
+            "tag": "secret-test",
+        },
+    )
+    assert secret_version.status_code == 201
+    blocked_secret_render = client.post(
+        f"/v1/prompts/{prompt_id}/render",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "commit_id": secret_version.json()["commit_id"],
+            "variables": {"name": "OpenABM"},
+        },
+    )
+    assert blocked_secret_render.status_code == 400
+    viewer_key = client.post(
+        "/v1/auth/api-keys",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "name": "Prompt viewer key",
+            "role": "viewer",
+            "scopes": ["*"],
+        },
+    )
+    forbidden_secret_render = client.post(
+        f"/v1/prompts/{prompt_id}/render",
+        headers={"Authorization": f"Bearer {viewer_key.json()['api_key']}"},
+        json={
+            "project_id": "proj_demo",
+            "commit_id": secret_version.json()["commit_id"],
+            "variables": {"name": "OpenABM"},
+            "resolve_secret_refs": True,
+        },
+    )
+    assert forbidden_secret_render.status_code == 403
+    secret_render = client.post(
+        f"/v1/prompts/{prompt_id}/render",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "commit_id": secret_version.json()["commit_id"],
+            "variables": {"name": "OpenABM"},
+            "resolve_secret_refs": True,
+            "purpose": "integration test",
+        },
+    )
+    assert secret_render.status_code == 200
+    assert secret_render.json()["rendered"] == "Use prompt-secret-value for OpenABM"
+    assert secret_render.json()["secret_interpolations"][0]["secret_ref"] == "secret_prompt_api_key"
+    secret_access = client.get(
+        "/v1/secrets/secret_prompt_api_key/access-log",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert secret_access.json()["data"][0]["action"] == "prompt_render"
     diff = client.post(
         f"/v1/prompts/{prompt_id}/diff",
         headers=auth_headers(),

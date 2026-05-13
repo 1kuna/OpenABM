@@ -245,6 +245,14 @@ def _require_scopes(actor: dict[str, object], required_scopes: list[str]) -> Non
         )
 
 
+def actor_has_scope(actor: dict[str, object], scope: str) -> bool:
+    effective = _effective_scopes(
+        str(actor.get("role") or "viewer"),
+        [str(granted) for granted in actor.get("scopes", []) if granted],
+    )
+    return scope in effective or "*" in effective
+
+
 def _effective_scopes(role: str, granted_scopes: list[str]) -> set[str]:
     role_scopes = ROLE_SCOPES.get(role, VIEWER_SCOPES)
     if "*" in granted_scopes:

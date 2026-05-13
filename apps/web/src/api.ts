@@ -41,6 +41,7 @@ import type {
   ProjectExportBundle,
   PromptDefinition,
   PromptDiffResult,
+  PromptRenderResult,
   PromptVersion,
   RetentionApplyResult,
   RetentionPolicy,
@@ -598,12 +599,14 @@ export class OpenAbmClient {
     projectId: string,
     promptId: string,
     commitId: string,
-    variables: Record<string, unknown>
-  ): Promise<{ prompt_id: string; commit_id: string; rendered: string }> {
-    return this.post<{ prompt_id: string; commit_id: string; rendered: string }>(`/v1/prompts/${promptId}/render`, {
+    variables: Record<string, unknown>,
+    resolveSecretRefs = false
+  ): Promise<PromptRenderResult> {
+    return this.post<PromptRenderResult>(`/v1/prompts/${promptId}/render`, {
       project_id: projectId,
       commit_id: commitId,
-      variables
+      variables,
+      resolve_secret_refs: resolveSecretRefs
     });
   }
 

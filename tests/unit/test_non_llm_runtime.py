@@ -161,6 +161,14 @@ def test_prompt_commit_render_and_diff_are_deterministic() -> None:
     )
     assert commit_a == commit_b
     assert render_prompt("Hello {{name}}", {"name": "OpenABM"}) == "Hello OpenABM"
+    assert (
+        render_prompt(
+            "Use {{secret:api_key}} for {{name}}",
+            {"name": "OpenABM"},
+            secret_values={"api_key": "secret-value"},
+        )
+        == "Use secret-value for OpenABM"
+    )
     assert "-Hello {{name}}" in diff_prompt_text("Hello {{name}}", "Hi {{name}}")
     with pytest.raises(ValueError):
         render_prompt("Use {{secret:api_key}}", {})

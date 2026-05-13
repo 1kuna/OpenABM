@@ -250,6 +250,17 @@ export interface PromptDiffResult {
   variables_schema_changed: boolean;
 }
 
+export interface PromptRenderResult {
+  prompt_id: string;
+  commit_id: string;
+  rendered: string;
+  secret_interpolations?: Array<{
+    secret_ref: string;
+    status: string;
+    access_audit_id: string;
+  }>;
+}
+
 export interface AgentConfigDefinition {
   agent_config_id: string;
   project_id: string;

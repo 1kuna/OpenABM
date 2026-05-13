@@ -4449,10 +4449,15 @@
     "/v1/prompts/{prompt_id}/render": {
       "post": {
         "operationId": "renderPrompt",
-        "summary": "Render a prompt version deterministically.",
+        "summary": "Render a prompt version deterministically, optionally resolving audited secret refs.",
         "x-required-scopes": [
           "prompts:read"
         ],
+        "x-conditional-scopes": {
+          "resolve_secret_refs": [
+            "secrets:read"
+          ]
+        },
         "responses": {
           "200": {
             "description": "Rendered prompt."

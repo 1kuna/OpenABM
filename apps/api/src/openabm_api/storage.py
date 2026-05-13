@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from openabm_api.ids import new_id
-from openabm_api.prompts import SECRET_REF_PATTERN, prompt_commit_id
+from openabm_api.prompts import prompt_commit_id
 from openabm_api.time import utc_now
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -3280,8 +3280,6 @@ class SQLiteStore:
         parent_commit_id: str | None = None,
         tag: str | None = None,
     ) -> dict[str, Any]:
-        if SECRET_REF_PATTERN.search(template_text):
-            raise ValueError("Secret interpolation is disallowed in prompt templates.")
         if self.get_prompt(project_id, prompt_id) is None:
             raise KeyError(f"prompt not found: {prompt_id}")
         commit_id = prompt_commit_id(

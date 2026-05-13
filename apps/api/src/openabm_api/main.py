@@ -51,7 +51,13 @@ from openabm_worker.similarity import (
     rank_similar_traces_from_vectors,
 )
 
-from openabm_api.auth import SESSION_COOKIE_POLICY, auth_contract, require_api_key, role_matrix
+from openabm_api.auth import (
+    SESSION_COOKIE_POLICY,
+    actor_has_scope,
+    auth_contract,
+    require_api_key,
+    role_matrix,
+)
 from openabm_api.classification import classify_payload, normalize_classification, redact_if_needed
 from openabm_api.docs_search import search_public_docs
 from openabm_api.ids import new_id
@@ -61,7 +67,7 @@ from openabm_api.ingest_policy import (
     apply_ingest_span_policy,
 )
 from openabm_api.metrics import Metrics
-from openabm_api.prompts import render_prompt
+from openabm_api.prompts import render_prompt, secret_refs_in_prompt
 from openabm_api.reconstruction import reconstruct_trace
 from openabm_api.schemas import SchemaValidationFailure, validate_payload
 from openabm_api.secret_management import (
@@ -2143,7 +2149,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: dict[str, Any],
         actor: dict[str, object] = Depends(auth_dependency(["prompts:read"])),
     ) -> dict[str, object]:
-        del actor
         for key in ["project_id", "commit_id", "variables"]:
             if key not in request:
                 raise SchemaValidationFailure(
@@ -2161,15 +2166,76 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=404,
                 detail=_error("not_found", "Prompt version not found."),
             )
+        secret_refs = secret_refs_in_prompt(version["template_text"])
+        secret_values = None
+        secret_interpolations = []
+        if secret_refs:
+            if not request.get("resolve_secret_refs"):
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    "Secret interpolation requires resolve_secret_refs=true.",
+                    "/resolve_secret_refs",
+                )
+            if not actor_has_scope(actor, "secrets:read"):
+                raise HTTPException(
+                    status_code=403,
+                    detail=_error(
+                        "forbidden",
+                        "Secret interpolation requires secrets:read.",
+                        path="/resolve_secret_refs",
+                    ),
+                )
+            secret_values = {}
+            for secret_ref in secret_refs:
+                secret = store.get_secret_ref(
+                    request["project_id"],
+                    secret_ref,
+                    include_ciphertext=True,
+                )
+                if secret is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=_error("not_found", f"Secret ref not found: {secret_ref}"),
+                    )
+                try:
+                    secret_values[secret_ref] = secret_cipher.decrypt(str(secret["ciphertext"]))
+                except SecretDecryptionError as exc:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=_error("secret_decryption_failed", str(exc)),
+                    ) from exc
+                access_id = store.append_secret_access(
+                    request["project_id"],
+                    secret_ref,
+                    action="prompt_render",
+                    purpose=request.get("purpose") or "prompt_render",
+                    actor_id=str(actor.get("actor_id") or "unknown"),
+                )
+                secret_interpolations.append(
+                    {
+                        "secret_ref": secret_ref,
+                        "status": "resolved",
+                        "access_audit_id": access_id,
+                    }
+                )
         try:
-            rendered = render_prompt(version["template_text"], request["variables"])
+            rendered = render_prompt(
+                version["template_text"],
+                request["variables"],
+                secret_values=secret_values,
+            )
         except (KeyError, ValueError) as exc:
             raise SchemaValidationFailure(
                 "schema_validation_failed",
                 str(exc),
                 "/variables",
             ) from exc
-        return {"prompt_id": prompt_id, "commit_id": request["commit_id"], "rendered": rendered}
+        return {
+            "prompt_id": prompt_id,
+            "commit_id": request["commit_id"],
+            "rendered": rendered,
+            "secret_interpolations": secret_interpolations,
+        }
 
     @app.post("/api/prompts/{prompt_id}/diff")
     def diff_prompt_versions(
