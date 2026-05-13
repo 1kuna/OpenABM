@@ -39,8 +39,8 @@ Scaffold-complete local surfaces:
   expose trace/eval/investigation context for deep-agent runners.
 - Operations lane: API scopes/RBAC, local API keys, local sessions, invite
   outbox, encrypted secret refs, audit logs, retention worker, worker
-  heartbeats, MCP observability, Docker Compose reference deployment, and admin
-  status surfaces are in place.
+  heartbeats, MCP observability, classified payload exports, Docker Compose
+  reference deployment, and admin status surfaces are in place.
 - Decision-record lane: license selection, storage, search, model runtime,
   sandbox, local stack, orchestration, similarity experiments, and
   production-reference deployment now have explicit governance records with
@@ -83,7 +83,7 @@ Prompt-to-artifact checklist:
 | Public API/data contracts exist | JSON Schemas in `packages/shared-types/schemas/`; OpenAPI in `packages/shared-types/openapi/openapi.json`; contract tests under `tests/contracts/`. | Complete |
 | Adapter interfaces from spec section 41 exist | `apps/worker/src/openabm_worker/adapters.py` defines typed protocols for every listed adapter; unit tests assert the expected contract names and local provider conformance. | Complete |
 | Core loop works end to end | Integration tests cover trace ingest/detail, judges, behavior/dataset/eval loop, MCP trace/context-pack access, and reported incident investigation acceptance. | Complete for local fixtures |
-| Security/privacy/ops local reference exists | RBAC/API keys, sessions, invite outbox, encrypted secrets, retention/export/delete, worker heartbeats, MCP observability, ops status, and deployment contract are implemented. | Complete for local reference |
+| Security/privacy/ops local reference exists | RBAC/API keys, sessions, invite outbox, encrypted secrets, classified payload exports, retention/export/delete, worker heartbeats, MCP observability, ops status, and deployment contract are implemented. | Complete for local reference |
 | Required decision records exist | Governance records now cover license boundary, storage, search, model runtime, sandbox, local stack, similarity experiments, production deployment, and orchestration. | Complete |
 | Final license file | `governance/decisions/008-license-selection.md` records owner-review-required status. | Blocked on owner choice |
 | Real-world pilot and revisit decisions | Phase 9 requires 5-10 pilots, performance/quality reports, and post-pilot revisits. | Blocked on real users/workloads |
@@ -1157,6 +1157,10 @@ Implemented in this pass:
   classification level.
 - Added max-classification enforcement to project exports so embedded context
   packs are redacted before section hashes and manifest metadata are produced.
+- Added first-class payload-object classifications with default `internal`
+  compatibility, export-time max-classification redaction for sensitive payload
+  metadata, and manifest included-classification reporting based on
+  classifications instead of redaction states.
 - Added default-off SMTP invite delivery: local outbox remains the default,
   operators can explicitly enable `OPENABM_ENABLE_SMTP_INVITES`, successful
   sends mark the invite delivery `smtp/sent`, and failures are persisted as

@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS payload_objects (
   content_type TEXT NOT NULL,
   byte_size_nullable INTEGER,
   sha256_nullable TEXT,
+  classification TEXT NOT NULL DEFAULT 'internal',
   redaction_state TEXT NOT NULL,
   storage_uri TEXT,
   created_at TEXT NOT NULL,

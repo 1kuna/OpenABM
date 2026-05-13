@@ -13,9 +13,9 @@
     "content_type": {"type": "string"},
     "byte_size_nullable": {"type": ["integer", "null"], "minimum": 0},
     "sha256_nullable": {"type": ["string", "null"]},
+    "classification": {"enum": ["public", "internal", "confidential", "restricted", "secret"], "default": "internal"},
     "redaction_state": {"enum": ["raw", "redacted", "masked", "omitted", "deleted", "unavailable"]},
     "created_at": {"type": "string", "format": "date-time"},
     "storage_uri": {"type": ["string", "null"]}
   }
 }
-

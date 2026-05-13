@@ -204,6 +204,23 @@ def test_trace_fixtures_validate_against_trace_and_span_schemas() -> None:
         assert "expected" in fixture
 
 
+def test_payload_object_schema_accepts_classification_levels() -> None:
+    schema = load_json(SCHEMA_DIR / "payload-object.schema.json")
+    validator = Draft202012Validator(schema)
+    valid_payload = {
+        "payload_id": "payload_secret_1",
+        "project_id": "proj_demo",
+        "content_type": "application/json",
+        "classification": "secret",
+        "redaction_state": "raw",
+        "created_at": "2026-05-13T00:00:00Z",
+    }
+    invalid_payload = {**valid_payload, "classification": "top_secret"}
+
+    validator.validate(valid_payload)
+    assert list(validator.iter_errors(invalid_payload))
+
+
 def test_score_result_schema_enforces_failure_reason_contract() -> None:
     schema = load_json(SCHEMA_DIR / "score-result.schema.json")
     validator = Draft202012Validator(schema)

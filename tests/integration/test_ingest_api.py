@@ -683,6 +683,61 @@ def test_batch_ingest_accepts_events_feedback_and_payload_metadata(tmp_path) -> 
     assert any(event["name"] == "feedback.received" for event in stored_events)
 
 
+def test_payload_classification_redacts_exported_payload_objects(tmp_path) -> None:
+    client = make_client(tmp_path)
+    payload = {
+        "payload_id": "payload_secret_export",
+        "project_id": "proj_demo",
+        "content_type": "application/json",
+        "byte_size_nullable": 128,
+        "sha256_nullable": "abc123",
+        "classification": "secret",
+        "redaction_state": "raw",
+        "storage_uri": "file:///tmp/openabm-secret-payload.json",
+        "created_at": "2026-05-13T00:00:00Z",
+    }
+    accepted = client.post(
+        "/v1/ingest/payloads",
+        headers=auth_headers(),
+        json={"payload": payload},
+    )
+    assert accepted.status_code == 202
+
+    restricted_export = client.post(
+        "/v1/exports/project",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "include_payloads": True,
+            "max_classification": "restricted",
+        },
+    )
+    assert restricted_export.status_code == 200
+    redacted_payload = restricted_export.json()["payloads"][0]
+    assert redacted_payload["payload_id"] == payload["payload_id"]
+    assert redacted_payload["classification"] == "secret"
+    assert redacted_payload["redaction_state"] == "redacted"
+    assert redacted_payload["redacted"] is True
+    assert "storage_uri" not in redacted_payload
+    assert "sha256_nullable" not in redacted_payload
+    assert "byte_size_nullable" not in redacted_payload
+    assert restricted_export.json()["manifest"]["included_classifications"] == ["secret"]
+
+    secret_export = client.post(
+        "/v1/exports/project",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "include_payloads": True,
+            "max_classification": "secret",
+        },
+    )
+    assert secret_export.status_code == 200
+    exposed_payload = secret_export.json()["payloads"][0]
+    assert exposed_payload["storage_uri"] == payload["storage_uri"]
+    assert exposed_payload["sha256_nullable"] == payload["sha256_nullable"]
+
+
 def test_search_similar_fails_closed_without_embeddings(tmp_path) -> None:
     client = make_client(tmp_path)
     fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][2]

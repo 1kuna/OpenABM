@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from openabm_api.classification import normalize_classification, redact_if_needed
+from openabm_api.classification import can_access, normalize_classification, redact_if_needed
 from openabm_api.ids import new_id
 from openabm_api.prompts import prompt_commit_id
 from openabm_api.time import utc_now
@@ -96,6 +96,9 @@ def decode_json(value: str | None, default: Any) -> Any:
     return json.loads(value)
 
 
+PAYLOAD_REDACTED_FIELDS = {"byte_size_nullable", "sha256_nullable", "storage_uri"}
+
+
 def _payload_metadata_only(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         {
@@ -113,9 +116,26 @@ def _included_classifications(sections: dict[str, Any]) -> list[str]:
         if item.get("classification"):
             classifications.add(item["classification"])
     for item in sections.get("payloads", []):
-        if item.get("redaction_state"):
-            classifications.add(str(item["redaction_state"]))
+        if item.get("classification"):
+            classifications.add(str(item["classification"]))
     return sorted(classifications or {"unspecified"})
+
+
+def _payload_object_for_access(payload: dict[str, Any], max_classification: str) -> dict[str, Any]:
+    classification = normalize_classification(payload.get("classification"), "internal")
+    item = {**payload, "classification": classification}
+    if can_access(classification, max_classification):
+        return item
+    return {
+        key: value
+        for key, value in {
+            **item,
+            "redacted": True,
+            "redaction_state": "redacted",
+            "reason": "payload classification exceeds caller allowance",
+        }.items()
+        if key not in PAYLOAD_REDACTED_FIELDS
+    }
 
 
 def _jsonl(items: Iterable[dict[str, Any]]) -> str:
@@ -873,6 +893,7 @@ class SQLiteStore:
             self._ensure_dataset_trace_assertions_column(conn)
             self._ensure_eval_result_assertion_results_column(conn)
             self._ensure_agent_config_tag_tables(conn)
+            self._ensure_payload_classification_column(conn)
             self.ensure_project("proj_demo", "Demo Project")
 
     @staticmethod
@@ -890,6 +911,18 @@ class SQLiteStore:
         for column, spec in column_specs.items():
             if column not in columns:
                 conn.execute(f"ALTER TABLE trace_metadata ADD COLUMN {column} {spec}")
+
+    @staticmethod
+    def _ensure_payload_classification_column(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(payload_objects)").fetchall()
+        }
+        if "classification" not in columns:
+            conn.execute(
+                "ALTER TABLE payload_objects ADD COLUMN classification "
+                "TEXT NOT NULL DEFAULT 'internal'"
+            )
 
     @staticmethod
     def _ensure_eval_run_provenance_columns(conn: sqlite3.Connection) -> None:
@@ -2463,16 +2496,18 @@ class SQLiteStore:
 
     def put_payload(self, payload: dict[str, Any]) -> str:
         self.ensure_project(payload["project_id"])
+        classification = normalize_classification(payload.get("classification"), "internal")
         with self.connect() as conn:
             conn.execute(
                 """
                 INSERT INTO payload_objects(
                   payload_id, project_id, trace_id, span_id, content_type,
-                  byte_size_nullable, sha256_nullable, redaction_state, storage_uri,
+                  byte_size_nullable, sha256_nullable, classification, redaction_state, storage_uri,
                   created_at, deleted_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                 ON CONFLICT(payload_id) DO UPDATE SET
+                  classification = excluded.classification,
                   redaction_state = excluded.redaction_state,
                   storage_uri = excluded.storage_uri
                 """,
@@ -2484,6 +2519,7 @@ class SQLiteStore:
                     payload["content_type"],
                     payload.get("byte_size_nullable"),
                     payload.get("sha256_nullable"),
+                    classification,
                     payload["redaction_state"],
                     payload.get("storage_uri"),
                     payload["created_at"],
@@ -6175,7 +6211,10 @@ class SQLiteStore:
         traces = self.search_traces(project_id, limit=10000)
         trace_ids = [trace["trace_id"] for trace in traces]
         spans = [span for trace_id in trace_ids for span in self.list_spans(project_id, trace_id)]
-        payloads = self._list_payload_objects(project_id)
+        payloads = [
+            _payload_object_for_access(payload, max_level)
+            for payload in self._list_payload_objects(project_id)
+        ]
         audit_summary = self._audit_summary(project_id)
         context_packs = [
             {
