@@ -523,6 +523,52 @@
         }
       }
     },
+    "/v1/retention-policies/{retention_policy_id}/apply": {
+      "post": {
+        "operationId": "applyRetentionPolicy",
+        "summary": "Dry-run or apply a retention policy and record cleanup effects.",
+        "x-required-scopes": [
+          "policies:write"
+        ],
+        "parameters": [
+          {
+            "name": "retention_policy_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "dry_run": {
+                    "type": "boolean",
+                    "default": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Retention application result."
+          }
+        }
+      }
+    },
     "/v1/exports/project": {
       "post": {
         "operationId": "exportProject",

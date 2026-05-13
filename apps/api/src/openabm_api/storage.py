@@ -5,6 +5,7 @@ import hashlib
 import json
 import sqlite3
 from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -147,6 +148,49 @@ def _review_label_counts(tasks: Iterable[dict[str, Any]]) -> dict[str, int]:
 
 def _review_decision_count(tasks: Iterable[dict[str, Any]], decision: str) -> int:
     return sum(1 for task in tasks if task.get("decision_nullable") == decision)
+
+
+def _retention_trace_candidates(
+    traces: list[dict[str, Any]],
+    rules: list[dict[str, Any]],
+    *,
+    now: str,
+) -> list[str]:
+    now_dt = _parse_utc_datetime(now)
+    if now_dt is None:
+        return []
+    candidate_ids = set()
+    for rule in rules:
+        if rule.get("entity") != "traces":
+            continue
+        ttl_days = _non_negative_int(rule.get("ttl_days"))
+        cutoff = now_dt - timedelta(days=ttl_days)
+        for trace in traces:
+            if trace.get("status") == "deleted":
+                continue
+            trace_dt = _parse_utc_datetime(trace.get("ended_at") or trace.get("started_at"))
+            if trace_dt is not None and trace_dt <= cutoff:
+                candidate_ids.add(trace["trace_id"])
+    return sorted(candidate_ids)
+
+
+def _non_negative_int(value: Any) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _parse_utc_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 class SQLiteStore:
@@ -1821,6 +1865,57 @@ class SQLiteStore:
                 (project_id,),
             ).fetchall()
         return [self._retention_policy_from_row(row) for row in rows]
+
+    def get_retention_policy(
+        self,
+        project_id: str,
+        retention_policy_id: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM retention_policies
+                WHERE project_id = ? AND retention_policy_id = ?
+                """,
+                (project_id, retention_policy_id),
+            ).fetchone()
+        return self._retention_policy_from_row(row) if row else None
+
+    def apply_retention_policy(
+        self,
+        project_id: str,
+        retention_policy_id: str,
+        *,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        policy = self.get_retention_policy(project_id, retention_policy_id)
+        if policy is None:
+            raise KeyError(f"retention policy not found: {retention_policy_id}")
+        if not dry_run and policy["status"] != "active":
+            raise ValueError("Only active retention policies can be applied.")
+        now = utc_now()
+        candidate_trace_ids = _retention_trace_candidates(
+            self.search_traces(project_id, limit=10000),
+            policy["rules"],
+            now=now,
+        )
+        effects = []
+        if not dry_run:
+            effects = [
+                self.tombstone_trace(project_id, trace_id)
+                for trace_id in candidate_trace_ids
+            ]
+        return {
+            "retention_policy_id": retention_policy_id,
+            "project_id": project_id,
+            "dry_run": dry_run,
+            "status": "planned" if dry_run else "applied",
+            "evaluated_rules": policy["rules"],
+            "candidate_trace_ids": candidate_trace_ids,
+            "deleted_trace_ids": [effect["trace_id"] for effect in effects],
+            "effects": effects,
+            "created_at": now,
+        }
 
     def create_review_task(self, request: dict[str, Any]) -> dict[str, Any]:
         self.ensure_project(request["project_id"])

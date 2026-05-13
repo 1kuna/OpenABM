@@ -514,10 +514,19 @@ def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
         json={
             "project_id": "proj_demo",
             "name": "short lived traces",
-            "rules": [{"entity": "traces", "ttl_days": 30}],
+            "rules": [{"entity": "traces", "ttl_days": 0}],
+            "status": "active",
         },
     )
     assert policy.status_code == 201
+    dry_run = client.post(
+        f"/v1/retention-policies/{policy.json()['retention_policy_id']}/apply",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "dry_run": True},
+    )
+    assert dry_run.status_code == 200
+    assert dry_run.json()["status"] == "planned"
+    assert dry_run.json()["candidate_trace_ids"] == [trace_id]
 
     export = client.post(
         "/v1/exports/project",
@@ -529,13 +538,14 @@ def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
     assert manifest["sections"]["traces"]["count"] == 1
     assert manifest["sections"]["spans"]["sha256"]
 
-    delete = client.delete(
-        f"/v1/traces/{trace_id}",
-        params={"project_id": "proj_demo"},
+    delete = client.post(
+        f"/v1/retention-policies/{policy.json()['retention_policy_id']}/apply",
         headers=auth_headers(),
+        json={"project_id": "proj_demo", "dry_run": False},
     )
     assert delete.status_code == 200
-    assert delete.json()["status"] == "tombstoned"
+    assert delete.json()["status"] == "applied"
+    assert delete.json()["deleted_trace_ids"] == [trace_id]
     detail = client.get(
         f"/v1/traces/{trace_id}",
         params={"project_id": "proj_demo"},

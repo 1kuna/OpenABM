@@ -1539,6 +1539,47 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return item
 
+    @app.post("/api/retention-policies/{retention_policy_id}/apply")
+    def apply_retention_policy(
+        retention_policy_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["policies:write"])),
+    ) -> dict[str, object]:
+        del actor
+        project_id = request.get("project_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        try:
+            result = store.apply_retention_policy(
+                project_id,
+                retention_policy_id,
+                dry_run=bool(request.get("dry_run", True)),
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
+        except ValueError as exc:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                str(exc),
+                "/status",
+            ) from exc
+        store.append_audit(
+            "apply_retention_policy",
+            "retention_policy",
+            project_id,
+            retention_policy_id,
+            {
+                "dry_run": result["dry_run"],
+                "candidate_count": len(result["candidate_trace_ids"]),
+                "deleted_count": len(result["deleted_trace_ids"]),
+            },
+        )
+        return result
+
     @app.post("/api/exports/project")
     def export_project(
         request: dict[str, Any],

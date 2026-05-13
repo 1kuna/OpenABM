@@ -346,6 +346,9 @@ Done:
   manifests, included-classification summaries, and trace tombstone/delete flow
   that removes spans/scores/behavior matches/search rows while preserving an
   audit-friendly trace tombstone.
+- Added retention policy dry-run/apply execution for trace TTL rules so cleanup
+  candidates can be reviewed before tombstoning, with audit records for planned
+  or applied runs.
 
 ## Phase 9: Real-World Pilot And Revisit Decisions
 
@@ -402,7 +405,7 @@ Known remaining gaps before calling the whole spec complete:
   behavior detail, automation builder, impact report, review queue, prompt
   registry, and agent configuration history.
 - Production-grade auth/session/API-key management, secret vault integration,
-  and retention execution scheduling remain beyond the local reference scaffold.
+  and scheduled retention workers remain beyond the local reference scaffold.
 
 ## Spec V2 Delta Incorporated
 
@@ -481,6 +484,8 @@ Implemented in this pass:
   link back to canonical artifacts.
 - Added retention/export/delete scaffolds: retention policies, project export
   manifests with hashes, and trace tombstones with derived-data cleanup.
+- Added `/v1/retention-policies/{retention_policy_id}/apply` for retention
+  dry-runs and trace TTL cleanup application.
 - Added `/v1/prompts` and `/v1/agent-configs` lifecycle paths with immutable
   version commits and diff/render/compare helpers.
 - Added `/v1/notification-targets` and `/v1/automations` lifecycle/run paths
