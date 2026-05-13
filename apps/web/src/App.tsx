@@ -5426,7 +5426,7 @@ function moduleFixtureSummary(view: ViewKey): ModuleSummary {
     datasets: { label: "Evals", value: "ready", detail: "Eval runs can link prompt and runtime config versions" },
     prompts: { label: "Prompts", value: "ready", detail: "Versions, tags, render, and diff are API-backed" },
     configs: { label: "Configs", value: "ready", detail: "Runtime config versions and comparisons are API-backed" },
-    mcp: { label: "MCP", value: "35 tools", detail: "Judge, eval, and docs handlers are routed" },
+    mcp: { label: "MCP", value: "41 tools", detail: "Tools and JSON resources are routed" },
     ops: { label: "Ops", value: "ready", detail: "Health, export, retention, and tombstones are wired" }
   };
   return summaries[view];
@@ -5440,7 +5440,7 @@ function scaffoldRows(view: ViewKey) {
       { icon: <KeyRound />, title: "Code judge sandbox", status: "policy-guarded dev isolation", phase: "Phase 4" }
     ],
     behaviors: [
-      { icon: <GitBranch />, title: "Manual labels", status: "schema and API surface pending", phase: "Phase 6" },
+      { icon: <GitBranch />, title: "Manual labels", status: "schema and API surface available", phase: "Phase 6" },
       { icon: <Braces />, title: "Rule detectors", status: "condition grammar available", phase: "Phase 6" },
       { icon: <Network />, title: "Cluster discovery", status: "embedding path ready; clustering deferred", phase: "Phase 6" }
     ],
@@ -5467,17 +5467,17 @@ function scaffoldRows(view: ViewKey) {
     mcp: [
       { icon: <Network />, title: "Tool contracts", status: "all required names registered", phase: "Phase 7" },
       { icon: <FileSearch />, title: "API-backed handlers", status: "judges, evals, docs, prompts, configs, automations routed", phase: "Phase 7" },
-      { icon: <Shield />, title: "Write confirmations", status: "metadata scaffolded", phase: "Phase 7" }
+      { icon: <Shield />, title: "Write confirmations", status: "confirmed flag and audit metadata enforced", phase: "Phase 7" }
     ],
     ops: [
       { icon: <Activity />, title: "Health and readiness", status: "available", phase: "Phase 8" },
-      { icon: <Shield />, title: "API key scopes and audit", status: "local scaffold available", phase: "Phase 8" },
+      { icon: <Shield />, title: "API key scopes and audit", status: "local scopes and audit available", phase: "Phase 8" },
       { icon: <Database />, title: "Retention/export/delete", status: "policy, manifest, and tombstone paths available", phase: "Phase 8" }
     ],
     traces: [],
     issues: [
       { icon: <AlertTriangle />, title: "Issue intake", status: "API and storage available", phase: "Spec v2" },
-      { icon: <FileSearch />, title: "Deterministic investigation", status: "structured search and impact scaffold available", phase: "Spec v2" },
+      { icon: <FileSearch />, title: "Deterministic investigation", status: "structured search and impact reporting available", phase: "Spec v2" },
       { icon: <Database />, title: "Affected entities", status: "computed from trace dimensions", phase: "Spec v2" }
     ],
     reviews: [

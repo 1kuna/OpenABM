@@ -1,2 +1,1 @@
-"""OpenABM MCP server scaffold."""
-
+"""OpenABM MCP server package."""

@@ -1,2 +1,1 @@
-"""OpenABM worker scaffold."""
-
+"""OpenABM worker package."""
