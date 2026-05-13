@@ -20,6 +20,8 @@ import { useEffect, useMemo, useState } from "react";
 import { OpenAbmClient } from "./api";
 import { fixtureDetails, fixtureProjects, fixtureTraces } from "./fixtures";
 import type {
+  AgentConfigCompareResult,
+  AgentConfigDefinition,
   BehaviorBacktestResult,
   BehaviorDefinition,
   DatasetDefinition,
@@ -53,6 +55,7 @@ type ViewKey =
   | "behaviors"
   | "datasets"
   | "prompts"
+  | "configs"
   | "mcp"
   | "ops";
 
@@ -90,8 +93,13 @@ export function App() {
         const loadedTraces = await client.listTraces(nextProjectId);
         if (cancelled) return;
         setConnection("live");
-        setTraces(loadedTraces.length ? loadedTraces : fixtureTraces);
-        setSelectedTraceId((current) => current || loadedTraces[0]?.trace_id || fixtureTraces[0]?.trace_id || "");
+        setTraces(loadedTraces);
+        setSelectedTraceId((current) =>
+          loadedTraces.some((trace) => trace.trace_id === current)
+            ? current
+            : loadedTraces[0]?.trace_id ?? ""
+        );
+        if (!loadedTraces.length) setDetail(null);
       } catch {
         if (cancelled) return;
         setConnection("fixture");
@@ -137,7 +145,8 @@ export function App() {
       ? await client.searchTraces(projectId, query)
       : await client.listTraces(projectId, status || undefined);
     setTraces(loaded);
-    if (loaded[0]) setSelectedTraceId(loaded[0].trace_id);
+    setSelectedTraceId(loaded[0]?.trace_id ?? "");
+    if (!loaded[0]) setDetail(null);
   }
 
   async function checkSimilarity() {
@@ -168,6 +177,7 @@ export function App() {
           <NavButton icon={<GitBranch />} label="Behaviors" active={activeView === "behaviors"} onClick={() => setActiveView("behaviors")} />
           <NavButton icon={<Database />} label="Datasets" active={activeView === "datasets"} onClick={() => setActiveView("datasets")} />
           <NavButton icon={<Split />} label="Prompts" active={activeView === "prompts"} onClick={() => setActiveView("prompts")} />
+          <NavButton icon={<KeyRound />} label="Configs" active={activeView === "configs"} onClick={() => setActiveView("configs")} />
           <NavButton icon={<Network />} label="MCP" active={activeView === "mcp"} onClick={() => setActiveView("mcp")} />
           <NavButton icon={<Shield />} label="Ops" active={activeView === "ops"} onClick={() => setActiveView("ops")} />
         </nav>
@@ -228,6 +238,8 @@ export function App() {
           <BehaviorWorkspace client={client} connection={connection} projectId={projectId} />
         ) : activeView === "prompts" ? (
           <PromptRegistryWorkspace client={client} connection={connection} projectId={projectId} />
+        ) : activeView === "configs" ? (
+          <AgentConfigWorkspace client={client} connection={connection} projectId={projectId} />
         ) : (
           <ScaffoldView
             activeView={activeView}
@@ -238,6 +250,241 @@ export function App() {
         )}
       </section>
     </main>
+  );
+}
+
+function AgentConfigWorkspace(props: {
+  client: OpenAbmClient;
+  connection: ConnectionState;
+  projectId: string;
+}) {
+  const { client, connection, projectId } = props;
+  const [configs, setConfigs] = useState<AgentConfigDefinition[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [name, setName] = useState("Refund runtime");
+  const [configType, setConfigType] = useState("runtime");
+  const [contentText, setContentText] = useState(
+    JSON.stringify({ model: "qwen3.5-9b-mlx", tools: ["trace_search"], context_window: 262144 }, null, 2)
+  );
+  const [metadataText, setMetadataText] = useState(JSON.stringify({ source: "web-ui" }, null, 2));
+  const [oldCommitId, setOldCommitId] = useState("");
+  const [newCommitId, setNewCommitId] = useState("");
+  const [comparison, setComparison] = useState<AgentConfigCompareResult | null>(null);
+  const [stateText, setStateText] = useState("Agent configs need a live API");
+
+  const selectedConfig = configs.find((config) => config.agent_config_id === selectedId) ?? configs[0] ?? null;
+  const versions = selectedConfig?.versions ?? [];
+
+  async function loadConfigs() {
+    if (connection !== "live") {
+      setConfigs([]);
+      setSelectedId("");
+      setComparison(null);
+      setStateText("fixture mode");
+      return;
+    }
+    try {
+      const listed = await client.listAgentConfigs(projectId);
+      const hydrated = await Promise.all(listed.map((config) => client.getAgentConfig(projectId, config.agent_config_id)));
+      setConfigs(hydrated);
+      setSelectedId((current) =>
+        hydrated.some((config) => config.agent_config_id === current)
+          ? current
+          : hydrated[0]?.agent_config_id ?? ""
+      );
+      setStateText(`${hydrated.length} configs`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "request failed");
+    }
+  }
+
+  useEffect(() => {
+    void loadConfigs();
+  }, [client, connection, projectId]);
+
+  useEffect(() => {
+    const latest = versions[0]?.commit_id ?? "";
+    setNewCommitId((current) => current || latest);
+    setOldCommitId((current) => current || versions[1]?.commit_id || latest);
+  }, [selectedConfig?.agent_config_id, versions.length]);
+
+  async function createConfig() {
+    if (connection !== "live" || !name.trim()) return;
+    try {
+      const created = await client.createAgentConfig(projectId, name.trim(), configType.trim() || "runtime");
+      const hydrated = await client.getAgentConfig(projectId, created.agent_config_id);
+      setConfigs((current) => [hydrated, ...current]);
+      setSelectedId(hydrated.agent_config_id);
+      setComparison(null);
+      setStateText(`created ${hydrated.name}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "config creation failed");
+    }
+  }
+
+  async function commitConfigVersion() {
+    if (connection !== "live" || !selectedConfig) return;
+    let content: Record<string, unknown>;
+    let metadata: Record<string, unknown>;
+    try {
+      content = parseJsonObject(contentText);
+      metadata = parseJsonObject(metadataText);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "invalid config JSON");
+      return;
+    }
+    try {
+      const version = await client.commitAgentConfigVersion(projectId, selectedConfig.agent_config_id, content, metadata);
+      const hydrated = await client.getAgentConfig(projectId, selectedConfig.agent_config_id);
+      setConfigs((current) => current.map((config) => (config.agent_config_id === hydrated.agent_config_id ? hydrated : config)));
+      setNewCommitId(version.commit_id);
+      setOldCommitId((current) => current || version.commit_id);
+      setStateText(`committed ${version.commit_id}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "version commit failed");
+    }
+  }
+
+  async function compareConfigVersions() {
+    if (connection !== "live" || !selectedConfig || !oldCommitId || !newCommitId) return;
+    try {
+      const result = await client.compareAgentConfigVersions(projectId, selectedConfig.agent_config_id, oldCommitId, newCommitId);
+      setComparison(result);
+      setStateText("comparison ready");
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "compare failed");
+    }
+  }
+
+  return (
+    <div className="configGrid">
+      <section className="panel configList">
+        <div className="toolbar">
+          <button className="iconButton" onClick={() => void loadConfigs()} aria-label="Refresh agent configs">
+            <TimerReset size={16} />
+          </button>
+          <span className="systemNote">{stateText}</span>
+        </div>
+        <div className="createStrip">
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Config name" />
+          <select value={configType} onChange={(event) => setConfigType(event.target.value)}>
+            <option value="runtime">runtime</option>
+            <option value="workflow">workflow</option>
+            <option value="routing">routing</option>
+            <option value="guardrail">guardrail</option>
+          </select>
+          <button onClick={() => void createConfig()}>
+            <KeyRound size={15} />
+            Create config
+          </button>
+        </div>
+        <div className="configRows">
+          {configs.map((config) => (
+            <button
+              className={config.agent_config_id === selectedConfig?.agent_config_id ? "selectedConfig" : ""}
+              key={config.agent_config_id}
+              onClick={() => {
+                setSelectedId(config.agent_config_id);
+                setComparison(null);
+              }}
+            >
+              <span className="judgeStatus active">{config.config_type}</span>
+              <strong>{config.name}</strong>
+              <small>{config.versions?.length ?? 0} versions · {config.agent_config_id}</small>
+            </button>
+          ))}
+          {!configs.length ? <div className="emptyState">No agent configs</div> : null}
+        </div>
+      </section>
+
+      <section className="panel configDetail">
+        {selectedConfig ? (
+          <>
+            <div className="detailHeader">
+              <div>
+                <p className="sectionLabel">agent config</p>
+                <h3>{selectedConfig.name}</h3>
+              </div>
+              <span className="judgeStatus active">{selectedConfig.config_type}</span>
+            </div>
+            <div className="metricsRow configMetrics">
+              <Metric icon={<KeyRound />} label="Versions" value={String(versions.length)} />
+              <Metric icon={<GitBranch />} label="Latest" value={versions[0]?.commit_id ?? "none"} />
+              <Metric icon={<Activity />} label="Created" value={formatTime(selectedConfig.created_at)} />
+            </div>
+            <div className="configSections">
+              <section className="configSection">
+                <h4>Commit version</h4>
+                <label className="notesBox">
+                  Content
+                  <textarea value={contentText} onChange={(event) => setContentText(event.target.value)} />
+                </label>
+                <label className="notesBox">
+                  Metadata
+                  <textarea value={metadataText} onChange={(event) => setMetadataText(event.target.value)} />
+                </label>
+                <button className="primaryButton" onClick={() => void commitConfigVersion()}>
+                  <GitBranch size={15} />
+                  Commit
+                </button>
+              </section>
+
+              <section className="configSection">
+                <h4>Versions</h4>
+                <div className="versionRows">
+                  {versions.map((version) => (
+                    <button
+                      key={version.agent_config_version_id}
+                      onClick={() => {
+                        setContentText(JSON.stringify(version.content, null, 2));
+                        setMetadataText(JSON.stringify(version.metadata, null, 2));
+                        setNewCommitId(version.commit_id);
+                      }}
+                    >
+                      <strong>v{version.version} · {version.commit_id}</strong>
+                      <span>{formatConfigContent(version.content)}</span>
+                      <small>{formatTime(version.created_at)}</small>
+                    </button>
+                  ))}
+                  {!versions.length ? <p className="systemNote">No versions yet</p> : null}
+                </div>
+              </section>
+
+              <section className="configSection">
+                <h4>Compare</h4>
+                <div className="evalForm">
+                  <label>
+                    Old
+                    <select value={oldCommitId} onChange={(event) => setOldCommitId(event.target.value)}>
+                      <option value="">Select old</option>
+                      {versions.map((version) => (
+                        <option key={version.commit_id} value={version.commit_id}>{version.commit_id}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    New
+                    <select value={newCommitId} onChange={(event) => setNewCommitId(event.target.value)}>
+                      <option value="">Select new</option>
+                      {versions.map((version) => (
+                        <option key={version.commit_id} value={version.commit_id}>{version.commit_id}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button onClick={() => void compareConfigVersions()}>
+                    <FileSearch size={15} />
+                    Compare
+                  </button>
+                </div>
+                {comparison ? <pre>{comparison.content_diff || "No content changes"}</pre> : null}
+              </section>
+            </div>
+          </>
+        ) : (
+          <div className="emptyState">{stateText}</div>
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -1787,6 +2034,7 @@ function moduleFixtureSummary(view: ViewKey): ModuleSummary {
     behaviors: { label: "Behaviors", value: "ready", detail: "Rules and backtests are API-backed" },
     datasets: { label: "Evals", value: "ready", detail: "Local eval run and compare APIs are wired" },
     prompts: { label: "Prompts", value: "ready", detail: "Versions, tags, render, and diff are API-backed" },
+    configs: { label: "Configs", value: "ready", detail: "Runtime config versions and comparisons are API-backed" },
     mcp: { label: "MCP", value: "35 tools", detail: "Judge, eval, and docs handlers are routed" },
     ops: { label: "Ops", value: "ready", detail: "Health, export, retention, and tombstones are wired" }
   };
@@ -1814,6 +2062,11 @@ function scaffoldRows(view: ViewKey) {
       { icon: <Split />, title: "Prompt commit IDs", status: "available", phase: "Phase 7" },
       { icon: <FileSearch />, title: "Prompt diff", status: "available", phase: "Phase 7" },
       { icon: <Shield />, title: "Secret interpolation", status: "blocked by renderer", phase: "Phase 7" }
+    ],
+    configs: [
+      { icon: <KeyRound />, title: "Config versions", status: "immutable commits available", phase: "Phase 7" },
+      { icon: <FileSearch />, title: "Config compare", status: "content diffs available", phase: "Phase 7" },
+      { icon: <Network />, title: "Runtime bundles", status: "model/tool/retrieval payloads supported", phase: "Phase 7" }
     ],
     mcp: [
       { icon: <Network />, title: "Tool contracts", status: "all required names registered", phase: "Phase 7" },
@@ -1932,6 +2185,13 @@ function formatTags(tags: Record<string, string>) {
   return entries.map(([key, value]) => `${key}: ${value}`).join(", ") || "none";
 }
 
+function formatConfigContent(content: Record<string, unknown>) {
+  const model = content.model ? `model ${String(content.model)}` : null;
+  const tools = Array.isArray(content.tools) ? `${content.tools.length} tools` : null;
+  const workflow = content.workflow ? `workflow ${String(content.workflow)}` : null;
+  return [model, tools, workflow].filter(Boolean).join(" · ") || JSON.stringify(content);
+}
+
 function connectionLabel(connection: ConnectionState) {
   if (connection === "live") return "live API";
   if (connection === "fixture") return "fixture mode";
@@ -1947,6 +2207,7 @@ function viewTitle(view: ViewKey) {
     behaviors: "Behavior monitoring",
     datasets: "Datasets and evals",
     prompts: "Prompt registry",
+    configs: "Agent configs",
     mcp: "MCP server",
     ops: "Operations"
   };

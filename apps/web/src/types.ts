@@ -158,6 +158,33 @@ export interface PromptDiffResult {
   variables_schema_changed: boolean;
 }
 
+export interface AgentConfigDefinition {
+  agent_config_id: string;
+  project_id: string;
+  name: string;
+  config_type: string;
+  created_at: string;
+  versions?: AgentConfigVersion[];
+}
+
+export interface AgentConfigVersion {
+  agent_config_version_id: string;
+  agent_config_id: string;
+  version: number;
+  commit_id: string;
+  content: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AgentConfigCompareResult {
+  agent_config_id: string;
+  old_commit_id: string;
+  new_commit_id: string;
+  content_diff: string;
+  metadata_changed: boolean;
+}
+
 export interface JudgeDefinition {
   judge_id: string;
   project_id: string;

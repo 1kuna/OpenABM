@@ -239,6 +239,13 @@ button {
   gap: 18px;
 }
 
+.configGrid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(360px, 0.75fr) minmax(560px, 1.25fr);
+  gap: 18px;
+}
+
 .panel {
   min-width: 0;
   min-height: 0;
@@ -283,10 +290,16 @@ button {
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
+.configList {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
 .judgeList .toolbar,
 .datasetList .toolbar,
 .behaviorList .toolbar,
-.promptList .toolbar {
+.promptList .toolbar,
+.configList .toolbar {
   border-bottom: 1px solid #e5e7eb;
   justify-content: space-between;
   padding: 12px;
@@ -332,6 +345,14 @@ button {
   padding: 10px;
 }
 
+.configRows {
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 10px;
+}
+
 .reviewRows button {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -362,6 +383,7 @@ button {
 .evalRows button,
 .behaviorRows button,
 .promptRows button,
+.configRows button,
 .versionRows button {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -387,17 +409,22 @@ button {
 .behaviorRows .selectedBehavior,
 .promptRows button:hover,
 .promptRows .selectedPrompt,
+.configRows button:hover,
+.configRows .selectedConfig,
 .versionRows button:hover {
   border-color: #9ca3af;
   background: #f8fafc;
 }
 
-.promptSection .versionRows button {
+.promptSection .versionRows button,
+.configSection .versionRows button {
   grid-template-columns: 1fr;
 }
 
 .promptSection .versionRows span,
-.promptSection .versionRows small {
+.promptSection .versionRows small,
+.configSection .versionRows span,
+.configSection .versionRows small {
   grid-column: auto;
   min-width: 0;
   overflow-wrap: anywhere;
@@ -415,6 +442,8 @@ button {
 .behaviorRows small,
 .promptRows strong,
 .promptRows small,
+.configRows strong,
+.configRows small,
 .versionRows strong {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -426,6 +455,7 @@ button {
 .evalRows small,
 .behaviorRows small,
 .promptRows small,
+.configRows small,
 .versionRows small {
   grid-column: 2;
   color: #6b7280;
@@ -608,6 +638,14 @@ td span {
   padding: 16px;
 }
 
+.configDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  padding: 16px;
+}
+
 .detailHeader {
   display: flex;
   align-items: flex-start;
@@ -645,6 +683,10 @@ td span {
 }
 
 .promptMetrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.configMetrics {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -935,13 +977,15 @@ pre {
 }
 
 .createStrip input,
+.createStrip select,
 .exampleAdd input,
 .evalForm select,
 .evalForm input,
 .behaviorCreate input,
 .behaviorCreate select,
 .promptSection input,
-.promptSection select {
+.promptSection select,
+.configSection select {
   min-width: 0;
   min-height: 34px;
   border: 1px solid #d1d5db;
@@ -995,6 +1039,12 @@ pre {
   gap: 12px;
 }
 
+.configSections {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+  gap: 12px;
+}
+
 .datasetSection {
   border: 1px solid #e5e7eb;
   border-radius: 7px;
@@ -1013,9 +1063,16 @@ pre {
   padding: 12px;
 }
 
+.configSection {
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  padding: 12px;
+}
+
 .datasetSection h4,
 .behaviorSection h4,
-.promptSection h4 {
+.promptSection h4,
+.configSection h4 {
   margin: 0 0 10px;
   font-size: 14px;
 }
@@ -1030,11 +1087,16 @@ pre {
   grid-row: span 3;
 }
 
+.configSection:first-child {
+  grid-row: span 2;
+}
+
 .positiveExamples {
   grid-column: 1 / -1;
 }
 
-.promptSection .primaryButton {
+.promptSection .primaryButton,
+.configSection .primaryButton {
   margin-top: 10px;
 }
 
@@ -1243,7 +1305,9 @@ pre {
   .behaviorGrid,
   .behaviorSections,
   .promptGrid,
-  .promptSections {
+  .promptSections,
+  .configGrid,
+  .configSections {
     grid-template-columns: 1fr;
   }
 
@@ -1257,6 +1321,10 @@ pre {
   }
 
   .promptSection:first-child {
+    grid-row: auto;
+  }
+
+  .configSection:first-child {
     grid-row: auto;
   }
 }
@@ -1285,6 +1353,7 @@ pre {
   .datasetMetrics,
   .behaviorMetrics,
   .promptMetrics,
+  .configMetrics,
   .policyGrid {
     grid-template-columns: 1fr;
   }

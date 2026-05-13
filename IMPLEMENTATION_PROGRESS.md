@@ -324,6 +324,9 @@ Done:
 - Added a live Prompt Registry workspace in the web app with prompt creation,
   immutable version commits, tag movement, render, and diff wired to
   `/v1/prompts`.
+- Added a live Agent Configs workspace in the web app with config creation,
+  immutable version commits, content/metadata inspection, and version comparison
+  wired to `/v1/agent-configs`.
 - Expanded the MCP tool contract registry to match the v2 required tool list,
   added resource templates, and added API-backed deterministic handlers for the
   implemented read/draft paths with explicit unsupported responses for gaps.
@@ -405,10 +408,9 @@ Verified after the latest implementation slices:
 
 Known remaining gaps before calling the whole spec complete:
 
-- Prompt registry and agent runtime configuration registry now have storage/API
-  and MCP-backed lifecycle flows; prompt version history, tag movement, render,
-  and diff have a live UI, while agent config history/comparison UI remains
-  pending.
+- Prompt registry and agent runtime configuration registry now have storage/API,
+  MCP-backed lifecycle flows, and live UI coverage for prompt version history,
+  tag movement, render, diff, plus agent config history/comparison.
 - Judge registry, model-backed judge drafting, local eval launch, eval
   comparison, judge calibration reporting, promotion gates, and the judge
   lifecycle workspace now exist; richer prompt/config-linked comparison screens

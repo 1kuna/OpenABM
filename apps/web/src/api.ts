@@ -1,4 +1,7 @@
 import type {
+  AgentConfigCompareResult,
+  AgentConfigDefinition,
+  AgentConfigVersion,
   BehaviorBacktestResult,
   BehaviorDefinition,
   DatasetDefinition,
@@ -172,6 +175,55 @@ export class OpenAbmClient {
     newCommitId: string
   ): Promise<PromptDiffResult> {
     return this.post<PromptDiffResult>(`/v1/prompts/${promptId}/diff`, {
+      project_id: projectId,
+      old_commit_id: oldCommitId,
+      new_commit_id: newCommitId
+    });
+  }
+
+  async listAgentConfigs(projectId: string): Promise<AgentConfigDefinition[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: AgentConfigDefinition[] }>(`/v1/agent-configs?${params.toString()}`);
+    return body.data;
+  }
+
+  async createAgentConfig(
+    projectId: string,
+    name: string,
+    configType: string
+  ): Promise<AgentConfigDefinition> {
+    return this.post<AgentConfigDefinition>("/v1/agent-configs", {
+      project_id: projectId,
+      name,
+      config_type: configType
+    });
+  }
+
+  async getAgentConfig(projectId: string, agentConfigId: string): Promise<AgentConfigDefinition> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<AgentConfigDefinition>(`/v1/agent-configs/${agentConfigId}?${params.toString()}`);
+  }
+
+  async commitAgentConfigVersion(
+    projectId: string,
+    agentConfigId: string,
+    content: Record<string, unknown>,
+    metadata: Record<string, unknown>
+  ): Promise<AgentConfigVersion> {
+    return this.post<AgentConfigVersion>(`/v1/agent-configs/${agentConfigId}/versions`, {
+      project_id: projectId,
+      content,
+      metadata
+    });
+  }
+
+  async compareAgentConfigVersions(
+    projectId: string,
+    agentConfigId: string,
+    oldCommitId: string,
+    newCommitId: string
+  ): Promise<AgentConfigCompareResult> {
+    return this.post<AgentConfigCompareResult>(`/v1/agent-configs/${agentConfigId}/compare`, {
       project_id: projectId,
       old_commit_id: oldCommitId,
       new_commit_id: newCommitId
