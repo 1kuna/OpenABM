@@ -22,6 +22,47 @@ work can resume from concrete state instead of memory.
   stays a candidate for thinner local-first tool-loop/streaming pieces. OpenABM
   contracts, evidence, provenance, and review gates remain the source of truth.
 
+## Completion Audit: 2026-05-13
+
+Scaffold-complete local surfaces:
+
+- Core local product loop: SDK ingest, trace reconstruction/search/detail,
+  judges, behaviors, datasets, evals, prompt/config provenance, issue-led
+  investigation, impact reports, review tasks, MCP, and export/delete/retention
+  paths are implemented with tests.
+- Local model lane: LM Studio/OpenAI-compatible chat, structured/tool-call, and
+  embedding providers are wired with disabled-mode fail-closed behavior,
+  deterministic validation, and live canary notes for `qwen3.5-9b-mlx`.
+- Agent orchestration lane: OpenABM owns the contracts/provenance/review gates;
+  LangGraph is used as a thin investigation adapter, and MCP resources/tools now
+  expose trace/eval/investigation context for deep-agent runners.
+- Operations lane: API scopes/RBAC, local API keys, local sessions, invite
+  outbox, encrypted secret refs, audit logs, retention worker, worker
+  heartbeats, MCP observability, Docker Compose reference deployment, and admin
+  status surfaces are in place.
+
+Remaining blockers or explicit non-local-reference work:
+
+- Final license text still needs owner choice before adding a `LICENSE` file.
+- Phase 9 real-world pilots, usability feedback, performance reports, and
+  revisit decisions require real users/workloads.
+- External IdP/OAuth, SMTP/vendor invite delivery, production secret-manager
+  adapters, vendor-specific ChatOps connectors, production observability
+  exporters, and external deployment supervision remain integration work beyond
+  the local reference scaffold.
+- Real OCR/deep attachment parsing, production vector-store/ANN choices, broader
+  clustering experiments, and deeper UI drilldowns remain future hardening.
+- Any semantic task that the local 9B model cannot handle after prompt/runtime
+  tuning should be deferred for a heavier model rather than replaced with
+  brittle deterministic heuristics.
+
+Current validation gate:
+
+- Latest local gates: `make ci` and `make deploy-config-check` passed after the
+  most recent implementation/doc slices.
+- Latest pushed commits are being validated by GitHub Actions as each slice is
+  pushed.
+
 ## Phase 0: Product, Legal, And Decision Infrastructure
 
 Status: in progress
