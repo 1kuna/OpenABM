@@ -520,6 +520,10 @@ Done:
   schemas, required scopes, side-effect flags, confirmation metadata, and
   examples for every required tool so LangGraph/Deep Agents/Pi-style runners
   have a real tool surface to consume.
+- Expanded the MCP tool surface with context-pack creation, review-task
+  list/decision tools, and affected-entity remediation tools so investigation
+  agents can act through audited review/remediation APIs instead of only reading
+  trace evidence.
 - Expanded MCP tool observability from latency/status rows to bounded
   request/response capture, citation IDs, and confirmation metadata so deep
   agent tool use is replayable enough for audit without changing tool results.

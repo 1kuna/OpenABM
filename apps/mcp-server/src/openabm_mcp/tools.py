@@ -7,6 +7,7 @@ WRITE_TRACE_SCOPE = ["traces:write"]
 READ_BEHAVIOR_SCOPE = ["behaviors:read"]
 WRITE_BEHAVIOR_SCOPE = ["behaviors:write"]
 READ_CONTEXT_SCOPE = ["context_packs:read"]
+WRITE_CONTEXT_SCOPE = ["context_packs:write"]
 READ_DATASET_SCOPE = ["datasets:read"]
 WRITE_DATASET_SCOPE = ["datasets:write"]
 READ_DOCS_SCOPE = ["docs:read"]
@@ -18,6 +19,8 @@ WRITE_INVESTIGATION_SCOPE = ["investigations:write"]
 READ_JUDGE_SCOPE = ["judges:read"]
 WRITE_JUDGE_SCOPE = ["judges:write"]
 WRITE_SCORE_SCOPE = ["scores:write"]
+READ_REVIEW_SCOPE = ["reviews:read"]
+WRITE_REVIEW_SCOPE = ["reviews:write"]
 READ_PROMPT_SCOPE = ["prompts:read"]
 WRITE_PROMPT_SCOPE = ["prompts:write"]
 READ_AGENT_CONFIG_SCOPE = ["agent_configs:read"]
@@ -81,7 +84,12 @@ REQUIRED_TOOL_NAMES = [
     "start_investigation_run",
     "get_investigation_run",
     "get_impact_report",
+    "list_affected_entities",
+    "update_affected_entity",
     "get_agent_context_pack",
+    "create_agent_context_pack",
+    "list_review_tasks",
+    "update_review_task",
     "list_sessions",
     "get_session",
     "list_behaviors",
@@ -234,6 +242,40 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         example_response={"report_id": "impact_report_123"},
     ),
     _tool(
+        "list_affected_entities",
+        "List affected entities for an issue or project remediation view.",
+        _schema(
+            ["project_id"],
+            {"project_id": STRING, "issue_id": NULLABLE_STRING},
+        ),
+        scopes=READ_INVESTIGATION_SCOPE,
+        example_request={"project_id": "proj_demo", "issue_id": "issue_123"},
+        example_response={"data": []},
+    ),
+    _tool(
+        "update_affected_entity",
+        "Update remediation status, owner, or notes for an affected entity.",
+        _schema(
+            ["project_id", "affected_entity_id"],
+            {
+                "project_id": STRING,
+                "affected_entity_id": STRING,
+                "status": STRING,
+                "owner_nullable": NULLABLE_STRING,
+                "notes_nullable": NULLABLE_STRING,
+            },
+        ),
+        scopes=WRITE_INVESTIGATION_SCOPE,
+        side_effects=True,
+        confirmation_required=True,
+        example_request={
+            "project_id": "proj_demo",
+            "affected_entity_id": "affected_entity_123",
+            "status": "fixed",
+        },
+        example_response={"affected_entity_id": "affected_entity_123", "status": "fixed"},
+    ),
+    _tool(
         "get_agent_context_pack",
         "Fetch a bounded context pack suitable for model or coding-agent review.",
         _schema(
@@ -242,6 +284,62 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         scopes=READ_CONTEXT_SCOPE,
         example_request={"project_id": "proj_demo", "context_pack_id": "context_pack_123"},
         example_response={"context_pack_id": "context_pack_123"},
+    ),
+    _tool(
+        "create_agent_context_pack",
+        "Create a cited agent context pack from trace evidence.",
+        _schema(
+            ["project_id", "source_trace_ids"],
+            {
+                "project_id": STRING,
+                "source_trace_ids": ARRAY,
+                "issue_id_nullable": NULLABLE_STRING,
+                "allowed_next_actions": ARRAY,
+                "redaction_policy": OBJECT,
+            },
+        ),
+        scopes=WRITE_CONTEXT_SCOPE,
+        side_effects=True,
+        example_request={"project_id": "proj_demo", "source_trace_ids": ["trace_wrong_tool"]},
+        example_response={"context_pack_id": "context_pack_123"},
+    ),
+    _tool(
+        "list_review_tasks",
+        (
+            "List human review tasks for judge outputs, behavior candidates, "
+            "grounding, root causes, and affected entities."
+        ),
+        _schema(
+            ["project_id"],
+            {"project_id": STRING, "status": STRING, "task_type": STRING},
+        ),
+        scopes=READ_REVIEW_SCOPE,
+        example_request={"project_id": "proj_demo", "status": "open"},
+        example_response={"data": []},
+    ),
+    _tool(
+        "update_review_task",
+        "Record a human review decision on an existing review task.",
+        _schema(
+            ["project_id", "review_task_id", "status", "decision"],
+            {
+                "project_id": STRING,
+                "review_task_id": STRING,
+                "status": STRING,
+                "decision": STRING,
+                "notes": NULLABLE_STRING,
+            },
+        ),
+        scopes=WRITE_REVIEW_SCOPE,
+        side_effects=True,
+        confirmation_required=True,
+        example_request={
+            "project_id": "proj_demo",
+            "review_task_id": "review_task_123",
+            "status": "accepted",
+            "decision": "accepted",
+        },
+        example_response={"review_task_id": "review_task_123", "status": "accepted"},
     ),
     _tool(
         "list_sessions",

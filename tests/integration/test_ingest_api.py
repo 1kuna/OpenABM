@@ -2668,6 +2668,25 @@ def test_v1_investigation_adds_model_assistance_with_citations(tmp_path, monkeyp
     )
     task_types = {task["task_type"] for task in reviews.json()["data"]}
     assert {"root_cause_candidate", "behavior_candidate"} <= task_types
+    mcp_reviews = call_tool(
+        "list_review_tasks",
+        {"project_id": "proj_demo", "task_type": "root_cause_candidate"},
+        client=_TestClientMcpAdapter(client),
+    )
+    root_cause_task = mcp_reviews["data"][0]
+    assert root_cause_task["task_type"] == "root_cause_candidate"
+    mcp_review_update = call_tool(
+        "update_review_task",
+        {
+            "project_id": "proj_demo",
+            "review_task_id": root_cause_task["review_task_id"],
+            "status": "needs_more_evidence",
+            "decision": "needs_more_evidence",
+            "notes": "Need one more trace before acting.",
+        },
+        client=_TestClientMcpAdapter(client),
+    )
+    assert mcp_review_update["decision_nullable"] == "needs_more_evidence"
 
 
 def test_core_loop_acceptance_preserves_provenance_through_mcp(tmp_path, monkeypatch) -> None:
@@ -2844,6 +2863,15 @@ def test_core_loop_acceptance_preserves_provenance_through_mcp(tmp_path, monkeyp
         {"project_id": "proj_demo", "trace_id": "trace_wrong_tool"},
         client=_TestClientMcpAdapter(client),
     )
+    mcp_context_pack = call_tool(
+        "create_agent_context_pack",
+        {
+            "project_id": "proj_demo",
+            "source_trace_ids": ["trace_wrong_tool"],
+            "allowed_next_actions": ["inspect_trace", "draft_fix"],
+        },
+        client=_TestClientMcpAdapter(client),
+    )
     scores = client.get(
         "/v1/scores",
         headers=auth_headers(),
@@ -2851,6 +2879,7 @@ def test_core_loop_acceptance_preserves_provenance_through_mcp(tmp_path, monkeyp
     )
     assert scores.json()["data"][0]["score_id"] == score.json()["score_id"]
     assert mcp_trace["trace"]["trace_id"] == "trace_wrong_tool"
+    assert mcp_context_pack["source_trace_ids"] == ["trace_wrong_tool"]
     assert mcp_trace["reconstruction"]["span_tree"][0]["children"][0]["span"][
         "span_id"
     ] == "span_wrong_tool_order_lookup"
@@ -2859,7 +2888,9 @@ def test_core_loop_acceptance_preserves_provenance_through_mcp(tmp_path, monkeyp
         headers=auth_headers(),
         params={"project_id": "proj_demo"},
     )
-    mcp_row = mcp_observations.json()["data"][0]
+    mcp_row = next(
+        row for row in mcp_observations.json()["data"] if row["tool_name"] == "get_trace"
+    )
     assert mcp_row["request"]["trace_id"] == "trace_wrong_tool"
     assert mcp_row["response"]["trace"]["trace_id"] == "trace_wrong_tool"
     assert "trace_wrong_tool" in mcp_row["citations"]
@@ -3051,6 +3082,24 @@ def test_reported_incident_investigation_acceptance_links_artifacts(
     )
     assert remediated.status_code == 200
     assert remediated.json()["status"] == "fixed"
+    mcp_affected = call_tool(
+        "list_affected_entities",
+        {"project_id": "proj_demo", "issue_id": issue_id},
+        client=_TestClientMcpAdapter(client),
+    )
+    assert mcp_affected["data"][0]["affected_entity_id"] == affected_entity["affected_entity_id"]
+    mcp_remediated = call_tool(
+        "update_affected_entity",
+        {
+            "project_id": "proj_demo",
+            "affected_entity_id": affected_entity["affected_entity_id"],
+            "status": "contacted",
+            "owner_nullable": "support-ops",
+            "notes_nullable": "MCP remediation update.",
+        },
+        client=_TestClientMcpAdapter(client),
+    )
+    assert mcp_remediated["status"] == "contacted"
     assert set(impact["representative_trace_ids"]) == {
         "trace_wrong_tool",
         "trace_fabricated_commitment",

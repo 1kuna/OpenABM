@@ -169,11 +169,37 @@ def _call_tool_impl(
             f"/v1/impact-reports/{arguments['report_id']}",
             params={"project_id": arguments["project_id"]},
         )
+    if name == "list_affected_entities":
+        params = {"project_id": arguments["project_id"]}
+        if arguments.get("issue_id"):
+            params["issue_id"] = arguments["issue_id"]
+        return client.request("GET", "/v1/affected-entities", params=params)
+    if name == "update_affected_entity":
+        return client.request(
+            "PATCH",
+            f"/v1/affected-entities/{arguments['affected_entity_id']}",
+            json_body=arguments,
+        )
     if name == "get_agent_context_pack":
         return client.request(
             "GET",
             f"/v1/context-packs/{arguments['context_pack_id']}",
             params={"project_id": arguments["project_id"]},
+        )
+    if name == "create_agent_context_pack":
+        return client.request("POST", "/v1/context-packs", json_body=arguments)
+    if name == "list_review_tasks":
+        params = {"project_id": arguments["project_id"]}
+        if arguments.get("status"):
+            params["status"] = arguments["status"]
+        if arguments.get("task_type"):
+            params["task_type"] = arguments["task_type"]
+        return client.request("GET", "/v1/review-tasks", params=params)
+    if name == "update_review_task":
+        return client.request(
+            "PATCH",
+            f"/v1/review-tasks/{arguments['review_task_id']}",
+            json_body=arguments,
         )
     if name == "list_sessions":
         return client.request(
