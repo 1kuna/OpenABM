@@ -100,6 +100,34 @@ export interface DatasetExample {
   created_at: string;
 }
 
+export interface BehaviorDefinition {
+  behavior_id: string;
+  project_id: string;
+  name: string;
+  description: string | null;
+  severity: string;
+  detector: Record<string, unknown>;
+  status: string;
+  created_at: string;
+}
+
+export interface BehaviorBacktestResult {
+  status: string;
+  behavior_id: string;
+  detector_type: string;
+  trace_count: number;
+  positive_count: number;
+  negative_count: number;
+  detection_rate: number;
+  positive_examples: Array<{ trace_id: string; evidence_span_ids: string[]; reason: string }>;
+  negative_examples: Array<{ trace_id: string; evidence_span_ids: string[]; reason: string }>;
+  review_required: boolean;
+  unsupported_reason: string | null;
+  cost: Record<string, unknown>;
+  persisted_behavior_matches?: Array<Record<string, unknown>>;
+  review_task?: ReviewTask;
+}
+
 export interface JudgeDefinition {
   judge_id: string;
   project_id: string;

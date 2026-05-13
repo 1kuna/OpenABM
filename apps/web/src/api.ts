@@ -1,4 +1,6 @@
 import type {
+  BehaviorBacktestResult,
+  BehaviorDefinition,
   DatasetDefinition,
   DatasetExample,
   DocsSearchResult,
@@ -67,6 +69,46 @@ export class OpenAbmClient {
     const params = new URLSearchParams({ project_id: projectId });
     const body = await this.get<{ data: JudgeDefinition[] }>(`/v1/judges?${params.toString()}`);
     return body.data;
+  }
+
+  async listBehaviors(projectId: string): Promise<BehaviorDefinition[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: BehaviorDefinition[] }>(`/v1/behaviors?${params.toString()}`);
+    return body.data;
+  }
+
+  async createBehavior(
+    projectId: string,
+    request: {
+      name: string;
+      description?: string;
+      severity: string;
+      detector: Record<string, unknown>;
+    }
+  ): Promise<BehaviorDefinition> {
+    return this.post<BehaviorDefinition>("/v1/behaviors", {
+      project_id: projectId,
+      name: request.name,
+      description: request.description || null,
+      severity: request.severity,
+      detector: request.detector
+    });
+  }
+
+  async backtestBehavior(
+    projectId: string,
+    behaviorId: string,
+    request: { status?: string; query?: string; limit?: number; sampleLimit?: number }
+  ): Promise<BehaviorBacktestResult> {
+    const filters: Record<string, unknown> = {};
+    if (request.status) filters.status = request.status;
+    return this.post<BehaviorBacktestResult>(`/v1/behaviors/${behaviorId}/backtest`, {
+      project_id: projectId,
+      filters,
+      query: request.query || null,
+      limit: request.limit ?? 100,
+      sample_limit: request.sampleLimit ?? 10
+    });
   }
 
   async getJudge(projectId: string, judgeId: string): Promise<JudgeDefinition> {

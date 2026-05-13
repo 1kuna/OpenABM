@@ -20,6 +20,8 @@ import { useEffect, useMemo, useState } from "react";
 import { OpenAbmClient } from "./api";
 import { fixtureDetails, fixtureProjects, fixtureTraces } from "./fixtures";
 import type {
+  BehaviorBacktestResult,
+  BehaviorDefinition,
   DatasetDefinition,
   DatasetExample,
   EvalComparison,
@@ -220,6 +222,8 @@ export function App() {
           <JudgeWorkspace client={client} connection={connection} projectId={projectId} />
         ) : activeView === "datasets" ? (
           <DatasetEvalWorkspace client={client} connection={connection} projectId={projectId} />
+        ) : activeView === "behaviors" ? (
+          <BehaviorWorkspace client={client} connection={connection} projectId={projectId} />
         ) : (
           <ScaffoldView
             activeView={activeView}
@@ -230,6 +234,235 @@ export function App() {
         )}
       </section>
     </main>
+  );
+}
+
+function BehaviorWorkspace(props: {
+  client: OpenAbmClient;
+  connection: ConnectionState;
+  projectId: string;
+}) {
+  const { client, connection, projectId } = props;
+  const [behaviors, setBehaviors] = useState<BehaviorDefinition[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [name, setName] = useState("wrong_tool_for_refund");
+  const [description, setDescription] = useState("Refund workflow uses an unrelated order lookup.");
+  const [severity, setSeverity] = useState("high");
+  const [detectorType, setDetectorType] = useState("rule");
+  const [ruleField, setRuleField] = useState("attributes.tool.name");
+  const [ruleOp, setRuleOp] = useState("eq");
+  const [ruleValue, setRuleValue] = useState("order_lookup");
+  const [filterStatus, setFilterStatus] = useState("error");
+  const [query, setQuery] = useState("");
+  const [backtest, setBacktest] = useState<BehaviorBacktestResult | null>(null);
+  const [stateText, setStateText] = useState("Behavior monitoring needs a live API");
+
+  const selectedBehavior = behaviors.find((behavior) => behavior.behavior_id === selectedId) ?? behaviors[0] ?? null;
+
+  async function loadBehaviors() {
+    if (connection !== "live") {
+      setBehaviors([]);
+      setSelectedId("");
+      setBacktest(null);
+      setStateText("fixture mode");
+      return;
+    }
+    try {
+      const loaded = await client.listBehaviors(projectId);
+      setBehaviors(loaded);
+      setSelectedId((current) =>
+        loaded.some((behavior) => behavior.behavior_id === current)
+          ? current
+          : loaded[0]?.behavior_id ?? ""
+      );
+      setStateText(`${loaded.length} behaviors`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "request failed");
+    }
+  }
+
+  useEffect(() => {
+    void loadBehaviors();
+  }, [client, connection, projectId]);
+
+  async function createBehavior() {
+    if (connection !== "live" || !name.trim()) return;
+    const detector =
+      detectorType === "manual_label"
+        ? { type: "manual_label", labels: [name.trim()] }
+        : {
+            type: "rule",
+            scope: "span",
+            conditions: {
+              combine: "all",
+              items: [{ field: ruleField.trim(), op: ruleOp, value: ruleValue.trim() }]
+            }
+          };
+    try {
+      const created = await client.createBehavior(projectId, {
+        name: name.trim(),
+        description: description.trim(),
+        severity,
+        detector
+      });
+      setBehaviors((current) => [created, ...current]);
+      setSelectedId(created.behavior_id);
+      setBacktest(null);
+      setStateText(`created ${created.name}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "behavior creation failed");
+    }
+  }
+
+  async function runBacktest() {
+    if (connection !== "live" || !selectedBehavior) return;
+    try {
+      const result = await client.backtestBehavior(projectId, selectedBehavior.behavior_id, {
+        status: filterStatus || undefined,
+        query,
+        limit: 100,
+        sampleLimit: 10
+      });
+      setBacktest(result);
+      setStateText(`backtest ${result.status}: ${result.positive_count}/${result.trace_count} positives`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "backtest failed");
+    }
+  }
+
+  return (
+    <div className="behaviorGrid">
+      <section className="panel behaviorList">
+        <div className="toolbar">
+          <button className="iconButton" onClick={() => void loadBehaviors()} aria-label="Refresh behaviors">
+            <TimerReset size={16} />
+          </button>
+          <span className="systemNote">{stateText}</span>
+        </div>
+        <div className="behaviorCreate">
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Behavior name" />
+          <input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Description" />
+          <div className="inlineControls">
+            <select value={severity} onChange={(event) => setSeverity(event.target.value)}>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="critical">critical</option>
+            </select>
+            <select value={detectorType} onChange={(event) => setDetectorType(event.target.value)}>
+              <option value="rule">rule</option>
+              <option value="manual_label">manual label</option>
+            </select>
+          </div>
+          {detectorType === "rule" ? (
+            <div className="ruleControls">
+              <input value={ruleField} onChange={(event) => setRuleField(event.target.value)} placeholder="field" />
+              <select value={ruleOp} onChange={(event) => setRuleOp(event.target.value)}>
+                <option value="eq">eq</option>
+                <option value="neq">neq</option>
+                <option value="contains">contains</option>
+                <option value="exists">exists</option>
+              </select>
+              <input value={ruleValue} onChange={(event) => setRuleValue(event.target.value)} placeholder="value" />
+            </div>
+          ) : null}
+          <button onClick={() => void createBehavior()}>
+            <GitBranch size={15} />
+            Create behavior
+          </button>
+        </div>
+        <div className="behaviorRows">
+          {behaviors.map((behavior) => (
+            <button
+              className={behavior.behavior_id === selectedBehavior?.behavior_id ? "selectedBehavior" : ""}
+              key={behavior.behavior_id}
+              onClick={() => {
+                setSelectedId(behavior.behavior_id);
+                setBacktest(null);
+              }}
+            >
+              <span className={`severityBadge ${behavior.severity}`}>{behavior.severity}</span>
+              <strong>{behavior.name}</strong>
+              <small>{String(behavior.detector.type ?? "detector")} · {behavior.status}</small>
+            </button>
+          ))}
+          {!behaviors.length ? <div className="emptyState">No behaviors</div> : null}
+        </div>
+      </section>
+
+      <section className="panel behaviorDetail">
+        {selectedBehavior ? (
+          <>
+            <div className="detailHeader">
+              <div>
+                <p className="sectionLabel">behavior</p>
+                <h3>{selectedBehavior.name}</h3>
+              </div>
+              <span className={`severityBadge ${selectedBehavior.severity}`}>{selectedBehavior.severity}</span>
+            </div>
+            <p className="entityDescription">{selectedBehavior.description ?? selectedBehavior.behavior_id}</p>
+            <div className="metricsRow behaviorMetrics">
+              <Metric icon={<GitBranch />} label="Detector" value={String(selectedBehavior.detector.type ?? "unknown")} />
+              <Metric icon={<Shield />} label="Status" value={selectedBehavior.status} />
+              <Metric icon={<Activity />} label="Backtest" value={backtest ? `${backtest.positive_count}/${backtest.trace_count}` : "not run"} />
+            </div>
+            <div className="behaviorSections">
+              <section className="behaviorSection">
+                <h4>Detector</h4>
+                <pre>{JSON.stringify(selectedBehavior.detector, null, 2)}</pre>
+              </section>
+              <section className="behaviorSection">
+                <h4>Backtest</h4>
+                <div className="evalForm">
+                  <label>
+                    Trace status
+                    <select value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)}>
+                      <option value="">Any</option>
+                      <option value="ok">ok</option>
+                      <option value="error">error</option>
+                      <option value="incomplete">incomplete</option>
+                      <option value="timeout">timeout</option>
+                    </select>
+                  </label>
+                  <label>
+                    Query
+                    <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="optional text search" />
+                  </label>
+                  <button className="primaryButton" onClick={() => void runBacktest()}>
+                    <Play size={15} />
+                    Run backtest
+                  </button>
+                </div>
+                {backtest ? (
+                  <div className="backtestSummary">
+                    <strong>{backtest.status}</strong>
+                    <span>{backtest.positive_count} positives · {backtest.negative_count} negatives · {formatRate(backtest.detection_rate)}</span>
+                    {backtest.review_task ? <span>Review task: {backtest.review_task.review_task_id}</span> : null}
+                    {backtest.unsupported_reason ? <span>{backtest.unsupported_reason}</span> : null}
+                  </div>
+                ) : null}
+              </section>
+              <section className="behaviorSection positiveExamples">
+                <h4>Positive examples</h4>
+                <div className="exampleRows">
+                  {(backtest?.positive_examples ?? []).map((example) => (
+                    <div key={example.trace_id}>
+                      <strong>{example.trace_id}</strong>
+                      <span>{example.reason}</span>
+                      <small>{example.evidence_span_ids.join(", ") || "no cited spans"}</small>
+                    </div>
+                  ))}
+                  {backtest && !backtest.positive_examples.length ? <p className="systemNote">No positives</p> : null}
+                  {!backtest ? <p className="systemNote">Run a backtest to populate examples</p> : null}
+                </div>
+              </section>
+            </div>
+          </>
+        ) : (
+          <div className="emptyState">{stateText}</div>
+        )}
+      </section>
+    </div>
   );
 }
 

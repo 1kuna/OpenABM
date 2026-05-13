@@ -225,6 +225,13 @@ button {
   gap: 18px;
 }
 
+.behaviorGrid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(360px, 0.75fr) minmax(540px, 1.25fr);
+  gap: 18px;
+}
+
 .panel {
   min-width: 0;
   min-height: 0;
@@ -259,8 +266,14 @@ button {
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
+.behaviorList {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
 .judgeList .toolbar,
-.datasetList .toolbar {
+.datasetList .toolbar,
+.behaviorList .toolbar {
   border-bottom: 1px solid #e5e7eb;
   justify-content: space-between;
   padding: 12px;
@@ -283,6 +296,14 @@ button {
 }
 
 .datasetRows {
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 10px;
+}
+
+.behaviorRows {
   overflow: auto;
   display: grid;
   align-content: start;
@@ -317,7 +338,8 @@ button {
 }
 
 .datasetRows button,
-.evalRows button {
+.evalRows button,
+.behaviorRows button {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 4px 10px;
@@ -337,7 +359,9 @@ button {
 .datasetRows button:hover,
 .datasetRows .selectedDataset,
 .evalRows button:hover,
-.evalRows .selectedEval {
+.evalRows .selectedEval,
+.behaviorRows button:hover,
+.behaviorRows .selectedBehavior {
   border-color: #9ca3af;
   background: #f8fafc;
 }
@@ -349,7 +373,9 @@ button {
 .datasetRows strong,
 .datasetRows small,
 .evalRows strong,
-.evalRows small {
+.evalRows small,
+.behaviorRows strong,
+.behaviorRows small {
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -357,7 +383,8 @@ button {
 .reviewRows small,
 .judgeRows small,
 .datasetRows small,
-.evalRows small {
+.evalRows small,
+.behaviorRows small {
   grid-column: 2;
   color: #6b7280;
 }
@@ -523,6 +550,14 @@ td span {
   padding: 16px;
 }
 
+.behaviorDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  padding: 16px;
+}
+
 .detailHeader {
   display: flex;
   align-items: flex-start;
@@ -552,6 +587,10 @@ td span {
 }
 
 .datasetMetrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.behaviorMetrics {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -834,10 +873,19 @@ pre {
   padding: 12px;
 }
 
+.behaviorCreate {
+  display: grid;
+  gap: 8px;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 12px;
+}
+
 .createStrip input,
 .exampleAdd input,
 .evalForm select,
-.evalForm input {
+.evalForm input,
+.behaviorCreate input,
+.behaviorCreate select {
   min-width: 0;
   min-height: 34px;
   border: 1px solid #d1d5db;
@@ -848,7 +896,8 @@ pre {
 
 .createStrip button,
 .exampleAdd button,
-.evalForm button {
+.evalForm button,
+.behaviorCreate button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -861,7 +910,24 @@ pre {
   padding: 0 10px;
 }
 
+.inlineControls,
+.ruleControls {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ruleControls {
+  grid-template-columns: minmax(0, 1fr) 100px minmax(0, 1fr);
+}
+
 .datasetSections {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.9fr);
+  gap: 12px;
+}
+
+.behaviorSections {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 0.9fr);
   gap: 12px;
@@ -873,14 +939,26 @@ pre {
   padding: 12px;
 }
 
-.datasetSection h4 {
+.behaviorSection {
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  padding: 12px;
+}
+
+.datasetSection h4,
+.behaviorSection h4 {
   margin: 0 0 10px;
   font-size: 14px;
 }
 
 .datasetSection:first-child,
-.evalResults {
+.evalResults,
+.behaviorSection:first-child {
   grid-row: span 2;
+}
+
+.positiveExamples {
+  grid-column: 1 / -1;
 }
 
 .exampleAdd,
@@ -929,6 +1007,47 @@ pre {
 .comparisonBox span {
   color: #6b7280;
   font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.severityBadge {
+  align-self: start;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.severityBadge.high,
+.severityBadge.critical {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.severityBadge.medium {
+  background: #fffbeb;
+  color: #a16207;
+}
+
+.severityBadge.low {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.backtestSummary {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 7px;
+  padding: 9px;
+}
+
+.backtestSummary span {
+  color: #4b5563;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 
@@ -1043,14 +1162,19 @@ pre {
   .judgeGrid,
   .judgeSections,
   .datasetGrid,
-  .datasetSections {
+  .datasetSections,
+  .behaviorGrid,
+  .behaviorSections {
     grid-template-columns: 1fr;
   }
 
   .judgeSection:first-child,
   .datasetSection:first-child,
-  .evalResults {
+  .evalResults,
+  .behaviorSection:first-child,
+  .positiveExamples {
     grid-row: auto;
+    grid-column: auto;
   }
 }
 
@@ -1076,7 +1200,13 @@ pre {
 
   .judgeMetrics,
   .datasetMetrics,
+  .behaviorMetrics,
   .policyGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .inlineControls,
+  .ruleControls {
     grid-template-columns: 1fr;
   }
 

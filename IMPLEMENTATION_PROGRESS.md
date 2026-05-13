@@ -319,6 +319,8 @@ Done:
 - Added a live Datasets/Evals workspace in the web app with dataset creation,
   trace-to-dataset examples, registered-judge eval launch, result inspection,
   and eval comparison wired to `/v1/datasets` and `/v1/evals`.
+- Added a live Behavior Monitoring workspace in the web app with manual/rule
+  detector creation and deterministic backtesting wired to `/v1/behaviors`.
 - Expanded the MCP tool contract registry to match the v2 required tool list,
   added resource templates, and added API-backed deterministic handlers for the
   implemented read/draft paths with explicit unsupported responses for gaps.
