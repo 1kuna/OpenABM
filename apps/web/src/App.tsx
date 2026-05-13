@@ -20,6 +20,9 @@ import { useEffect, useMemo, useState } from "react";
 import { OpenAbmClient } from "./api";
 import { fixtureDetails, fixtureProjects, fixtureTraces } from "./fixtures";
 import type {
+  JudgeCalibrationReport,
+  JudgeDefinition,
+  JudgePromotionResult,
   Project,
   ReviewTask,
   SpanEnvelope,
@@ -208,6 +211,8 @@ export function App() {
           />
         ) : activeView === "reviews" ? (
           <ReviewQueue client={client} connection={connection} projectId={projectId} />
+        ) : activeView === "judges" ? (
+          <JudgeWorkspace client={client} connection={connection} projectId={projectId} />
         ) : (
           <ScaffoldView
             activeView={activeView}
@@ -218,6 +223,251 @@ export function App() {
         )}
       </section>
     </main>
+  );
+}
+
+function JudgeWorkspace(props: {
+  client: OpenAbmClient;
+  connection: ConnectionState;
+  projectId: string;
+}) {
+  const { client, connection, projectId } = props;
+  const [judges, setJudges] = useState<JudgeDefinition[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [report, setReport] = useState<JudgeCalibrationReport | null>(null);
+  const [promotion, setPromotion] = useState<JudgePromotionResult | null>(null);
+  const [statusText, setStatusText] = useState("Judge workspace needs a live API");
+  const [minScoreCount, setMinScoreCount] = useState("1");
+  const [maxInvalidRate, setMaxInvalidRate] = useState("0");
+  const [requireAcceptedReview, setRequireAcceptedReview] = useState(true);
+  const [requireNoOpenReviews, setRequireNoOpenReviews] = useState(true);
+
+  const selectedJudge = judges.find((judge) => judge.judge_id === selectedId) ?? judges[0] ?? null;
+
+  async function loadJudges() {
+    if (connection !== "live") {
+      setJudges([]);
+      setSelectedId("");
+      setReport(null);
+      setPromotion(null);
+      setStatusText("fixture mode");
+      return;
+    }
+    try {
+      const loaded = await client.listJudges(projectId);
+      setJudges(loaded);
+      setSelectedId((current) =>
+        loaded.some((judge) => judge.judge_id === current)
+          ? current
+          : loaded[0]?.judge_id ?? ""
+      );
+      setPromotion(null);
+      setStatusText(`${loaded.length} judges`);
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : "request failed");
+    }
+  }
+
+  useEffect(() => {
+    void loadJudges();
+  }, [client, connection, projectId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadReport() {
+      if (connection !== "live" || !selectedJudge) {
+        setReport(null);
+        return;
+      }
+      try {
+        const [freshJudge, nextReport] = await Promise.all([
+          client.getJudge(projectId, selectedJudge.judge_id),
+          client.getJudgeCalibrationReport(projectId, selectedJudge.judge_id)
+        ]);
+        if (cancelled) return;
+        setJudges((current) =>
+          current.map((judge) => (judge.judge_id === freshJudge.judge_id ? freshJudge : judge))
+        );
+        setReport(nextReport);
+        setStatusText(`calibration ready for ${freshJudge.name}`);
+      } catch (error) {
+        if (!cancelled) {
+          setReport(null);
+          setStatusText(error instanceof Error ? error.message : "report unavailable");
+        }
+      }
+    }
+    void loadReport();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, connection, projectId, selectedJudge?.judge_id]);
+
+  async function promoteSelectedJudge() {
+    if (!selectedJudge || connection !== "live") return;
+    const policy = {
+      min_score_count: Number.parseInt(minScoreCount, 10) || 0,
+      max_invalid_output_rate: Number.parseFloat(maxInvalidRate) || 0,
+      require_accepted_review: requireAcceptedReview,
+      require_no_open_reviews: requireNoOpenReviews
+    };
+    try {
+      const result = await client.promoteJudge(projectId, selectedJudge.judge_id, policy);
+      setPromotion(result);
+      setReport(result.calibration_report);
+      if (result.judge) {
+        setJudges((current) =>
+          current.map((judge) => (judge.judge_id === result.judge?.judge_id ? result.judge : judge))
+        );
+      }
+      setStatusText(result.status === "promoted" ? "judge promoted" : "promotion blocked");
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : "promotion failed");
+    }
+  }
+
+  return (
+    <div className="judgeGrid">
+      <section className="panel judgeList">
+        <div className="toolbar">
+          <button className="iconButton" onClick={() => void loadJudges()} aria-label="Refresh judges">
+            <TimerReset size={16} />
+          </button>
+          <span className="systemNote">{statusText}</span>
+        </div>
+        <div className="judgeRows">
+          {judges.map((judge) => (
+            <button
+              className={judge.judge_id === selectedJudge?.judge_id ? "selectedJudge" : ""}
+              key={judge.judge_id}
+              onClick={() => {
+                setSelectedId(judge.judge_id);
+                setPromotion(null);
+              }}
+            >
+              <span className={`judgeStatus ${judge.status}`}>{judge.status}</span>
+              <strong>{judge.name}</strong>
+              <small>{judge.judge_type} · {judge.versions?.length ?? 0} versions</small>
+            </button>
+          ))}
+          {!judges.length ? <div className="emptyState">No judges</div> : null}
+        </div>
+      </section>
+
+      <section className="panel judgeDetail">
+        {selectedJudge ? (
+          <>
+            <div className="detailHeader">
+              <div>
+                <p className="sectionLabel">judge</p>
+                <h3>{selectedJudge.name}</h3>
+              </div>
+              <span className={`judgeStatus ${selectedJudge.status}`}>{selectedJudge.status}</span>
+            </div>
+            <p className="entityDescription">{selectedJudge.description ?? selectedJudge.judge_id}</p>
+            <div className="metricsRow judgeMetrics">
+              <Metric icon={<Activity />} label="Scores" value={report ? String(report.score_count) : "none"} />
+              <Metric icon={<AlertTriangle />} label="Invalid output" value={formatRate(report?.invalid_output_rate)} />
+              <Metric icon={<CheckCircle2 />} label="Accepted reviews" value={String(report?.human_review_labels.accepted ?? 0)} />
+            </div>
+            <div className="judgeSections">
+              <section className="judgeSection">
+                <h4>Calibration</h4>
+                {report ? (
+                  <>
+                    <dl className="reviewFacts">
+                      <div>
+                        <dt>Verdicts</dt>
+                        <dd>{formatCounts(report.verdict_counts)}</dd>
+                      </div>
+                      <div>
+                        <dt>Status counts</dt>
+                        <dd>{formatCounts(report.status_counts)}</dd>
+                      </div>
+                      <div>
+                        <dt>Eval runs</dt>
+                        <dd>{report.eval_run_ids.join(", ") || "none"}</dd>
+                      </div>
+                      <div>
+                        <dt>Tokens</dt>
+                        <dd>{report.token_usage ?? "none"}</dd>
+                      </div>
+                    </dl>
+                    <div className="driftTable">
+                      {report.drift_report.map((row) => (
+                        <div key={String(row.eval_run_id)}>
+                          <strong>{String(row.eval_run_id)}</strong>
+                          <span>{String(row.score_count ?? 0)} scores · {formatCounts(asRecord(row.verdict_counts))}</span>
+                        </div>
+                      ))}
+                      {!report.drift_report.length ? <p className="systemNote">No eval drift rows yet</p> : null}
+                    </div>
+                  </>
+                ) : (
+                  <div className="emptyState">No calibration report</div>
+                )}
+              </section>
+
+              <section className="judgeSection">
+                <h4>Promotion gate</h4>
+                <div className="policyGrid">
+                  <label>
+                    Min scores
+                    <input value={minScoreCount} onChange={(event) => setMinScoreCount(event.target.value)} inputMode="numeric" />
+                  </label>
+                  <label>
+                    Max invalid rate
+                    <input value={maxInvalidRate} onChange={(event) => setMaxInvalidRate(event.target.value)} inputMode="decimal" />
+                  </label>
+                  <label className="toggleLabel">
+                    <input
+                      type="checkbox"
+                      checked={requireAcceptedReview}
+                      onChange={(event) => setRequireAcceptedReview(event.target.checked)}
+                    />
+                    Accepted review
+                  </label>
+                  <label className="toggleLabel">
+                    <input
+                      type="checkbox"
+                      checked={requireNoOpenReviews}
+                      onChange={(event) => setRequireNoOpenReviews(event.target.checked)}
+                    />
+                    No open reviews
+                  </label>
+                </div>
+                <button className="primaryButton" onClick={() => void promoteSelectedJudge()}>
+                  <Shield size={15} />
+                  Promote
+                </button>
+                {promotion ? (
+                  <div className={`promotionResult ${promotion.status}`}>
+                    <strong>{promotion.status}</strong>
+                    <span>{promotion.blocking_reasons.join(", ") || "all gates passed"}</span>
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="judgeSection">
+                <h4>Versions</h4>
+                <div className="versionRows">
+                  {(selectedJudge.versions ?? []).map((version) => (
+                    <div key={version.judge_version_id}>
+                      <strong>v{version.version}</strong>
+                      <span>{version.judge_version_id}</span>
+                      <small>{formatTime(version.created_at)}</small>
+                    </div>
+                  ))}
+                  {!selectedJudge.versions?.length ? <p className="systemNote">No immutable versions yet</p> : null}
+                </div>
+              </section>
+            </div>
+          </>
+        ) : (
+          <div className="emptyState">{statusText}</div>
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -724,6 +974,22 @@ function payloadSummary(detail: TraceDetail) {
     state.output
   ]);
   return Array.from(new Set(states)).join(", ") || "none";
+}
+
+function formatCounts(counts: Record<string, unknown>) {
+  const entries = Object.entries(counts).filter(([, value]) => Number(value) !== 0);
+  return entries.map(([key, value]) => `${key}: ${String(value)}`).join(", ") || "none";
+}
+
+function formatRate(value: number | null | undefined) {
+  if (value == null) return "none";
+  return `${Math.round(value * 1000) / 10}%`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function connectionLabel(connection: ConnectionState) {

@@ -211,6 +211,13 @@ button {
   gap: 18px;
 }
 
+.judgeGrid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(320px, 0.7fr) minmax(520px, 1.3fr);
+  gap: 18px;
+}
+
 .panel {
   min-width: 0;
   min-height: 0;
@@ -235,7 +242,26 @@ button {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+.judgeList {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.judgeList .toolbar {
+  border-bottom: 1px solid #e5e7eb;
+  justify-content: space-between;
+  padding: 12px;
+}
+
 .reviewRows {
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 10px;
+}
+
+.judgeRows {
   overflow: auto;
   display: grid;
   align-content: start;
@@ -256,24 +282,43 @@ button {
   text-align: left;
 }
 
+.judgeRows button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #111827;
+  padding: 10px;
+  text-align: left;
+}
+
 .reviewRows button:hover,
-.reviewRows .selectedReview {
+.reviewRows .selectedReview,
+.judgeRows button:hover,
+.judgeRows .selectedJudge {
   border-color: #9ca3af;
   background: #f8fafc;
 }
 
 .reviewRows strong,
-.reviewRows small {
+.reviewRows small,
+.judgeRows strong,
+.judgeRows small {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.reviewRows small {
+.reviewRows small,
+.judgeRows small {
   grid-column: 2;
   color: #6b7280;
 }
 
-.reviewStatus {
+.reviewStatus,
+.judgeStatus {
   align-self: start;
   border-radius: 999px;
   padding: 3px 8px;
@@ -283,10 +328,17 @@ button {
   font-weight: 700;
 }
 
+.judgeStatus.active,
 .reviewStatus.accepted,
 .reviewStatus.resolved {
   background: #ecfdf5;
   color: #047857;
+}
+
+.judgeStatus.draft,
+.judgeStatus.inactive {
+  background: #fffbeb;
+  color: #a16207;
 }
 
 .reviewStatus.rejected {
@@ -407,6 +459,14 @@ td span {
   padding: 16px;
 }
 
+.judgeDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  padding: 16px;
+}
+
 .detailHeader {
   display: flex;
   align-items: flex-start;
@@ -429,6 +489,10 @@ td span {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 9px;
+}
+
+.judgeMetrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .metric {
@@ -589,6 +653,120 @@ pre {
   padding: 0 12px;
 }
 
+.entityDescription {
+  margin: 0;
+  color: #4b5563;
+  overflow-wrap: anywhere;
+}
+
+.judgeSections {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: 12px;
+}
+
+.judgeSection {
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  padding: 12px;
+}
+
+.judgeSection h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.judgeSection:first-child {
+  grid-row: span 2;
+}
+
+.driftTable,
+.versionRows {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.driftTable div,
+.versionRows div {
+  display: grid;
+  gap: 3px;
+  border: 1px solid #edf0f4;
+  border-radius: 7px;
+  padding: 9px;
+}
+
+.driftTable span,
+.versionRows span,
+.versionRows small {
+  color: #6b7280;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.policyGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin-bottom: 10px;
+}
+
+.policyGrid label {
+  display: grid;
+  gap: 5px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.policyGrid input[type="text"],
+.policyGrid input:not([type]) {
+  min-width: 0;
+}
+
+.policyGrid input {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  color: #111827;
+  min-height: 34px;
+  padding: 0 9px;
+}
+
+.policyGrid .toggleLabel {
+  align-items: center;
+  color: #374151;
+  display: flex;
+  gap: 7px;
+}
+
+.policyGrid .toggleLabel input {
+  min-height: auto;
+}
+
+.promotionResult {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 7px;
+  padding: 9px;
+}
+
+.promotionResult.promoted {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.promotionResult.blocked {
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+
+.promotionResult span {
+  color: #4b5563;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 .systemNote,
 .emptyState,
 .workRow p {
@@ -696,6 +874,15 @@ pre {
   .reviewGrid {
     grid-template-columns: 1fr;
   }
+
+  .judgeGrid,
+  .judgeSections {
+    grid-template-columns: 1fr;
+  }
+
+  .judgeSection:first-child {
+    grid-row: auto;
+  }
 }
 
 @media (max-width: 680px) {
@@ -715,6 +902,11 @@ pre {
   }
 
   .reviewMeta {
+    grid-template-columns: 1fr;
+  }
+
+  .judgeMetrics,
+  .policyGrid {
     grid-template-columns: 1fr;
   }
 

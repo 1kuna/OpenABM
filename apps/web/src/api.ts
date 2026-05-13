@@ -1,7 +1,9 @@
 import type {
   DocsSearchResult,
   EvalRun,
+  JudgeCalibrationReport,
   JudgeDefinition,
+  JudgePromotionResult,
   Project,
   ReviewTask,
   TraceDetail,
@@ -61,6 +63,27 @@ export class OpenAbmClient {
     const params = new URLSearchParams({ project_id: projectId });
     const body = await this.get<{ data: JudgeDefinition[] }>(`/v1/judges?${params.toString()}`);
     return body.data;
+  }
+
+  async getJudge(projectId: string, judgeId: string): Promise<JudgeDefinition> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<JudgeDefinition>(`/v1/judges/${judgeId}?${params.toString()}`);
+  }
+
+  async getJudgeCalibrationReport(projectId: string, judgeId: string): Promise<JudgeCalibrationReport> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<JudgeCalibrationReport>(`/v1/judges/${judgeId}/calibration-report?${params.toString()}`);
+  }
+
+  async promoteJudge(
+    projectId: string,
+    judgeId: string,
+    promotionPolicy: Record<string, unknown>
+  ): Promise<JudgePromotionResult> {
+    return this.post<JudgePromotionResult>(`/v1/judges/${judgeId}/promote`, {
+      project_id: projectId,
+      promotion_policy: promotionPolicy
+    });
   }
 
   async listEvalRuns(projectId: string): Promise<EvalRun[]> {

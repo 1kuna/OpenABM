@@ -81,7 +81,42 @@ export interface JudgeDefinition {
   description: string | null;
   judge_type: string;
   status: string;
-  versions?: Array<Record<string, unknown>>;
+  versions?: JudgeVersion[];
+}
+
+export interface JudgeVersion {
+  judge_version_id: string;
+  judge_id: string;
+  version: number;
+  definition: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface JudgeCalibrationReport {
+  judge_id: string;
+  project_id: string;
+  score_count: number;
+  eval_run_ids: string[];
+  verdict_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  invalid_output_rate: number | null;
+  avg_score: number | null;
+  latency_ms: { avg: number | null; total: number };
+  token_usage: number | null;
+  human_review_labels: Record<string, number>;
+  false_positive_reports: number;
+  false_negative_reports: number;
+  drift_report: Array<Record<string, unknown>>;
+}
+
+export interface JudgePromotionResult {
+  status: "promoted" | "blocked";
+  judge_id?: string;
+  project_id?: string;
+  judge?: JudgeDefinition;
+  promotion_policy: Record<string, unknown>;
+  blocking_reasons: string[];
+  calibration_report: JudgeCalibrationReport;
 }
 
 export interface EvalRun {

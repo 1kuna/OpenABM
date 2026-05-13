@@ -311,6 +311,9 @@ Done:
 - Added human review task APIs and connected investigation root-cause/behavior
   candidates to the review queue instead of treating model drafts as active
   product decisions.
+- Added a live Judge workspace in the web app with judge listing, immutable
+  version inspection, calibration summaries, configurable promotion gates, and
+  promotion results wired to `/v1/judges`.
 - Expanded the MCP tool contract registry to match the v2 required tool list,
   added resource templates, and added API-backed deterministic handlers for the
   implemented read/draft paths with explicit unsupported responses for gaps.
@@ -396,8 +399,9 @@ Known remaining gaps before calling the whole spec complete:
   and MCP-backed lifecycle flows, but the web UI still needs full version
   history, tag movement, and eval-linked comparison views.
 - Judge registry, model-backed judge drafting, local eval launch, eval
-  comparison, judge calibration reporting, and promotion gates now exist; judge
-  UI workspaces are still early.
+  comparison, judge calibration reporting, promotion gates, and the judge
+  lifecycle workspace now exist; richer eval-linked comparison screens are still
+  pending.
 - Automation definitions and local run execution include deterministic
   conditions, idempotency, preview notifications, review-task actions, and
   cooldown skips, bounded retries, and dead-letter action visibility; real
