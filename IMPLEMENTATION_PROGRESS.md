@@ -194,6 +194,8 @@ Done:
   trace/span continuation, preserving trace/span/session/user/project/
   environment/sampling/redaction handles without propagating prompts, outputs,
   or secrets.
+- Added SDK partial span flush support; partial snapshots emit an
+  `openabm.partial_flush` event that records whether the span was still open.
 - Added Python SDK integration wrapper contracts and a registry so future
   package-specific instrumentation plugins must declare supported versions,
   hooks, captured metadata, payload/redaction behavior, known limitations,

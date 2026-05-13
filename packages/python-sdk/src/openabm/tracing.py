@@ -316,13 +316,32 @@ class Span:
     def add_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
         self.events.append({"name": name, "time": utc_now(), "attributes": attributes or {}})
 
-    def _export(self) -> None:
+    def flush_partial(self) -> None:
+        self._export(partial=True)
+
+    def _export(self, *, partial: bool = False) -> None:
         force_capture = self._preserve_full_fidelity()
-        events = (
-            self.events
-            if force_capture
-            else _sample_events(self.events, self.tracer.sampling, sampled=self.sampled)
+        partial_event = (
+            {
+                "name": "openabm.partial_flush",
+                "time": utc_now(),
+                "attributes": {
+                    "span_is_open": self.ended_at is None,
+                    "ended_at_nullable": self.ended_at,
+                },
+            }
+            if partial
+            else None
         )
+        source_events = [*self.events, partial_event] if partial_event else self.events
+        events = (
+            source_events
+            if force_capture
+            else _sample_events(source_events, self.tracer.sampling, sampled=self.sampled)
+        )
+        if partial_event and partial_event not in events:
+            events = [*events, partial_event]
+        status = "incomplete" if partial and self.ended_at is None else self.status
         span_payload = {
             "trace_id": self.trace_id,
             "span_id": self.span_id,
@@ -330,7 +349,7 @@ class Span:
             "project_id": self.tracer.project_id,
             "name": self.name,
             "span_type": self.span_type,
-            "status": self.status,
+            "status": status,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "input": self.tracer._payload(
@@ -357,7 +376,7 @@ class Span:
                 "user_external_id": self.tracer.user_external_id,
                 "root_span_id": self.span_id,
                 "environment": self.tracer.environment,
-                "status": self.status,
+                "status": status,
                 "started_at": self.started_at,
                 "ended_at": self.ended_at,
                 "tags": [],

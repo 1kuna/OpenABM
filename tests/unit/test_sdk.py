@@ -206,6 +206,28 @@ def test_sdk_probabilistic_sampling_preserves_metadata_and_omits_bodies() -> Non
     ]
 
 
+def test_sdk_partial_flush_marks_whether_span_is_still_open() -> None:
+    exporter = InMemoryExporter()
+    tracer = Tracer("proj_demo", environment="test", exporter=exporter)
+
+    with tracer.span("long_agent", span_type="agent") as span:
+        span.flush_partial()
+
+    span_payloads = [item["payload"] for item in exporter.items if item["type"] == "span"]
+    partial_span = span_payloads[0]
+    final_span = span_payloads[-1]
+    partial_flush_event = next(
+        event for event in partial_span["events"] if event["name"] == "openabm.partial_flush"
+    )
+
+    assert partial_span["status"] == "incomplete"
+    assert partial_span["ended_at"] is None
+    assert partial_flush_event["attributes"]["span_is_open"] is True
+    assert partial_flush_event["attributes"]["ended_at_nullable"] is None
+    assert final_span["status"] == "ok"
+    assert final_span["ended_at"] is not None
+
+
 def test_http_exporter_caps_buffer_and_preserves_high_priority_items() -> None:
     exporter = HttpExporter(
         "http://127.0.0.1:8787",
