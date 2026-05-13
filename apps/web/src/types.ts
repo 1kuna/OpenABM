@@ -307,6 +307,51 @@ export interface ChatOpsInvestigationResult {
   links: Record<string, string>;
 }
 
+export interface NotificationTarget {
+  target_id: string;
+  project_id: string;
+  type: "chat" | "email" | "webhook" | "issue_tracker" | "custom";
+  display_name: string;
+  config_secret_refs: string[];
+  created_by: string | null;
+  status: "active" | "paused" | "archived";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AutomationDefinition {
+  automation_id: string;
+  project_id: string;
+  name: string;
+  trigger: Record<string, unknown>;
+  conditions: Record<string, unknown>;
+  actions: Array<Record<string, unknown>>;
+  cooldown: Record<string, unknown> | null;
+  status: "draft" | "active" | "paused" | "archived";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AutomationRun {
+  automation_run_id: string;
+  automation_id: string;
+  project_id: string;
+  trigger_entity_type: string | null;
+  trigger_entity_id: string | null;
+  idempotency_key: string | null;
+  trace_id?: string | null;
+  cooldown_key?: string | null;
+  status: "succeeded" | "failed" | "partial_failure" | "skipped" | "skipped_conditions" | "skipped_cooldown" | "dead_lettered";
+  condition_result: Record<string, unknown>;
+  condition_results?: Array<Record<string, unknown>>;
+  cooldown_result: Record<string, unknown>;
+  action_results: Array<Record<string, unknown>>;
+  started_at: string;
+  completed_at: string | null;
+  ended_at?: string | null;
+  duplicate?: boolean;
+}
+
 export interface JudgeDefinition {
   judge_id: string;
   project_id: string;

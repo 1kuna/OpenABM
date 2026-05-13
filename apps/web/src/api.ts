@@ -2,6 +2,8 @@ import type {
   AgentConfigCompareResult,
   AgentConfigDefinition,
   AgentConfigVersion,
+  AutomationDefinition,
+  AutomationRun,
   BehaviorBacktestResult,
   BehaviorDefinition,
   ChatOpsInvestigationResult,
@@ -20,6 +22,7 @@ import type {
   JudgeCalibrationReport,
   JudgeDefinition,
   JudgePromotionResult,
+  NotificationTarget,
   Project,
   ProjectExportBundle,
   PromptDefinition,
@@ -554,6 +557,72 @@ export class OpenAbmClient {
       status: patch.status,
       decision: patch.decision,
       notes: patch.notes ?? null
+    });
+  }
+
+  async listNotificationTargets(projectId: string): Promise<NotificationTarget[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: NotificationTarget[] }>(`/v1/notification-targets?${params.toString()}`);
+    return body.data;
+  }
+
+  async createNotificationTarget(
+    projectId: string,
+    request: {
+      type: NotificationTarget["type"];
+      displayName: string;
+      configSecretRefs: string[];
+      status?: NotificationTarget["status"];
+    }
+  ): Promise<NotificationTarget> {
+    return this.post<NotificationTarget>("/v1/notification-targets", {
+      project_id: projectId,
+      type: request.type,
+      display_name: request.displayName,
+      config_secret_refs: request.configSecretRefs,
+      status: request.status || "active"
+    });
+  }
+
+  async listAutomations(projectId: string): Promise<AutomationDefinition[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: AutomationDefinition[] }>(`/v1/automations?${params.toString()}`);
+    return body.data;
+  }
+
+  async getAutomation(projectId: string, automationId: string): Promise<AutomationDefinition> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<AutomationDefinition>(`/v1/automations/${automationId}?${params.toString()}`);
+  }
+
+  async createAutomation(projectId: string, request: {
+    name: string;
+    trigger: Record<string, unknown>;
+    conditions: Record<string, unknown>;
+    actions: Array<Record<string, unknown>>;
+    cooldown?: Record<string, unknown> | null;
+    status?: AutomationDefinition["status"];
+  }): Promise<AutomationDefinition> {
+    return this.post<AutomationDefinition>("/v1/automations", {
+      project_id: projectId,
+      name: request.name,
+      trigger: request.trigger,
+      conditions: request.conditions,
+      actions: request.actions,
+      cooldown: request.cooldown ?? null,
+      status: request.status || "active"
+    });
+  }
+
+  async runAutomation(
+    projectId: string,
+    automationId: string,
+    request: { traceId?: string; idempotencyKey?: string }
+  ): Promise<AutomationRun> {
+    return this.post<AutomationRun>(`/v1/automations/${automationId}/run`, {
+      project_id: projectId,
+      trace_id: request.traceId || null,
+      idempotency_key: request.idempotencyKey || null
     });
   }
 

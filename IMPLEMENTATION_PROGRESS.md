@@ -248,6 +248,10 @@ Done:
 - Added draft behavior creation, deterministic rule/manual-label/judge detector
   backtesting, persisted backtest-positive behavior matches, and review-task
   creation for candidate positives.
+- Added a live Automations workspace in the web app with notification-target
+  creation, automation definition creation, run-once execution, idempotency-key
+  input, cooldown/action result inspection, and target listing wired to
+  `/v1/notification-targets` and `/v1/automations`.
 
 ## Phase 7: Prompt Registry, MCP, And Investigation Agent
 
@@ -405,11 +409,12 @@ Verified after the latest implementation slices:
 - `make lint && make test`: passed, 43 tests after the operations workspace
   slice.
 - `npm --prefix apps/web run build`: passed.
-- Browser QA captured desktop and mobile Operations and Issues workspace
-  screenshots under `artifacts/ui-qa/`; retention dry-run, export manifest,
-  classification, issue intake, screenshot intake, and ChatOps investigation
-  flows completed against the live local API with no console errors or failing
-  API responses.
+- Browser QA captured desktop and mobile Operations, Issues, and Automations
+  workspace screenshots under `artifacts/ui-qa/`; retention dry-run, export
+  manifest, classification, issue intake, screenshot intake, ChatOps
+  investigation, notification-target creation, automation creation, and
+  automation run-once flows completed against the live local API with no console
+  errors or failing API responses.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
 - MCP stdio smoke: `tools/list` returned 35 tools and
@@ -442,7 +447,7 @@ Known remaining gaps before calling the whole spec complete:
   real OCR, attachment text extraction, and vendor-specific chat connectors are
   still future integration work.
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
-  behavior detail, automation builder, impact report, and deeper
+  behavior detail, deeper impact-report analysis, and deeper
   prompt/configuration history.
 - Production-grade auth/session/API-key management, secret vault integration,
   and scheduled retention workers remain beyond the local reference scaffold.

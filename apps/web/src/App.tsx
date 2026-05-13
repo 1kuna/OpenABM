@@ -22,6 +22,8 @@ import { fixtureDetails, fixtureProjects, fixtureTraces } from "./fixtures";
 import type {
   AgentConfigCompareResult,
   AgentConfigDefinition,
+  AutomationDefinition,
+  AutomationRun,
   BehaviorBacktestResult,
   BehaviorDefinition,
   ChatOpsInvestigationResult,
@@ -39,6 +41,7 @@ import type {
   JudgeCalibrationReport,
   JudgeDefinition,
   JudgePromotionResult,
+  NotificationTarget,
   Project,
   ProjectExportBundle,
   PromptDefinition,
@@ -64,6 +67,7 @@ type ViewKey =
   | "reviews"
   | "judges"
   | "behaviors"
+  | "automations"
   | "datasets"
   | "prompts"
   | "configs"
@@ -186,6 +190,7 @@ export function App() {
           <NavButton icon={<CheckCircle2 />} label="Reviews" active={activeView === "reviews"} onClick={() => setActiveView("reviews")} />
           <NavButton icon={<Braces />} label="Judges" active={activeView === "judges"} onClick={() => setActiveView("judges")} />
           <NavButton icon={<GitBranch />} label="Behaviors" active={activeView === "behaviors"} onClick={() => setActiveView("behaviors")} />
+          <NavButton icon={<Play />} label="Automations" active={activeView === "automations"} onClick={() => setActiveView("automations")} />
           <NavButton icon={<Database />} label="Datasets" active={activeView === "datasets"} onClick={() => setActiveView("datasets")} />
           <NavButton icon={<Split />} label="Prompts" active={activeView === "prompts"} onClick={() => setActiveView("prompts")} />
           <NavButton icon={<KeyRound />} label="Configs" active={activeView === "configs"} onClick={() => setActiveView("configs")} />
@@ -249,6 +254,8 @@ export function App() {
           <DatasetEvalWorkspace client={client} connection={connection} projectId={projectId} />
         ) : activeView === "behaviors" ? (
           <BehaviorWorkspace client={client} connection={connection} projectId={projectId} />
+        ) : activeView === "automations" ? (
+          <AutomationWorkspace client={client} connection={connection} projectId={projectId} traces={traces} />
         ) : activeView === "prompts" ? (
           <PromptRegistryWorkspace client={client} connection={connection} projectId={projectId} />
         ) : activeView === "configs" ? (
@@ -1732,6 +1739,273 @@ function BehaviorWorkspace(props: {
   );
 }
 
+function AutomationWorkspace(props: {
+  client: OpenAbmClient;
+  connection: ConnectionState;
+  projectId: string;
+  traces: TraceEnvelope[];
+}) {
+  const { client, connection, projectId, traces } = props;
+  const [targets, setTargets] = useState<NotificationTarget[]>([]);
+  const [automations, setAutomations] = useState<AutomationDefinition[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [targetName, setTargetName] = useState("Local preview");
+  const [targetType, setTargetType] = useState<NotificationTarget["type"]>("webhook");
+  const [secretRefs, setSecretRefs] = useState("secret_webhook_url");
+  const [automationName, setAutomationName] = useState("Review refund traces");
+  const [conditionStatus, setConditionStatus] = useState("");
+  const [actionType, setActionType] = useState("create_review_task");
+  const [notificationMessage, setNotificationMessage] = useState("Trace needs review");
+  const [cooldownSeconds, setCooldownSeconds] = useState("0");
+  const [runTraceId, setRunTraceId] = useState("");
+  const [idempotencyKey, setIdempotencyKey] = useState(`web-${Date.now()}`);
+  const [runResult, setRunResult] = useState<AutomationRun | null>(null);
+  const [stateText, setStateText] = useState("Automations need a live API");
+
+  const selectedAutomation = automations.find((automation) => automation.automation_id === selectedId) ?? automations[0] ?? null;
+  const selectedTarget = targets[0] ?? null;
+
+  async function loadAutomations() {
+    if (connection !== "live") {
+      setTargets([]);
+      setAutomations([]);
+      setSelectedId("");
+      setRunResult(null);
+      setStateText("fixture mode");
+      return;
+    }
+    try {
+      const [loadedTargets, loadedAutomations] = await Promise.all([
+        client.listNotificationTargets(projectId),
+        client.listAutomations(projectId)
+      ]);
+      setTargets(loadedTargets);
+      setAutomations(loadedAutomations);
+      setSelectedId((current) =>
+        loadedAutomations.some((automation) => automation.automation_id === current)
+          ? current
+          : loadedAutomations[0]?.automation_id ?? ""
+      );
+      setStateText(`${loadedAutomations.length} automations · ${loadedTargets.length} targets`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "automation refresh failed");
+    }
+  }
+
+  useEffect(() => {
+    void loadAutomations();
+  }, [client, connection, projectId]);
+
+  async function createTarget() {
+    if (connection !== "live" || !targetName.trim()) return;
+    const refs = secretRefs.split(",").map((item) => item.trim()).filter(Boolean);
+    try {
+      const created = await client.createNotificationTarget(projectId, {
+        type: targetType,
+        displayName: targetName.trim(),
+        configSecretRefs: refs,
+        status: refs.length ? "active" : "paused"
+      });
+      setTargets((current) => [created, ...current.filter((target) => target.target_id !== created.target_id)]);
+      setStateText(`created target ${created.display_name}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "target creation failed");
+    }
+  }
+
+  async function createAutomation() {
+    if (connection !== "live" || !automationName.trim()) return;
+    const seconds = Number.parseInt(cooldownSeconds, 10);
+    const targetId = selectedTarget?.target_id;
+    const conditions = conditionStatus
+      ? {
+          combine: "all",
+          items: [{ field: "trace.status", op: "eq", value: conditionStatus }]
+        }
+      : { combine: "all", items: [] };
+    const actions =
+      actionType === "send_notification"
+        ? [{ type: "send_notification", target_id: targetId, message: notificationMessage }]
+        : [{ type: "create_review_task", task_type: "behavior_candidate" }];
+    if (actionType === "send_notification" && !targetId) {
+      setStateText("Create a notification target before adding notification actions");
+      return;
+    }
+    try {
+      const created = await client.createAutomation(projectId, {
+        name: automationName.trim(),
+        trigger: { type: "trace_completed" },
+        conditions,
+        actions,
+        cooldown: Number.isFinite(seconds) && seconds > 0
+          ? { seconds, key: "automation_id + project_id" }
+          : null,
+        status: "active"
+      });
+      setAutomations((current) => [created, ...current.filter((automation) => automation.automation_id !== created.automation_id)]);
+      setSelectedId(created.automation_id);
+      setRunResult(null);
+      setStateText(`created ${created.name}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "automation creation failed");
+    }
+  }
+
+  async function runAutomation() {
+    if (connection !== "live" || !selectedAutomation) return;
+    try {
+      const result = await client.runAutomation(projectId, selectedAutomation.automation_id, {
+        traceId: runTraceId || undefined,
+        idempotencyKey: idempotencyKey.trim() || undefined
+      });
+      setRunResult(result);
+      setIdempotencyKey(`web-${Date.now()}`);
+      setStateText(result.duplicate ? `duplicate ${result.status}` : `run ${result.status}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "automation run failed");
+    }
+  }
+
+  return (
+    <div className="automationGrid">
+      <section className="panel automationList">
+        <div className="toolbar">
+          <button className="iconButton" onClick={() => void loadAutomations()} aria-label="Refresh automations">
+            <TimerReset size={16} />
+          </button>
+          <span className="systemNote">{stateText}</span>
+        </div>
+        <div className="automationCreate">
+          <input value={targetName} onChange={(event) => setTargetName(event.target.value)} placeholder="Target name" />
+          <div className="inlineControls">
+            <select value={targetType} onChange={(event) => setTargetType(event.target.value as NotificationTarget["type"])}>
+              <option value="webhook">webhook</option>
+              <option value="chat">chat</option>
+              <option value="email">email</option>
+              <option value="issue_tracker">issue tracker</option>
+              <option value="custom">custom</option>
+            </select>
+            <input value={secretRefs} onChange={(event) => setSecretRefs(event.target.value)} placeholder="secret refs" />
+          </div>
+          <button onClick={() => void createTarget()}>
+            <KeyRound size={15} />
+            Create target
+          </button>
+        </div>
+        <div className="automationCreate secondaryCreate">
+          <input value={automationName} onChange={(event) => setAutomationName(event.target.value)} placeholder="Automation name" />
+          <div className="inlineControls">
+            <select value={conditionStatus} onChange={(event) => setConditionStatus(event.target.value)}>
+              <option value="">Any trace status</option>
+              <option value="error">error</option>
+              <option value="ok">ok</option>
+              <option value="timeout">timeout</option>
+              <option value="incomplete">incomplete</option>
+            </select>
+            <select value={actionType} onChange={(event) => setActionType(event.target.value)}>
+              <option value="create_review_task">create review task</option>
+              <option value="send_notification">send notification</option>
+            </select>
+          </div>
+          <input value={notificationMessage} onChange={(event) => setNotificationMessage(event.target.value)} placeholder="Notification message" />
+          <input value={cooldownSeconds} onChange={(event) => setCooldownSeconds(event.target.value)} placeholder="cooldown seconds" />
+          <button onClick={() => void createAutomation()}>
+            <Play size={15} />
+            Create automation
+          </button>
+        </div>
+        <div className="automationRows">
+          {automations.map((automation) => (
+            <button
+              className={automation.automation_id === selectedAutomation?.automation_id ? "selectedAutomation" : ""}
+              key={automation.automation_id}
+              onClick={() => {
+                setSelectedId(automation.automation_id);
+                setRunResult(null);
+              }}
+            >
+              <span className={`judgeStatus ${automation.status}`}>{automation.status}</span>
+              <strong>{automation.name}</strong>
+              <small>{automation.actions.length} actions · {automation.automation_id}</small>
+            </button>
+          ))}
+          {!automations.length ? <div className="emptyState">No automations</div> : null}
+        </div>
+      </section>
+
+      <section className="panel automationDetail">
+        {selectedAutomation ? (
+          <>
+            <div className="detailHeader">
+              <div>
+                <p className="sectionLabel">automation</p>
+                <h3>{selectedAutomation.name}</h3>
+              </div>
+              <span className={`judgeStatus ${selectedAutomation.status}`}>{selectedAutomation.status}</span>
+            </div>
+            <div className="metricsRow automationMetrics">
+              <Metric icon={<Play />} label="Trigger" value={String(selectedAutomation.trigger.type ?? "unknown")} />
+              <Metric icon={<CheckCircle2 />} label="Actions" value={String(selectedAutomation.actions.length)} />
+              <Metric icon={<TimerReset />} label="Cooldown" value={selectedAutomation.cooldown ? `${String(selectedAutomation.cooldown.seconds ?? 0)}s` : "none"} />
+            </div>
+            <div className="automationSections">
+              <section className="automationSection">
+                <h4>Definition</h4>
+                <pre>{JSON.stringify({
+                  trigger: selectedAutomation.trigger,
+                  conditions: selectedAutomation.conditions,
+                  actions: selectedAutomation.actions,
+                  cooldown: selectedAutomation.cooldown
+                }, null, 2)}</pre>
+              </section>
+
+              <section className="automationSection">
+                <h4>Run once</h4>
+                <select value={runTraceId} onChange={(event) => setRunTraceId(event.target.value)}>
+                  <option value="">No trace trigger</option>
+                  {traces.map((trace) => (
+                    <option key={trace.trace_id} value={trace.trace_id}>
+                      {trace.trace_id} · {trace.status}
+                    </option>
+                  ))}
+                </select>
+                <input value={idempotencyKey} onChange={(event) => setIdempotencyKey(event.target.value)} placeholder="idempotency key" />
+                <button className="primaryButton" onClick={() => void runAutomation()}>
+                  <Play size={15} />
+                  Run
+                </button>
+                {runResult ? (
+                  <div className={`automationResult ${runResult.status}`}>
+                    <strong>{runResult.duplicate ? "duplicate" : runResult.status}</strong>
+                    <span>{runResult.action_results.length} action results</span>
+                    <span>{String(runResult.condition_result.passed ?? "condition unknown")}</span>
+                    <pre>{JSON.stringify(runResult, null, 2)}</pre>
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="automationSection">
+                <h4>Notification targets</h4>
+                <div className="sectionRows">
+                  {targets.map((target) => (
+                    <div key={target.target_id}>
+                      <strong>{target.display_name}</strong>
+                      <span>{target.type} · {target.status} · {target.config_secret_refs.join(", ") || "no secrets"}</span>
+                    </div>
+                  ))}
+                  {!targets.length ? <p className="systemNote">No targets</p> : null}
+                </div>
+              </section>
+            </div>
+          </>
+        ) : (
+          <div className="emptyState">{stateText}</div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function DatasetEvalWorkspace(props: {
   client: OpenAbmClient;
   connection: ConnectionState;
@@ -2756,6 +3030,7 @@ function moduleFixtureSummary(view: ViewKey): ModuleSummary {
     reviews: { label: "Reviews", value: "live", detail: "Review decisions are API-backed" },
     judges: { label: "Judges", value: "ready", detail: "Registry, drafts, and versions are API-backed" },
     behaviors: { label: "Behaviors", value: "ready", detail: "Rules and backtests are API-backed" },
+    automations: { label: "Automations", value: "ready", detail: "Targets, definitions, runs, cooldowns, and retries are API-backed" },
     datasets: { label: "Evals", value: "ready", detail: "Local eval run and compare APIs are wired" },
     prompts: { label: "Prompts", value: "ready", detail: "Versions, tags, render, and diff are API-backed" },
     configs: { label: "Configs", value: "ready", detail: "Runtime config versions and comparisons are API-backed" },
@@ -2776,6 +3051,11 @@ function scaffoldRows(view: ViewKey) {
       { icon: <GitBranch />, title: "Manual labels", status: "schema and API surface pending", phase: "Phase 6" },
       { icon: <Braces />, title: "Rule detectors", status: "condition grammar available", phase: "Phase 6" },
       { icon: <Network />, title: "Cluster discovery", status: "deferred until embeddings", phase: "Phase 6" }
+    ],
+    automations: [
+      { icon: <Play />, title: "Definitions", status: "trigger, condition, action, and cooldown records available", phase: "Phase 6" },
+      { icon: <KeyRound />, title: "Notification targets", status: "secret-ref based targets available", phase: "Phase 6" },
+      { icon: <TimerReset />, title: "Runs", status: "idempotency, cooldown, retry, and dead-letter checks available", phase: "Phase 6" }
     ],
     datasets: [
       { icon: <Database />, title: "Dataset provenance", status: "schema and storage tables available", phase: "Phase 5" },
@@ -2956,6 +3236,7 @@ function viewTitle(view: ViewKey) {
     reviews: "Review queue",
     judges: "Judge runtime",
     behaviors: "Behavior monitoring",
+    automations: "Automations",
     datasets: "Datasets and evals",
     prompts: "Prompt registry",
     configs: "Agent configs",
