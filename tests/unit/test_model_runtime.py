@@ -1,10 +1,18 @@
 import asyncio
 import json
+from pathlib import Path
 
 import httpx
 from openabm_worker.investigation import assist_investigation
 from openabm_worker.judges import run_rubric_judge
+from openabm_worker.model_benchmark import (
+    compare_model_runtime_benchmarks,
+    run_model_runtime_benchmark,
+)
 from openabm_worker.model_runtime import OpenAICompatibleModelProvider
+
+ROOT = Path(__file__).resolve().parents[2]
+FIXTURE_PATH = ROOT / "evals" / "golden-fixtures" / "trace_fixtures.json"
 
 
 def test_structured_completion_parses_json_without_timeout() -> None:
@@ -229,3 +237,109 @@ def test_investigation_assistance_drops_invented_citations() -> None:
     assert result["behavior_drafts"][0]["positive_trace_ids"] == ["trace_1"]
     assert result["behavior_drafts"][0]["negative_trace_ids"] == []
     assert result["rubric_drafts"][0]["evidence_trace_ids"] == ["trace_1"]
+
+
+def test_model_runtime_benchmark_reports_quality_and_promotion_gate() -> None:
+    class StubHealth:
+        adapter_name = "stub"
+        details = {"chat_model": "stub-model"}
+
+    class StubProvider:
+        adapter_name = "stub"
+
+        def health_check(self):
+            return StubHealth()
+
+        async def structured_completion(self, request, schema):
+            del schema
+            text = json.dumps(request)
+            if "trace_wrong_tool" in text:
+                verdict = "fail"
+                evidence_span_ids = ["span_wrong_tool_order_lookup"]
+            elif "trace_happy_support" in text:
+                verdict = "pass"
+                evidence_span_ids = ["span_happy_tool"]
+            else:
+                verdict = "unsure"
+                evidence_span_ids = []
+            return {
+                "status": "succeeded",
+                "value": {
+                    "verdict": verdict,
+                    "score": {"pass": 1.0, "fail": 0.0, "unsure": 0.5}[verdict],
+                    "confidence": 0.8,
+                    "reasoning": "Fixture-controlled benchmark result.",
+                    "evidence_span_ids": evidence_span_ids,
+                    "failure_mode": None if verdict != "fail" else "wrong_tool_for_refund",
+                    "notes": None,
+                },
+                "provider": "stub",
+                "model": "stub-model",
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                "repaired": False,
+            }
+
+    corpus = json.loads(FIXTURE_PATH.read_text())
+    result = asyncio.run(
+        run_model_runtime_benchmark(
+            StubProvider(),
+            fixtures=corpus["fixtures"],
+            fixture_version=corpus["fixture_version"],
+            model_config={"chat_model": "stub-model", "model_context_length": 32768},
+            token_budget=32768,
+        )
+    )
+
+    assert result["provider_adapter"] == "stub"
+    assert result["model_identifier"] == "stub-model"
+    assert result["fixture_version"] == corpus["fixture_version"]
+    assert result["metrics"]["total_fixtures"] == len(corpus["fixtures"])
+    assert result["metrics"]["judge_accuracy"] == 1.0
+    assert result["metrics"]["structured_output_validity_rate"] == 1.0
+    assert result["metrics"]["citation_validity_rate"] == 1.0
+    assert result["metrics"]["cost"]["usage"]["total_tokens"] == 15 * len(corpus["fixtures"])
+    assert result["promotion_gate"]["status"] == "eligible"
+
+
+def test_model_runtime_benchmark_blocks_invalid_outputs() -> None:
+    class StubHealth:
+        adapter_name = "stub"
+        details = {"chat_model": "bad-model"}
+
+    class InvalidProvider:
+        def health_check(self):
+            return StubHealth()
+
+        async def structured_completion(self, request, schema):
+            del request, schema
+            return {
+                "status": "invalid_output",
+                "provider": "stub",
+                "model": "bad-model",
+                "usage": None,
+                "raw_output": "not json",
+            }
+
+    corpus = json.loads(FIXTURE_PATH.read_text())
+    result = asyncio.run(
+        run_model_runtime_benchmark(
+            InvalidProvider(),
+            fixtures=corpus["fixtures"][:1],
+            fixture_version=corpus["fixture_version"],
+            model_config={"chat_model": "bad-model", "model_context_length": 32768},
+            token_budget=32768,
+        )
+    )
+    assert result["promotion_gate"]["status"] == "blocked"
+    assert "invalid_output_rate_above_threshold" in result["promotion_gate"]["blocking_reasons"]
+
+    comparison = compare_model_runtime_benchmarks(
+        {
+            "benchmark_run_id": "baseline",
+            "model_identifier": "baseline-model",
+            "metrics": {"judge_accuracy": 1.0, "invalid_output_rate": 0.0},
+        },
+        result,
+    )
+    assert comparison["candidate_run_id"] == result["benchmark_run_id"]
+    assert comparison["metric_deltas"]["judge_accuracy"] < 0

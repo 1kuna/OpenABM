@@ -221,8 +221,15 @@ Done:
 - Added development-only code judge sandbox with scrubbed environment,
   temporary inputs/outputs, timeout handling, stdout/stderr capture, and explicit
   `dev_only` isolation status.
+- Added a reproducible local model runtime benchmark harness exposed as
+  `openabm bench model-runtime --fixtures golden --provider configured-provider`;
+  it records provider/model/config hash, fixture version, structured-output
+  validity, citation validity, judge accuracy, unsure/invalid/context-failure
+  rates, latency, throughput, memory, token usage, and a promotion gate that
+  blocks high invalid-output or citation-failure rates.
 - Added tests for disabled model mode, citation validation, deterministic rule
-  judge execution, and code judge environment scrubbing.
+  judge execution, benchmark quality/promotion gating, and code judge
+  environment scrubbing.
 
 ## Phase 5: Datasets And Offline Evals
 
@@ -531,6 +538,11 @@ Verified after the latest implementation slices:
   `resources/templates/list` returned 14 resource templates.
 - Live LM Studio canaries completed for structured rubric output, semantic trace
   similarity, and investigation drafting with `openabm-qwen35-9b`.
+- Live LM Studio model-runtime benchmark completed with `qwen3.5-9b-mlx` against
+  the current four-fixture golden set: structured-output validity 1.0, citation
+  validity 1.0, judge accuracy 1.0, invalid-output rate 0.0, unsure rate 0.5,
+  17,992 total tokens, and 318.4s total latency. The machine-readable result is
+  under `artifacts/model-benchmarks/qwen3.5-9b-golden.json`.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:
