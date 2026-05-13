@@ -1608,13 +1608,48 @@
       },
       "post": {
         "operationId": "createNoveltyRun",
-        "summary": "Run passive novelty detection over recent traces.",
+        "summary": "Run passive novelty detection over recent traces with optional model grouping.",
         "x-required-scopes": [
           "behaviors:write"
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "filters": {
+                    "type": "object"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "semantic_grouping_with_model": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "Novelty run created."
+          },
+          "503": {
+            "description": "Model provider unavailable for semantic grouping."
           }
         }
       }

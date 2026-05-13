@@ -28,7 +28,10 @@ from openabm_worker.model_runtime import (
     ModelConfigurationError,
     model_provider_from_settings,
 )
-from openabm_worker.novelty import detect_novel_behavior_candidates
+from openabm_worker.novelty import (
+    detect_novel_behavior_candidates,
+    group_novel_behavior_candidates_with_model,
+)
 from openabm_worker.offline_eval import run_eval
 from openabm_worker.similarity import rank_similar_traces
 
@@ -2178,7 +2181,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"data": store.list_novelty_runs(project_id)}
 
     @app.post("/api/novelty-runs", status_code=201)
-    def create_novelty_run(
+    async def create_novelty_run(
         request: dict[str, Any],
         actor: dict[str, object] = Depends(auth_dependency(["behaviors:write"])),
     ) -> dict[str, object]:
@@ -2205,6 +2208,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             spans_by_trace,
             store.list_behaviors(project_id),
         )
+        if request.get("semantic_grouping_with_model"):
+            try:
+                provider = model_provider_from_settings(settings)
+                result = await group_novel_behavior_candidates_with_model(
+                    provider,
+                    result,
+                    traces=traces,
+                    spans_by_trace=spans_by_trace,
+                )
+            except ModelConfigurationError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=_error("model_unavailable", str(exc), retryable=True),
+                ) from exc
+            except ModelCallsDisabled as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=_error("model_unavailable", str(exc), retryable=True),
+                ) from exc
+            if result.get("semantic_grouping", {}).get("status") == "invalid_model_output":
+                raise HTTPException(
+                    status_code=422,
+                    detail=_error(
+                        "invalid_model_output",
+                        "Novelty grouping model output was invalid.",
+                    ),
+                )
         run = store.create_novelty_run(project_id, request, result)
         for index, candidate in enumerate(result["new_behavior_candidates"]):
             store.create_review_task(

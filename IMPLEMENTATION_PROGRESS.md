@@ -294,6 +294,13 @@ Done:
   separately scoped tool.
 - Added passive novelty detection runs that group unknown error/tool signatures,
   persist candidate outputs, and create review tasks for behavior candidates.
+- Added optional local-model semantic grouping for novelty runs through tool
+  calls. The model can name and merge deterministic signature candidates, but
+  trace membership is validated against source candidates before persistence.
+- Verified a live LM Studio novelty canary against `qwen3.5-9b-mlx`: the model
+  emitted a tool call, named the fixture candidate `Tool Selection Error`, and
+  OpenABM persisted validated membership back to `error_wrong_tool` /
+  `trace_wrong_tool` with model metadata.
 - Added screenshot issue intake endpoint that stores screenshot-origin issues and
   returns candidate seed traces with explicit match reasons.
 - Added ChatOps-style investigation endpoint that creates canonical issue and
@@ -393,8 +400,9 @@ Known remaining gaps before calling the whole spec complete:
   cooldown skips, bounded retries, and dead-letter action visibility; real
   external notification delivery and compensation handlers still need
   implementation beyond preview/audit mode.
-- Passive novelty detection has a deterministic exact-signature runner; semantic
-  grouping and model-generated candidate naming remain future model-quality work.
+- Passive novelty detection has deterministic exact-signature grouping plus
+  optional model semantic grouping/naming with validated membership; larger
+  clustering and embedding-backed discovery remain future work.
 - Grounding/fabricated-value checks support explicit, deterministically split,
   and model-extracted claims with exact evidence matching; broader semantic
   contradiction adjudication remains review-gated rather than automatic.

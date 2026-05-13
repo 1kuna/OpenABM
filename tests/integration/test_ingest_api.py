@@ -868,6 +868,67 @@ def test_v1_grounding_checks_and_novelty_runs_are_reviewable(tmp_path) -> None:
     }
 
 
+def test_v1_model_grouped_novelty_candidates_are_reviewable(tmp_path, monkeypatch) -> None:
+    class StubProvider:
+        async def tool_completion(self, request, tools):
+            del request, tools
+            return {
+                "status": "succeeded",
+                "tool_calls": [
+                    {
+                        "name": "record_novelty_groups",
+                        "arguments": {
+                            "groups": [
+                                {
+                                    "name": "Refund flow uses order lookup",
+                                    "description": (
+                                        "Refund requests are routed through order lookup."
+                                    ),
+                                    "candidate_names": ["error_wrong_tool", "not_real"],
+                                    "severity": "high",
+                                    "uncertainty": "single fixture trace",
+                                }
+                            ],
+                            "uncertainty": "model grouped deterministic signatures",
+                        },
+                    }
+                ],
+                "provider": "stub",
+                "model": "stub-model",
+                "usage": {"total_tokens": 77},
+            }
+
+    monkeypatch.setattr(
+        "openabm_api.main.model_provider_from_settings",
+        lambda settings: StubProvider(),
+    )
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    trace_id = fixture["trace"]["trace_id"]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    novelty = client.post(
+        "/v1/novelty-runs",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "filters": {"status": "error"},
+            "semantic_grouping_with_model": True,
+        },
+    )
+    assert novelty.status_code == 201
+    result = novelty.json()["result"]
+    candidate = result["new_behavior_candidates"][0]
+    assert candidate["name"] == "Refund flow uses order lookup"
+    assert candidate["source_candidate_names"] == ["error_wrong_tool"]
+    assert candidate["representative_positive_traces"] == [trace_id]
+    assert result["source_signature_candidates"][0]["name"] == "error_wrong_tool"
+    assert result["semantic_grouping"]["model_metadata"]["model"] == "stub-model"
+
+
 def test_v1_model_extracted_grounding_claims_are_deterministically_checked(
     tmp_path,
     monkeypatch,
