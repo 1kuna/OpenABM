@@ -1003,8 +1003,9 @@ Known remaining gaps before calling the whole spec complete:
 - Judge registry, model-backed judge drafting, local eval launch, eval
   comparison, judge calibration reporting, promotion gates, and the judge
   lifecycle workspace now exist. Prompt/config-linked eval launch, comparison
-  provenance, behavior-distribution shifts, and runtime-version analytics are
-  now wired; deeper historical drilldowns remain future polish.
+  provenance, behavior-distribution shifts, historical run drilldowns, and
+  runtime-version analytics are now wired; broader long-horizon trend views
+  remain future polish.
 - Automation definitions and local run execution include deterministic
   conditions, idempotency, preview notifications, opt-in live webhook delivery,
   review-task actions, cooldown skips, bounded retries, and dead-letter action
@@ -1151,6 +1152,9 @@ Implemented in this pass:
 - Added deterministic XLSX and PPTX attachment text extraction using the same
   bounded OOXML parser approach as DOCX, so spreadsheet and presentation uploads
   can contribute searchable intake evidence without an external service.
+- Added eval comparison historical run drilldowns keyed by related dataset,
+  prompt, config, and baseline-chain lineage, plus UI rows that expose pass
+  rate, score, invalid-output count, runtime provenance, and matched lineage.
 - Notification target creation now rejects plaintext config blobs and validates
   `config_secret_refs`; active targets require at least one secret ref, while
   paused placeholders can be created without mounting secrets.

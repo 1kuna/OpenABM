@@ -221,6 +221,18 @@ def _invalid_output_count(summary: dict[str, Any]) -> int:
     return int(summary.get("result_status_counts", {}).get("invalid_output", 0))
 
 
+def _eval_history_role(
+    eval_run_id: str,
+    baseline: dict[str, Any],
+    candidate: dict[str, Any],
+) -> str:
+    if eval_run_id == baseline["eval_run_id"]:
+        return "baseline"
+    if eval_run_id == candidate["eval_run_id"]:
+        return "candidate"
+    return "related"
+
+
 def _nullable_delta(
     candidate: int | float | None,
     baseline: int | float | None,
@@ -3330,7 +3342,71 @@ class SQLiteStore:
             ),
             "behavior_distribution_shift": behavior_distribution_shift,
             "provenance_comparison": _runtime_provenance_comparison(baseline, candidate),
+            "historical_runs": self._eval_comparison_history(project_id, baseline, candidate),
         }
+
+    def _eval_comparison_history(
+        self,
+        project_id: str,
+        baseline: dict[str, Any],
+        candidate: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        comparison_run_ids = {baseline["eval_run_id"], candidate["eval_run_id"]}
+        dataset_version_ids = {
+            baseline["dataset_version_id"],
+            candidate["dataset_version_id"],
+        }
+        prompt_version_ids = {
+            value
+            for value in [baseline.get("prompt_version_id"), candidate.get("prompt_version_id")]
+            if value
+        }
+        agent_config_version_ids = {
+            value
+            for value in [
+                baseline.get("agent_config_version_id"),
+                candidate.get("agent_config_version_id"),
+            ]
+            if value
+        }
+        rows = []
+        for run in self.list_eval_runs(project_id):
+            matched_on = []
+            if run["eval_run_id"] in comparison_run_ids:
+                matched_on.append("comparison_run")
+            if run["dataset_version_id"] in dataset_version_ids:
+                matched_on.append("dataset_version_id")
+            if run.get("prompt_version_id") in prompt_version_ids:
+                matched_on.append("prompt_version_id")
+            if run.get("agent_config_version_id") in agent_config_version_ids:
+                matched_on.append("agent_config_version_id")
+            if run.get("baseline_eval_run_id") in comparison_run_ids:
+                matched_on.append("baseline_chain")
+            if not matched_on:
+                continue
+            results = self.list_eval_results(project_id, run["eval_run_id"])
+            rows.append(
+                {
+                    "eval_run_id": run["eval_run_id"],
+                    "role": _eval_history_role(run["eval_run_id"], baseline, candidate),
+                    "matched_on": matched_on,
+                    "dataset_version_id": run["dataset_version_id"],
+                    "baseline_eval_run_id": run.get("baseline_eval_run_id"),
+                    "status": run["status"],
+                    "pass_rate": _pass_rate(run.get("summary", {})),
+                    "avg_score": _average_score(results),
+                    "invalid_output_count": _invalid_output_count(run.get("summary", {})),
+                    "total_examples": _total_eval_examples(run.get("summary", {})),
+                    "prompt_version_id": run.get("prompt_version_id"),
+                    "agent_config_version_id": run.get("agent_config_version_id"),
+                    "deployment_context_id": (run.get("runtime_context") or {}).get(
+                        "deployment_context_id"
+                    ),
+                    "created_at": run["created_at"],
+                    "completed_at": run.get("completed_at"),
+                }
+            )
+        return rows[:20]
 
     def _eval_behavior_distribution_shift(
         self,

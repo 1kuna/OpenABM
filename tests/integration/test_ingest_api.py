@@ -1251,6 +1251,17 @@ def test_v1_judge_registry_eval_compare_and_docs_search(tmp_path) -> None:
         "wrong_tool_for_refund"
     )
 
+    historical = client.post(
+        "/v1/evals/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "dataset_version_id": dataset["latest_version_id"],
+            "judges": [_order_lookup_present_judge()],
+        },
+    )
+    assert historical.status_code == 201
+
     baseline = client.post(
         "/v1/evals/run",
         headers=auth_headers(),
@@ -1292,6 +1303,15 @@ def test_v1_judge_registry_eval_compare_and_docs_search(tmp_path) -> None:
     assert comparison.json()["pass_rate_delta"] == 1.0
     assert comparison.json()["avg_score_delta"] == 1.0
     assert comparison.json()["fixed_failures"]
+    historical_runs = comparison.json()["historical_runs"]
+    historical_by_id = {run["eval_run_id"]: run for run in historical_runs}
+    assert historical_by_id[baseline.json()["eval_run_id"]]["role"] == "baseline"
+    assert historical_by_id[candidate.json()["eval_run_id"]]["role"] == "candidate"
+    assert historical_by_id[historical.json()["eval_run_id"]]["role"] == "related"
+    assert "dataset_version_id" in historical_by_id[historical.json()["eval_run_id"]]["matched_on"]
+    assert historical_by_id[candidate.json()["eval_run_id"]]["baseline_eval_run_id"] == (
+        baseline.json()["eval_run_id"]
+    )
 
     review_tasks = client.get(
         "/v1/review-tasks",

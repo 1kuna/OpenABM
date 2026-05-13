@@ -4121,6 +4121,7 @@ function DatasetEvalWorkspace(props: {
                       shift={comparison.behavior_distribution_shift}
                       onOpenTrace={props.onOpenTrace}
                     />
+                    <EvalHistoryRows runs={comparison.historical_runs} />
                     <EvalFailureRows
                       title="New failures"
                       exampleIds={comparison.new_failures}
@@ -4194,6 +4195,30 @@ function EvalBehaviorShiftRows(props: {
         );
       })}
       {!deltas.length ? <span>No labeled behavior changes</span> : null}
+    </div>
+  );
+}
+
+function EvalHistoryRows(props: { runs: EvalComparison["historical_runs"] }) {
+  return (
+    <div className="comparisonShiftRows">
+      <strong>Run history</strong>
+      {props.runs.map((run) => (
+        <div key={run.eval_run_id}>
+          <div className="comparisonShiftHeader">
+            <strong>{shortIdentifier(run.eval_run_id)}</strong>
+            <span className="statusBadge">{run.role}</span>
+          </div>
+          <span>
+            Pass {formatPercent(run.pass_rate)} · score {formatNullableNumber(run.avg_score)} · invalid {run.invalid_output_count}
+          </span>
+          <span>
+            Dataset {shortIdentifier(run.dataset_version_id)} · matched {formatStringList(run.matched_on)}
+          </span>
+          <small>{formatEvalHistoryRuntime(run)}</small>
+        </div>
+      ))}
+      {!props.runs.length ? <span>No related historical runs</span> : null}
     </div>
   );
 }
@@ -6534,10 +6559,30 @@ function formatSignedPercent(value: number | null | undefined) {
   return `${rounded > 0 ? "+" : ""}${rounded}%`;
 }
 
+function formatPercent(value: number | null | undefined) {
+  if (value == null) return "none";
+  return `${Math.round(value * 1000) / 10}%`;
+}
+
 function formatSignedNumber(value: number | null | undefined) {
   if (value == null) return "none";
   const rounded = Math.round(value * 1000) / 1000;
   return `${rounded > 0 ? "+" : ""}${rounded}`;
+}
+
+function formatNullableNumber(value: number | null | undefined) {
+  if (value == null) return "none";
+  return String(Math.round(value * 1000) / 1000);
+}
+
+function formatEvalHistoryRuntime(run: EvalComparison["historical_runs"][number]) {
+  const parts = [
+    run.prompt_version_id ? `prompt ${shortIdentifier(run.prompt_version_id)}` : null,
+    run.agent_config_version_id ? `config ${shortIdentifier(run.agent_config_version_id)}` : null,
+    run.deployment_context_id ? `deploy ${shortIdentifier(run.deployment_context_id)}` : null,
+    run.completed_at ? `completed ${formatTime(run.completed_at)}` : `created ${formatTime(run.created_at)}`
+  ].filter(Boolean);
+  return parts.join(" · ");
 }
 
 function formatSignedInteger(value: number | null | undefined) {

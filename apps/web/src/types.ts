@@ -872,6 +872,25 @@ export interface EvalComparison {
   token_delta: number | null;
   behavior_distribution_shift: EvalBehaviorDistributionShift;
   provenance_comparison: Record<string, unknown>;
+  historical_runs: EvalComparisonHistoryRun[];
+}
+
+export interface EvalComparisonHistoryRun {
+  eval_run_id: string;
+  role: "baseline" | "candidate" | "related";
+  matched_on: string[];
+  dataset_version_id: string;
+  baseline_eval_run_id: string | null;
+  status: string;
+  pass_rate: number;
+  avg_score: number | null;
+  invalid_output_count: number;
+  total_examples: number;
+  prompt_version_id: string | null;
+  agent_config_version_id: string | null;
+  deployment_context_id: string | null;
+  created_at: string;
+  completed_at: string | null;
 }
 
 export interface DocsSearchResult {
