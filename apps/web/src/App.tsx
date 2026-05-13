@@ -6052,7 +6052,7 @@ function moduleFixtureSummary(view: ViewKey): ModuleSummary {
     datasets: { label: "Evals", value: "ready", detail: "Eval runs can link prompt and runtime config versions" },
     prompts: { label: "Prompts", value: "ready", detail: "Versions, tags, render, and diff are API-backed" },
     configs: { label: "Configs", value: "ready", detail: "Runtime config versions and comparisons are API-backed" },
-    mcp: { label: "MCP", value: "41 tools", detail: "Tools and JSON resources are routed" },
+    mcp: { label: "MCP", value: "52 tools", detail: "Tools and JSON resources are routed" },
     ops: { label: "Ops", value: "ready", detail: "Health, export, retention, and tombstones are wired" }
   };
   return summaries[view];

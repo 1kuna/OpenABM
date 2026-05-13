@@ -864,7 +864,7 @@ Verified after the latest implementation slices:
   `artifacts/ui-qa/openabm-ops-observability-mobile.png`.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
-- MCP manifest/stdio smoke: the current tool surface exposes 43 tools and
+- MCP manifest/stdio smoke: the current tool surface exposes 52 tools and
   `resources/templates/list` returns 15 protocol-shaped JSON resource
   templates.
 - Live LM Studio canaries completed for structured rubric output, semantic trace
