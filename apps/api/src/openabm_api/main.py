@@ -41,7 +41,14 @@ from openabm_worker.novelty import (
     group_novel_behavior_candidates_with_model,
 )
 from openabm_worker.offline_eval import run_eval
-from openabm_worker.similarity import rank_similar_traces, rank_similar_traces_by_embeddings
+from openabm_worker.similarity import (
+    build_span_embedding_document,
+    build_trace_embedding_document,
+    embedding_representation_version,
+    rank_similar_traces,
+    rank_similar_traces_by_embeddings,
+    rank_similar_traces_from_vectors,
+)
 
 from openabm_api.auth import SESSION_COOKIE_POLICY, auth_contract, require_api_key, role_matrix
 from openabm_api.classification import classify_payload, normalize_classification, redact_if_needed
@@ -1001,6 +1008,129 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         }
 
+    @app.get("/api/similarity-index")
+    def get_similarity_index(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["traces:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return store.similarity_index_summary(project_id)
+
+    @app.post("/api/similarity-index/rebuild", status_code=201)
+    async def rebuild_similarity_index(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["ops:write"])),
+    ) -> dict[str, object]:
+        del actor
+        project_id = request["project_id"]
+        limit = min(int(request.get("limit", 500)), 5000)
+        traces = store.search_traces(
+            project_id,
+            filters=request.get("filters") or {},
+            limit=limit,
+        )
+        if not traces:
+            return {
+                "status": "completed",
+                "project_id": project_id,
+                "representation_version": request.get("representation_version"),
+                "indexed_counts": {"trace": 0, "span": 0},
+                "model_metadata": None,
+            }
+        documents = []
+        for trace in traces:
+            trace_id = trace["trace_id"]
+            spans = store.list_spans(project_id, trace_id)
+            documents.append(
+                {
+                    **build_trace_embedding_document(trace, spans),
+                    "entity_type": "trace",
+                    "entity_id": trace_id,
+                    "trace_id_nullable": trace_id,
+                }
+            )
+            for span in spans:
+                documents.append(
+                    {
+                        **build_span_embedding_document(trace_id, span),
+                        "entity_type": "span",
+                        "entity_id": span["span_id"],
+                        "trace_id_nullable": trace_id,
+                    }
+                )
+        try:
+            provider = _observed_embedding_provider(settings, metrics)
+            result = await provider.embed_documents(documents)
+        except (ModelConfigurationError, ModelCallsDisabled) as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=_error("embedding_provider_unavailable", str(exc), retryable=True),
+            ) from exc
+        if result.get("status") != "succeeded":
+            raise HTTPException(
+                status_code=422,
+                detail=_error(
+                    "invalid_embedding_output",
+                    "Embedding provider output was invalid.",
+                ),
+            )
+        model_name = str(result.get("model") or settings.embedding_model or "unknown")
+        representation_version = request.get("representation_version") or (
+            embedding_representation_version(model_name)
+        )
+        embeddings_by_document_id = {
+            item["document_id"]: item["embedding"]
+            for item in result.get("embeddings", [])
+            if isinstance(item, dict)
+        }
+        indexed_counts = {"trace": 0, "span": 0}
+        for document in documents:
+            vector = embeddings_by_document_id.get(document["document_id"])
+            if vector is None:
+                continue
+            store.upsert_similarity_vector(
+                {
+                    "project_id": project_id,
+                    "entity_type": document["entity_type"],
+                    "entity_id": document["entity_id"],
+                    "trace_id_nullable": document["trace_id_nullable"],
+                    "representation_version": representation_version,
+                    "provider": str(result.get("provider") or "unknown"),
+                    "model": model_name,
+                    "vector": vector,
+                    "source_hash": document["source_hash"],
+                    "source_summary": {
+                        "document_id": document["document_id"],
+                        "source_hash": document["source_hash"],
+                    },
+                }
+            )
+            indexed_counts[document["entity_type"]] += 1
+        audit_id = store.append_audit(
+            "rebuild_similarity_index",
+            "similarity_index",
+            project_id,
+            representation_version,
+            {
+                "indexed_counts": indexed_counts,
+                "model": model_name,
+                "provider": result.get("provider"),
+            },
+        )
+        return {
+            "status": "completed",
+            "project_id": project_id,
+            "representation_version": representation_version,
+            "indexed_counts": indexed_counts,
+            "model_metadata": {
+                "provider": result.get("provider"),
+                "model": model_name,
+                "usage": result.get("usage"),
+                "embedding_count": len(result.get("embeddings", [])),
+            },
+            "audit_id": audit_id,
+        }
+
     @app.post("/api/search/similar")
     async def search_similar(
         request: dict[str, Any],
@@ -1036,6 +1166,63 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         representation = request.get("representation") or (
             "embedding" if settings.embedding_model else "model_semantic_similarity"
         )
+        if representation == "embedding_index":
+            representation_version = _resolve_similarity_representation_version(
+                store,
+                project_id,
+                request,
+                settings,
+            )
+            if representation_version is None:
+                return _disabled_similarity_response(
+                    request,
+                    limit,
+                    "No embedding index representation is available.",
+                )
+            source_vector = store.get_similarity_vector(
+                project_id,
+                "trace",
+                source_id,
+                representation_version,
+            )
+            if source_vector is None:
+                return _disabled_similarity_response(
+                    request,
+                    limit,
+                    "Source trace is not indexed for the requested representation.",
+                )
+            candidate_ids = [trace["trace_id"] for trace in candidates]
+            candidate_trace_vectors = [
+                vector
+                for vector in store.list_similarity_vectors(
+                    project_id,
+                    representation_version,
+                    entity_type="trace",
+                    trace_ids=candidate_ids,
+                )
+                if vector["entity_id"] != source_id
+            ]
+            candidate_span_vectors = store.list_similarity_vectors(
+                project_id,
+                representation_version,
+                entity_type="span",
+                trace_ids=candidate_ids,
+            )
+            result = rank_similar_traces_from_vectors(
+                source_vector=source_vector,
+                candidate_trace_vectors=candidate_trace_vectors,
+                candidate_span_vectors=candidate_span_vectors,
+                limit=limit,
+            )
+            return {
+                "data": result["matches"],
+                "disabled": False,
+                "reason": result.get("uncertainty"),
+                "representation_version": representation_version,
+                "model_metadata": result["model_metadata"],
+                "request": request,
+                "page": {"limit": limit, "next_cursor": None, "has_more": False},
+            }
         if representation == "embedding":
             try:
                 provider = _observed_embedding_provider(settings, metrics)
@@ -3429,6 +3616,32 @@ def _disabled_similarity_response(
         "request": request,
         "page": {"limit": limit, "next_cursor": None, "has_more": False},
     }
+
+
+def _resolve_similarity_representation_version(
+    store: SQLiteStore,
+    project_id: str,
+    request: dict[str, Any],
+    settings: Settings,
+) -> str | None:
+    requested = request.get("representation_version")
+    if isinstance(requested, str) and requested:
+        return requested
+    if settings.embedding_model:
+        return embedding_representation_version(settings.embedding_model)
+    trace_representations = [
+        item
+        for item in store.similarity_index_summary(project_id)["representations"]
+        if item["entity_type"] == "trace"
+    ]
+    if not trace_representations:
+        return None
+    latest = sorted(
+        trace_representations,
+        key=lambda item: str(item.get("last_updated_at") or ""),
+        reverse=True,
+    )[0]
+    return str(latest["representation_version"])
 
 
 def _refresh_observability_gauges(

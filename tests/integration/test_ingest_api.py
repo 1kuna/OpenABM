@@ -580,6 +580,92 @@ def test_search_similar_can_use_embedding_representation(tmp_path, monkeypatch) 
     assert body["model_metadata"]["model"] == "stub-embed-model"
 
 
+def test_similarity_index_rebuild_persists_embedding_vectors(tmp_path, monkeypatch) -> None:
+    class StubEmbeddingProvider:
+        adapter_name = "stub-embedding"
+        supported_capabilities = ["embedding"]
+
+        async def embed_documents(self, documents):
+            vectors = {}
+            for document in documents:
+                document_id = document["document_id"]
+                if document_id == "trace:trace_happy_support":
+                    vectors[document_id] = [1.0, 0.0]
+                elif document_id == "trace:trace_wrong_tool":
+                    vectors[document_id] = [0.9, 0.1]
+                elif document_id == "span:trace_wrong_tool:span_wrong_tool_order_lookup":
+                    vectors[document_id] = [0.95, 0.05]
+                else:
+                    vectors[document_id] = [0.0, 1.0]
+            return {
+                "status": "succeeded",
+                "embeddings": [
+                    {
+                        "document_id": document["document_id"],
+                        "embedding": vectors[document["document_id"]],
+                        "index": index,
+                    }
+                    for index, document in enumerate(documents)
+                ],
+                "provider": "stub",
+                "model": "stub-embed-model",
+                "usage": {"total_tokens": len(documents)},
+            }
+
+    monkeypatch.setattr(
+        "openabm_api.main.embedding_provider_from_settings",
+        lambda settings: StubEmbeddingProvider(),
+    )
+    client = make_client(tmp_path)
+    fixtures = json.loads(FIXTURE_PATH.read_text())["fixtures"][:2]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={
+            "traces": [fixture["trace"] for fixture in fixtures],
+            "spans": [span for fixture in fixtures for span in fixture["spans"]],
+        },
+    )
+    rebuild = client.post(
+        "/v1/similarity-index/rebuild",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo"},
+    )
+    assert rebuild.status_code == 201
+    rebuild_body = rebuild.json()
+    assert rebuild_body["representation_version"] == "embedding_index_v1:stub-embed-model"
+    assert rebuild_body["indexed_counts"]["trace"] == 2
+    assert rebuild_body["indexed_counts"]["span"] >= 2
+
+    summary = client.get(
+        "/v1/similarity-index",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert summary.status_code == 200
+    assert {
+        item["entity_type"]: item["count"]
+        for item in summary.json()["representations"]
+    }["trace"] == 2
+
+    response = client.post(
+        "/v1/search/similar",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "source_id": "trace_happy_support",
+            "source_type": "trace",
+            "representation": "embedding_index",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["disabled"] is False
+    assert body["representation_version"] == rebuild_body["representation_version"]
+    assert body["data"][0]["trace_id"] == "trace_wrong_tool"
+    assert body["data"][0]["evidence_span_ids"] == ["span_wrong_tool_order_lookup"]
+
+
 def test_trace_can_be_added_to_dataset_with_provenance(tmp_path) -> None:
     client = make_client(tmp_path)
     fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]

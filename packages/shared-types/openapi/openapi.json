@@ -3994,6 +3994,75 @@
         }
       }
     },
+    "/v1/similarity-index": {
+      "get": {
+        "operationId": "getSimilarityIndex",
+        "summary": "Inspect available local similarity index representations.",
+        "x-required-scopes": [
+          "traces:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Similarity index summary."
+          }
+        }
+      }
+    },
+    "/v1/similarity-index/rebuild": {
+      "post": {
+        "operationId": "rebuildSimilarityIndex",
+        "summary": "Rebuild the local reference similarity index from source traces.",
+        "x-required-scopes": [
+          "ops:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "filters": {
+                    "type": "object"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "default": 500
+                  },
+                  "representation_version": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Similarity index rebuilt."
+          },
+          "503": {
+            "description": "Embedding provider unavailable."
+          }
+        }
+      }
+    },
     "/v1/search/similar": {
       "post": {
         "operationId": "searchSimilar",
@@ -4028,9 +4097,13 @@
                     "type": "string",
                     "enum": [
                       "model_semantic_similarity",
-                      "embedding"
+                      "embedding",
+                      "embedding_index"
                     ],
                     "default": "model_semantic_similarity"
+                  },
+                  "representation_version": {
+                    "type": "string"
                   },
                   "limit": {
                     "type": "integer",

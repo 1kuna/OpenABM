@@ -192,6 +192,11 @@ Done:
   `/v1/search/similar` can embed the source trace, candidate traces, and
   candidate spans, then rank candidates deterministically by cosine similarity
   while disclosing `embedding_similarity_v1`.
+- Added a local SQLite-backed similarity index candidate with
+  `/v1/similarity-index`, `/v1/similarity-index/rebuild`, representation
+  version tracking, provider/model/dimension/source-hash metadata, trace/span
+  vector persistence, and `embedding_index` search over stored vectors. This is
+  a transparent local reference path, not a production vector-store choice.
 - Verified a live LM Studio embedding canary with
   `text-embedding-nomic-embed-text-v1.5`: the local OpenAI-compatible
   `/embeddings` endpoint returned two 768-dimensional vectors through the new
@@ -754,8 +759,9 @@ Known remaining gaps before calling the whole spec complete:
   remain future work.
 - Passive novelty detection has deterministic exact-signature grouping plus
   optional model semantic grouping/naming with validated membership; embedding-
-  backed trace similarity now exists, while larger clustering and persisted
-  embedding-index discovery remain future work.
+  backed trace similarity and a local persisted similarity index now exist,
+  while larger clustering and behavior-discovery experiments over that index
+  remain future work.
 - Grounding/fabricated-value checks support explicit, deterministically split,
   and model-extracted claims with exact evidence matching, plus review-gated
   model contradiction adjudication with validated span citations; broad
@@ -902,6 +908,9 @@ Implemented in this pass:
   `/v1/search/similar` representation, so local deployments with an embedding
   model can use deterministic cosine similarity without waiting for a persisted
   vector index.
+- Added a transparent local similarity-index rebuild/search path over stored
+  embedding vectors with representation-version metadata, source hashes, and
+  trace/span vector counts.
 - Added `/v1/judges`, `/v1/judges/drafts`, `/v1/evals/run`,
   `/v1/evals/compare`, and `/v1/docs/search`, then wired the corresponding MCP
   tool handlers so the agent surface no longer reports those paths as

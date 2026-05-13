@@ -18,7 +18,11 @@ adapter.
 ## Decision
 
 Use SQLite structured filters and FTS as the initial local reference search
-implementation. Semantic search remains deferred until embeddings are enabled.
+implementation. For semantic search, keep the local reference implementation in
+SQLite as a transparent candidate index: vectors are stored as JSON with an
+explicit representation version, provider, model, dimensions, and source hash.
+This is suitable for local proof and auditability, but it is not a production
+vector-store commitment.
 
 ## Evidence
 
@@ -29,5 +33,7 @@ pagination, and fixture reconstruction paths.
 
 - Fixture search misses local performance targets.
 - FTS behavior cannot satisfy required ranking/filter semantics.
-- Semantic search is enabled with real embeddings and requires a vector index.
-
+- Local vector JSON search misses performance or quality targets on pilot trace
+  volumes.
+- A production deployment needs ANN indexing, vector-store filtering, or
+  clustering beyond the local reference contract.

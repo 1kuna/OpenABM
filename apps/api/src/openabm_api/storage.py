@@ -4615,6 +4615,159 @@ class SQLiteStore:
                 ]
         return checks
 
+    def upsert_similarity_vector(self, record: dict[str, Any]) -> dict[str, Any]:
+        now = utc_now()
+        vector = record["vector"]
+        stored = {
+            "vector_id": record.get("vector_id") or new_id("vector"),
+            "project_id": record["project_id"],
+            "entity_type": record["entity_type"],
+            "entity_id": record["entity_id"],
+            "trace_id_nullable": record.get("trace_id_nullable"),
+            "representation_version": record["representation_version"],
+            "provider": record["provider"],
+            "model": record["model"],
+            "dimensions": len(vector),
+            "vector": vector,
+            "source_hash": record["source_hash"],
+            "source_summary": record.get("source_summary", {}),
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self.connect() as conn:
+            existing = conn.execute(
+                """
+                SELECT vector_id, created_at
+                FROM similarity_vectors
+                WHERE project_id = ?
+                  AND entity_type = ?
+                  AND entity_id = ?
+                  AND representation_version = ?
+                """,
+                (
+                    stored["project_id"],
+                    stored["entity_type"],
+                    stored["entity_id"],
+                    stored["representation_version"],
+                ),
+            ).fetchone()
+            if existing is not None:
+                stored["vector_id"] = existing["vector_id"]
+                stored["created_at"] = existing["created_at"]
+            conn.execute(
+                """
+                INSERT INTO similarity_vectors(
+                  vector_id, project_id, entity_type, entity_id, trace_id_nullable,
+                  representation_version, provider, model, dimensions, vector_json,
+                  source_hash, source_summary_json, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(project_id, entity_type, entity_id, representation_version)
+                DO UPDATE SET
+                  trace_id_nullable = excluded.trace_id_nullable,
+                  provider = excluded.provider,
+                  model = excluded.model,
+                  dimensions = excluded.dimensions,
+                  vector_json = excluded.vector_json,
+                  source_hash = excluded.source_hash,
+                  source_summary_json = excluded.source_summary_json,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    stored["vector_id"],
+                    stored["project_id"],
+                    stored["entity_type"],
+                    stored["entity_id"],
+                    stored["trace_id_nullable"],
+                    stored["representation_version"],
+                    stored["provider"],
+                    stored["model"],
+                    stored["dimensions"],
+                    encode_json(stored["vector"]),
+                    stored["source_hash"],
+                    encode_json(stored["source_summary"]),
+                    stored["created_at"],
+                    stored["updated_at"],
+                ),
+            )
+        return stored
+
+    def get_similarity_vector(
+        self,
+        project_id: str,
+        entity_type: str,
+        entity_id: str,
+        representation_version: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM similarity_vectors
+                WHERE project_id = ?
+                  AND entity_type = ?
+                  AND entity_id = ?
+                  AND representation_version = ?
+                """,
+                (project_id, entity_type, entity_id, representation_version),
+            ).fetchone()
+        return self._similarity_vector_from_row(row) if row else None
+
+    def list_similarity_vectors(
+        self,
+        project_id: str,
+        representation_version: str,
+        *,
+        entity_type: str | None = None,
+        trace_ids: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses = ["project_id = ?", "representation_version = ?"]
+        params: list[Any] = [project_id, representation_version]
+        if entity_type is not None:
+            clauses.append("entity_type = ?")
+            params.append(entity_type)
+        if trace_ids is not None and not trace_ids:
+            return []
+        if trace_ids is not None:
+            placeholders = ",".join("?" for _ in trace_ids)
+            clauses.append(f"trace_id_nullable IN ({placeholders})")
+            params.extend(trace_ids)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM similarity_vectors
+                WHERE {' AND '.join(clauses)}
+                ORDER BY updated_at DESC
+                """,
+                params,
+            ).fetchall()
+        return [self._similarity_vector_from_row(row) for row in rows]
+
+    def similarity_index_summary(self, project_id: str) -> dict[str, Any]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT representation_version, entity_type, COUNT(*) AS count,
+                       MAX(updated_at) AS last_updated_at
+                FROM similarity_vectors
+                WHERE project_id = ?
+                GROUP BY representation_version, entity_type
+                ORDER BY representation_version, entity_type
+                """,
+                (project_id,),
+            ).fetchall()
+        return {
+            "project_id": project_id,
+            "representations": [
+                {
+                    "representation_version": row["representation_version"],
+                    "entity_type": row["entity_type"],
+                    "count": row["count"],
+                    "last_updated_at": row["last_updated_at"],
+                }
+                for row in rows
+            ],
+        }
+
     def create_novelty_run(
         self,
         project_id: str,
@@ -4891,7 +5044,15 @@ class SQLiteStore:
                 (project_id, trace_id),
             )
             effects["trace_search_fts"] = cursor.rowcount
-            effects["similarity_vectors"] = 0
+            cursor = conn.execute(
+                """
+                DELETE FROM similarity_vectors
+                WHERE project_id = ?
+                  AND (trace_id_nullable = ? OR (entity_type = 'trace' AND entity_id = ?))
+                """,
+                (project_id, trace_id, trace_id),
+            )
+            effects["similarity_vectors"] = cursor.rowcount
             effects["prompt_links"] = 0
             effects["derived_views"] = (
                 effects["impact_reports_scrubbed"]
@@ -6030,6 +6191,25 @@ class SQLiteStore:
             "claims": decode_json(row["claims_json"], []),
             "evidence_span_ids": decode_json(row["evidence_span_ids_json"], []),
             "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _similarity_vector_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "vector_id": row["vector_id"],
+            "project_id": row["project_id"],
+            "entity_type": row["entity_type"],
+            "entity_id": row["entity_id"],
+            "trace_id_nullable": row["trace_id_nullable"],
+            "representation_version": row["representation_version"],
+            "provider": row["provider"],
+            "model": row["model"],
+            "dimensions": row["dimensions"],
+            "vector": decode_json(row["vector_json"], []),
+            "source_hash": row["source_hash"],
+            "source_summary": decode_json(row["source_summary_json"], {}),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
         }
 
     @staticmethod
