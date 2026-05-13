@@ -14,6 +14,7 @@ from openabm_worker.model_benchmark import (
 )
 from openabm_worker.model_runtime import model_provider_from_settings
 from openabm_worker.offline_eval import run_deterministic_eval
+from openabm_worker.retention import run_retention_once
 from rich.console import Console
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -21,8 +22,10 @@ FIXTURE_PATH = ROOT / "evals" / "golden-fixtures" / "trace_fixtures.json"
 
 app = typer.Typer(no_args_is_help=True)
 bench_app = typer.Typer(no_args_is_help=True)
+worker_app = typer.Typer(no_args_is_help=True)
 console = Console()
 app.add_typer(bench_app, name="bench")
+app.add_typer(worker_app, name="worker")
 
 
 @app.command("init-db")
@@ -140,6 +143,33 @@ def bench_model_runtime(
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(text + "\n")
     console.print_json(text)
+
+
+@worker_app.command("retention-once")
+def worker_retention_once(
+    project_id: Annotated[
+        str | None,
+        typer.Option(help="Optional project id. Defaults to all projects."),
+    ] = None,
+    apply: Annotated[
+        bool,
+        typer.Option("--apply", help="Apply active policies instead of dry-running."),
+    ] = False,
+    worker_id: Annotated[
+        str,
+        typer.Option(help="Worker heartbeat identifier."),
+    ] = "local-retention-worker",
+) -> None:
+    settings = Settings.from_env()
+    store = SQLiteStore(settings.sqlite_path)
+    store.init_db()
+    result = run_retention_once(
+        store,
+        project_id=project_id,
+        dry_run=not apply,
+        worker_id=worker_id,
+    )
+    console.print_json(json.dumps(result, sort_keys=True))
 
 
 def wrong_tool_demo_judge() -> dict[str, object]:

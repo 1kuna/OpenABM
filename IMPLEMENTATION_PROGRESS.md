@@ -489,6 +489,11 @@ Done:
   `/v1/ops/dead-letter`, backed by a worker heartbeat migration and surfaced in
   the Operations workspace as an admin status panel with storage, payload,
   queue, retention, automation failure, heartbeat, and dead-letter visibility.
+- Added a local retention worker path: `openabm worker retention-once` can
+  dry-run or apply active trace-retention policies, the worker process now loops
+  over the same deterministic runner, and each run records heartbeats plus
+  `apply_retention_policy` audit entries so `/v1/ops/status` reflects retention
+  job status.
 
 ## Phase 9: Real-World Pilot And Revisit Decisions
 
@@ -508,9 +513,9 @@ Blocked:
 Verified after the latest implementation slices:
 
 - `make lint`: passed.
-- `make test`: passed, 52 tests after the model-benchmark, LangGraph
+- `make test`: passed, 53 tests after the model-benchmark, LangGraph
   investigation-adapter, core-loop acceptance, and reported-incident acceptance
-  slices.
+  and retention-worker slices.
 - `npm --prefix apps/web run build`: passed.
 - Browser QA captured desktop and mobile Trace Detail, Operations, Issues, and
   Automations workspace screenshots under `artifacts/ui-qa/`; trace detail mode
@@ -571,6 +576,10 @@ Verified after the latest implementation slices:
   draft, behavior backtest, judge draft link, dataset/eval creation, eval
   comparison, and issue-to-artifact link retrieval all preserve canonical
   provenance.
+- Retention worker regression passed: active trace-retention policies can be
+  dry-run or applied by the worker runner, trace tombstoning is performed by the
+  same storage contract as the API, and worker heartbeat plus ops retention
+  status are updated.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:
@@ -599,12 +608,12 @@ Known remaining gaps before calling the whole spec complete:
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
   behavior detail, deeper impact-report analysis, and deeper
   prompt/configuration history.
-- External IdP/OAuth login, real invite delivery, production secret-manager
-  provider adapters, and scheduled retention workers remain beyond the local
-  reference scaffold.
+- External IdP/OAuth login, real invite delivery, and production secret-manager
+  provider adapters remain beyond the local reference scaffold.
 - Production-grade observability exporters, log aggregation, retention-worker
-  scheduling, MCP-server metrics ingestion, and external notification delivery
-  are still future hardening beyond the local reference surfaces.
+  deployment supervision, MCP-server metrics ingestion, and external
+  notification delivery are still future hardening beyond the local reference
+  surfaces.
 
 ## Spec V2 Delta Incorporated
 
