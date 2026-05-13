@@ -104,8 +104,47 @@ def test_code_judge_dev_sandbox_scrubs_environment(monkeypatch) -> None:
     )
     result = run_code_judge_dev_sandbox(code, {"trace_id": "trace_1"})
     assert result["status"] == "succeeded"
+    assert result["failure_reason"] is None
     assert result["result"]["saw_secret"] is False
     assert result["isolation_level"] == "dev_only"
+    assert result["sandbox_policy"]["network_disabled"] is True
+    assert result["sandbox_policy"]["secrets_mounted"] is False
+
+
+def test_code_judge_dev_sandbox_uses_score_failure_statuses() -> None:
+    timeout = run_code_judge_dev_sandbox("while True:\n    pass\n", {}, timeout_seconds=1)
+    assert timeout["status"] == "timeout"
+    assert timeout["failure_reason"] == "resource_exceeded"
+
+    invalid = run_code_judge_dev_sandbox("print('no structured result')", {})
+    assert invalid["status"] == "invalid_output"
+    assert invalid["failure_reason"] == "invalid_result"
+
+    blocked_network = run_code_judge_dev_sandbox("import socket\n", {})
+    assert blocked_network["status"] == "failed"
+    assert blocked_network["failure_reason"] == "permission_denied"
+    assert "socket" in blocked_network["stderr"]
+
+
+def test_code_judge_dev_sandbox_restricts_filesystem_to_temp_bundle() -> None:
+    code = textwrap.dedent(
+        """
+        import json
+        import os
+
+        try:
+            with open("/etc/hosts") as handle:
+                outside_read = handle.read(1)
+        except PermissionError:
+            outside_read = "blocked"
+
+        with open(os.environ["OPENABM_CODE_JUDGE_OUTPUT"], "w") as handle:
+            json.dump({"outside_read": outside_read}, handle)
+        """
+    )
+    result = run_code_judge_dev_sandbox(code, {"trace_id": "trace_1"})
+    assert result["status"] == "succeeded"
+    assert result["result"]["outside_read"] == "blocked"
 
 
 def test_prompt_commit_render_and_diff_are_deterministic() -> None:

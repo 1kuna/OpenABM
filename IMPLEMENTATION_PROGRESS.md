@@ -242,6 +242,10 @@ Done:
 - Added development-only code judge sandbox with scrubbed environment,
   temporary inputs/outputs, timeout handling, stdout/stderr capture, and explicit
   `dev_only` isolation status.
+- Tightened the development code judge sandbox with standard-library import
+  allowlisting, blocked network/process APIs, guarded temporary filesystem
+  access, POSIX resource-limit attempts for CPU/memory, spec-shaped
+  `status`/`failure_reason` outputs, and visible sandbox policy metadata.
 - Added a reproducible local model runtime benchmark harness exposed as
   `openabm bench model-runtime --fixtures golden --provider configured-provider`;
   it records provider/model/config hash, fixture version, structured-output
@@ -667,6 +671,10 @@ Verified after the latest implementation slices:
   deployment/tool version identifiers, ingest and trace detail preserve them,
   eval run comparison reports prompt/config/context deltas, and impact/root-cause
   output surfaces correlated runtime provenance distributions.
+- Code-sandbox conformance regression passed: the dev sandbox scrubs secrets,
+  denies blocked network imports, restricts file reads/writes to the input/output
+  bundle and temporary artifact directory, maps timeouts and invalid results to
+  shared score statuses, and exposes policy metadata for audit.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:

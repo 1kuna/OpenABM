@@ -5165,7 +5165,7 @@ function scaffoldRows(view: ViewKey) {
     judges: [
       { icon: <Braces />, title: "Judge registry", status: "drafts and immutable versions available", phase: "Phase 4" },
       { icon: <Shield />, title: "Rubric judge provider", status: "local model-backed and review-gated", phase: "Phase 4" },
-      { icon: <KeyRound />, title: "Code judge sandbox", status: "development-only isolation", phase: "Phase 4" }
+      { icon: <KeyRound />, title: "Code judge sandbox", status: "policy-guarded dev isolation", phase: "Phase 4" }
     ],
     behaviors: [
       { icon: <GitBranch />, title: "Manual labels", status: "schema and API surface pending", phase: "Phase 6" },
