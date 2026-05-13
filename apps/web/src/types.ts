@@ -101,3 +101,18 @@ export interface DocsSearchResult {
   score: number;
   reason: string;
 }
+
+export interface ReviewTask {
+  review_task_id: string;
+  project_id: string;
+  task_type: string;
+  source_entity_type: string;
+  source_entity_id: string;
+  assigned_to_nullable: string | null;
+  status: "open" | "accepted" | "rejected" | "needs_more_evidence" | "resolved";
+  decision_nullable: string | null;
+  notes_nullable: string | null;
+  evidence_ids: string[];
+  created_at: string;
+  updated_at: string;
+}

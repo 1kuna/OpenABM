@@ -328,6 +328,9 @@ Done:
   local model-backed rubric drafting, eval run/compare, MCP routing, and
   retention/export/delete state reflect current implementation instead of stale
   deferred labels.
+- Added a live Review Queue workspace in the web app with status/type filters,
+  task selection, evidence IDs, notes, and accept / needs-evidence / reject
+  decision actions wired to `/v1/review-tasks`.
 
 ## Phase 8: Security, Privacy, And Operations Hardening
 
@@ -410,8 +413,8 @@ Known remaining gaps before calling the whole spec complete:
   real OCR, attachment text extraction, and vendor-specific chat connectors are
   still future integration work.
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
-  behavior detail, automation builder, impact report, review queue, prompt
-  registry, and agent configuration history.
+  behavior detail, automation builder, impact report, prompt registry, and agent
+  configuration history.
 - Production-grade auth/session/API-key management, secret vault integration,
   and scheduled retention workers remain beyond the local reference scaffold.
 

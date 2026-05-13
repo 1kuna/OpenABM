@@ -18,7 +18,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -203,6 +204,13 @@ button {
   gap: 18px;
 }
 
+.reviewGrid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(340px, 0.85fr) minmax(420px, 1.15fr);
+  gap: 18px;
+}
+
 .panel {
   min-width: 0;
   min-height: 0;
@@ -216,9 +224,79 @@ button {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-.traceList .toolbar {
+.traceList .toolbar,
+.reviewList .toolbar {
   border-bottom: 1px solid #e5e7eb;
   padding: 12px;
+}
+
+.reviewList {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.reviewRows {
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 10px;
+}
+
+.reviewRows button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #111827;
+  padding: 10px;
+  text-align: left;
+}
+
+.reviewRows button:hover,
+.reviewRows .selectedReview {
+  border-color: #9ca3af;
+  background: #f8fafc;
+}
+
+.reviewRows strong,
+.reviewRows small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.reviewRows small {
+  grid-column: 2;
+  color: #6b7280;
+}
+
+.reviewStatus {
+  align-self: start;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reviewStatus.accepted,
+.reviewStatus.resolved {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.reviewStatus.rejected {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.reviewStatus.needs_more_evidence {
+  background: #fffbeb;
+  color: #a16207;
 }
 
 .searchBox {
@@ -321,6 +399,14 @@ td span {
   overflow: auto;
 }
 
+.reviewDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  padding: 16px;
+}
+
 .detailHeader {
   display: flex;
   align-items: flex-start;
@@ -334,6 +420,12 @@ td span {
 }
 
 .metricsRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.reviewMeta {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 9px;
@@ -436,10 +528,65 @@ pre {
   flex-wrap: wrap;
 }
 
-.actionStrip button {
+.actionStrip button,
+.reviewActions button {
   background: #ffffff;
   color: #111827;
   border-color: #d1d5db;
+}
+
+.reviewFacts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.reviewFacts div {
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  padding: 10px;
+}
+
+.reviewFacts dt {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.reviewFacts dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.notesBox {
+  display: grid;
+  gap: 7px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.notesBox textarea {
+  min-height: 120px;
+  resize: vertical;
+  border: 1px solid #d1d5db;
+  border-radius: 7px;
+  padding: 10px;
+  color: #111827;
+}
+
+.reviewActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.reviewActions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0 12px;
 }
 
 .systemNote,
@@ -545,6 +692,10 @@ pre {
   .traceGrid {
     grid-template-columns: 1fr;
   }
+
+  .reviewGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 680px) {
@@ -560,6 +711,10 @@ pre {
   }
 
   .metricsRow {
+    grid-template-columns: 1fr;
+  }
+
+  .reviewMeta {
     grid-template-columns: 1fr;
   }
 

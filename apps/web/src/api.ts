@@ -1,4 +1,12 @@
-import type { DocsSearchResult, EvalRun, JudgeDefinition, Project, TraceDetail, TraceEnvelope } from "./types";
+import type {
+  DocsSearchResult,
+  EvalRun,
+  JudgeDefinition,
+  Project,
+  ReviewTask,
+  TraceDetail,
+  TraceEnvelope
+} from "./types";
 
 export interface OpenAbmClientConfig {
   baseUrl: string;
@@ -69,6 +77,30 @@ export class OpenAbmClient {
     return body.results;
   }
 
+  async listReviewTasks(
+    projectId: string,
+    filters: { status?: string; taskType?: string } = {}
+  ): Promise<ReviewTask[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    if (filters.status) params.set("status", filters.status);
+    if (filters.taskType) params.set("task_type", filters.taskType);
+    const body = await this.get<{ data: ReviewTask[] }>(`/v1/review-tasks?${params.toString()}`);
+    return body.data;
+  }
+
+  async updateReviewTask(
+    projectId: string,
+    reviewTaskId: string,
+    patch: { status: ReviewTask["status"]; decision: string; notes?: string }
+  ): Promise<ReviewTask> {
+    return this.patch<ReviewTask>(`/v1/review-tasks/${reviewTaskId}`, {
+      project_id: projectId,
+      status: patch.status,
+      decision: patch.decision,
+      notes: patch.notes ?? null
+    });
+  }
+
   private async get<T>(path: string): Promise<T> {
     const response = await fetch(`${this.baseUrl}${path}`, {
       headers: this.headers()
@@ -79,6 +111,15 @@ export class OpenAbmClient {
   private async post<T>(path: string, body: unknown): Promise<T> {
     const response = await fetch(`${this.baseUrl}${path}`, {
       method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    return this.parse<T>(response);
+  }
+
+  private async patch<T>(path: string, body: unknown): Promise<T> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: "PATCH",
       headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });

@@ -19,7 +19,15 @@ import { useEffect, useMemo, useState } from "react";
 
 import { OpenAbmClient } from "./api";
 import { fixtureDetails, fixtureProjects, fixtureTraces } from "./fixtures";
-import type { Project, SpanEnvelope, TimelineRow, TraceDetail, TraceEnvelope, TraceStatus } from "./types";
+import type {
+  Project,
+  ReviewTask,
+  SpanEnvelope,
+  TimelineRow,
+  TraceDetail,
+  TraceEnvelope,
+  TraceStatus
+} from "./types";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:8787";
 const DEFAULT_API_KEY = "dev-openabm-key";
@@ -28,6 +36,7 @@ type ConnectionState = "connecting" | "live" | "fixture";
 type ViewKey =
   | "traces"
   | "issues"
+  | "reviews"
   | "judges"
   | "behaviors"
   | "datasets"
@@ -142,6 +151,7 @@ export function App() {
         <nav className="nav">
           <NavButton icon={<FileSearch />} label="Traces" active={activeView === "traces"} onClick={() => setActiveView("traces")} />
           <NavButton icon={<AlertTriangle />} label="Issues" active={activeView === "issues"} onClick={() => setActiveView("issues")} />
+          <NavButton icon={<CheckCircle2 />} label="Reviews" active={activeView === "reviews"} onClick={() => setActiveView("reviews")} />
           <NavButton icon={<Braces />} label="Judges" active={activeView === "judges"} onClick={() => setActiveView("judges")} />
           <NavButton icon={<GitBranch />} label="Behaviors" active={activeView === "behaviors"} onClick={() => setActiveView("behaviors")} />
           <NavButton icon={<Database />} label="Datasets" active={activeView === "datasets"} onClick={() => setActiveView("datasets")} />
@@ -196,6 +206,8 @@ export function App() {
             onSelectTrace={setSelectedTraceId}
             onCheckSimilarity={() => void checkSimilarity()}
           />
+        ) : activeView === "reviews" ? (
+          <ReviewQueue client={client} connection={connection} projectId={projectId} />
         ) : (
           <ScaffoldView
             activeView={activeView}
@@ -353,6 +365,163 @@ function Inspector({ span }: { span: SpanEnvelope | null }) {
   );
 }
 
+function ReviewQueue(props: {
+  client: OpenAbmClient;
+  connection: ConnectionState;
+  projectId: string;
+}) {
+  const { client, connection, projectId } = props;
+  const [tasks, setTasks] = useState<ReviewTask[]>([]);
+  const [statusFilter, setStatusFilter] = useState("open");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [selectedId, setSelectedId] = useState("");
+  const [notes, setNotes] = useState("");
+  const [reviewState, setReviewState] = useState("Review queue needs a live API");
+
+  const selectedTask = tasks.find((task) => task.review_task_id === selectedId) ?? tasks[0] ?? null;
+
+  async function loadTasks() {
+    if (connection !== "live") {
+      setTasks([]);
+      setSelectedId("");
+      setReviewState("fixture mode");
+      return;
+    }
+    try {
+      const loaded = await client.listReviewTasks(projectId, {
+        status: statusFilter || undefined,
+        taskType: typeFilter || undefined
+      });
+      setTasks(loaded);
+      setSelectedId((current) =>
+        loaded.some((task) => task.review_task_id === current)
+          ? current
+          : loaded[0]?.review_task_id ?? ""
+      );
+      setReviewState(`${loaded.length} tasks`);
+    } catch (error) {
+      setReviewState(error instanceof Error ? error.message : "request failed");
+    }
+  }
+
+  useEffect(() => {
+    void loadTasks();
+  }, [client, connection, projectId, statusFilter, typeFilter]);
+
+  useEffect(() => {
+    setNotes(selectedTask?.notes_nullable ?? "");
+  }, [selectedTask?.review_task_id]);
+
+  async function decide(status: ReviewTask["status"], decision: string) {
+    if (!selectedTask || connection !== "live") return;
+    const updated = await client.updateReviewTask(projectId, selectedTask.review_task_id, {
+      status,
+      decision,
+      notes
+    });
+    setTasks((current) =>
+      current.map((task) => (task.review_task_id === updated.review_task_id ? updated : task))
+    );
+    setReviewState(`${updated.status}: ${updated.review_task_id}`);
+  }
+
+  return (
+    <div className="reviewGrid">
+      <section className="panel reviewList">
+        <div className="toolbar">
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <option value="">Any status</option>
+            <option value="open">open</option>
+            <option value="accepted">accepted</option>
+            <option value="rejected">rejected</option>
+            <option value="needs_more_evidence">needs more evidence</option>
+            <option value="resolved">resolved</option>
+          </select>
+          <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+            <option value="">Any type</option>
+            <option value="judge_output">judge output</option>
+            <option value="behavior_candidate">behavior candidate</option>
+            <option value="grounding_check">grounding check</option>
+            <option value="affected_entity">affected entity</option>
+            <option value="root_cause_candidate">root cause candidate</option>
+          </select>
+          <button className="iconButton" onClick={() => void loadTasks()} aria-label="Refresh reviews">
+            <TimerReset size={16} />
+          </button>
+        </div>
+        <div className="reviewRows">
+          {tasks.map((task) => (
+            <button
+              className={task.review_task_id === selectedTask?.review_task_id ? "selectedReview" : ""}
+              key={task.review_task_id}
+              onClick={() => setSelectedId(task.review_task_id)}
+            >
+              <span className={`reviewStatus ${task.status}`}>{task.status}</span>
+              <strong>{task.task_type}</strong>
+              <small>{task.source_entity_type} · {task.source_entity_id}</small>
+            </button>
+          ))}
+          {!tasks.length ? <div className="emptyState">No review tasks</div> : null}
+        </div>
+      </section>
+
+      <section className="panel reviewDetail">
+        {selectedTask ? (
+          <>
+            <div className="detailHeader">
+              <div>
+                <p className="sectionLabel">review task</p>
+                <h3>{selectedTask.review_task_id}</h3>
+              </div>
+              <span className={`reviewStatus ${selectedTask.status}`}>{selectedTask.status}</span>
+            </div>
+            <div className="reviewMeta">
+              <Metric icon={<Braces />} label="Type" value={selectedTask.task_type} />
+              <Metric icon={<FileSearch />} label="Evidence" value={String(selectedTask.evidence_ids.length)} />
+              <Metric icon={<Activity />} label="Updated" value={formatTime(selectedTask.updated_at)} />
+            </div>
+            <dl className="reviewFacts">
+              <div>
+                <dt>Source</dt>
+                <dd>{selectedTask.source_entity_type} · {selectedTask.source_entity_id}</dd>
+              </div>
+              <div>
+                <dt>Decision</dt>
+                <dd>{selectedTask.decision_nullable ?? "none"}</dd>
+              </div>
+              <div>
+                <dt>Evidence</dt>
+                <dd>{selectedTask.evidence_ids.join(", ") || "none"}</dd>
+              </div>
+            </dl>
+            <label className="notesBox">
+              Notes
+              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
+            </label>
+            <div className="reviewActions">
+              <button onClick={() => void decide("accepted", "accepted")}>
+                <CheckCircle2 size={15} />
+                Accept
+              </button>
+              <button onClick={() => void decide("needs_more_evidence", "needs_more_evidence")}>
+                <FileSearch size={15} />
+                Needs evidence
+              </button>
+              <button onClick={() => void decide("rejected", "rejected")}>
+                <AlertTriangle size={15} />
+                Reject
+              </button>
+            </div>
+            <p className="systemNote">{reviewState}</p>
+          </>
+        ) : (
+          <div className="emptyState">{reviewState}</div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function ScaffoldView(props: {
   activeView: ViewKey;
   client: OpenAbmClient;
@@ -443,6 +612,16 @@ async function moduleLiveSummary(
       detail: latest ? `Latest ${latest.status} run: ${latest.eval_run_id}` : "No eval runs yet"
     };
   }
+  if (view === "reviews") {
+    const tasks = await client.listReviewTasks(projectId, { status: "open" });
+    return {
+      label: "Open reviews",
+      value: String(tasks.length),
+      detail: tasks[0]
+        ? `${tasks[0].task_type}: ${tasks[0].source_entity_id}`
+        : "No open review tasks"
+    };
+  }
   if (view === "mcp") {
     const hits = await client.searchDocs("judge eval docs");
     return {
@@ -458,6 +637,7 @@ function moduleFixtureSummary(view: ViewKey): ModuleSummary {
   const summaries: Record<ViewKey, ModuleSummary> = {
     traces: { label: "Mode", value: "fixture", detail: "Trace explorer uses bundled fixtures offline" },
     issues: { label: "Issue flow", value: "ready", detail: "Issue and investigation APIs are wired" },
+    reviews: { label: "Reviews", value: "live", detail: "Review decisions are API-backed" },
     judges: { label: "Judges", value: "ready", detail: "Registry, drafts, and versions are API-backed" },
     behaviors: { label: "Behaviors", value: "ready", detail: "Rules and backtests are API-backed" },
     datasets: { label: "Evals", value: "ready", detail: "Local eval run and compare APIs are wired" },
@@ -506,6 +686,11 @@ function scaffoldRows(view: ViewKey) {
       { icon: <FileSearch />, title: "Deterministic investigation", status: "structured search and impact scaffold available", phase: "Spec v2" },
       { icon: <Database />, title: "Affected entities", status: "computed from trace dimensions", phase: "Spec v2" }
     ],
+    reviews: [
+      { icon: <CheckCircle2 />, title: "Review queue", status: "live task list and decisions", phase: "Phase 6" },
+      { icon: <FileSearch />, title: "Evidence IDs", status: "visible on task detail", phase: "Phase 6" },
+      { icon: <Shield />, title: "Audit trail", status: "update path records review decisions", phase: "Phase 8" }
+    ],
   };
   return shared[view];
 }
@@ -551,6 +736,7 @@ function viewTitle(view: ViewKey) {
   const labels: Record<ViewKey, string> = {
     traces: "Trace explorer",
     issues: "Issues and investigations",
+    reviews: "Review queue",
     judges: "Judge runtime",
     behaviors: "Behavior monitoring",
     datasets: "Datasets and evals",
