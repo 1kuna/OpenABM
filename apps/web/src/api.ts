@@ -33,6 +33,7 @@ import type {
   JudgeVersion,
   LabelTraceBehaviorResult,
   NotificationTarget,
+  OpsStatus,
   Project,
   ProjectExportBundle,
   PromptDefinition,
@@ -50,7 +51,8 @@ import type {
   SimilarTraceSearchResult,
   TraceDetail,
   TraceEnvelope,
-  TraceAssertionResult
+  TraceAssertionResult,
+  WorkerHeartbeat
 } from "./types";
 
 export interface OpenAbmClientConfig {
@@ -82,6 +84,32 @@ export class OpenAbmClient {
 
   async getMetricsText(): Promise<string> {
     return this.getText("/metrics");
+  }
+
+  async getOpsStatus(projectId: string): Promise<OpsStatus> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<OpsStatus>(`/v1/ops/status?${params.toString()}`);
+  }
+
+  async recordWorkerHeartbeat(
+    projectId: string,
+    workerId = "web-ops-preview",
+    queueDepth = 0
+  ): Promise<WorkerHeartbeat> {
+    return this.post<WorkerHeartbeat>("/v1/ops/worker-heartbeats", {
+      project_id: projectId,
+      worker_id: workerId,
+      worker_type: "ui",
+      status: "ok",
+      queue_depth: queueDepth,
+      details: { source: "ops_workspace" }
+    });
+  }
+
+  async listDeadLetterRuns(projectId: string, limit = 25): Promise<AutomationRun[]> {
+    const params = new URLSearchParams({ project_id: projectId, limit: String(limit) });
+    const body = await this.get<{ data: AutomationRun[] }>(`/v1/ops/dead-letter?${params.toString()}`);
+    return body.data;
   }
 
   async getAuthContract(): Promise<AuthContract> {

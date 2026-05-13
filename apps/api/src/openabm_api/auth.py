@@ -55,6 +55,8 @@ ADMIN_SCOPES = DEVELOPER_SCOPES | {
     "automations:write",
     "notifications:read",
     "notifications:write",
+    "ops:read",
+    "ops:write",
     "policies:read",
     "policies:write",
     "secrets:read",

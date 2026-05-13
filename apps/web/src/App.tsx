@@ -50,6 +50,7 @@ import type {
   JudgeDefinition,
   JudgePromotionResult,
   NotificationTarget,
+  OpsStatus,
   Project,
   ProjectExportBundle,
   PromptDefinition,
@@ -585,6 +586,8 @@ function OpsWorkspace(props: {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [ready, setReady] = useState<HealthStatus | null>(null);
   const [metricsText, setMetricsText] = useState("");
+  const [opsStatus, setOpsStatus] = useState<OpsStatus | null>(null);
+  const [deadLetterRuns, setDeadLetterRuns] = useState<AutomationRun[]>([]);
   const [authContract, setAuthContract] = useState<AuthContract | null>(null);
   const [authApiKeys, setAuthApiKeys] = useState<AuthApiKey[]>([]);
   const [authUsers, setAuthUsers] = useState<AuthUser[]>([]);
@@ -642,12 +645,17 @@ function OpsWorkspace(props: {
     secretRefs.find((secret) => secret.secret_ref === selectedSecretRef) ??
     secretRefs[0] ??
     null;
+  const workerHeartbeats = opsStatus?.worker_heartbeats ?? [];
+  const storageRows = Object.values(opsStatus?.storage_growth ?? {}).reduce((sum, count) => sum + count, 0);
+  const queueDepth = opsStatus?.queue_depth.worker_jobs ?? 0;
 
   async function loadOps() {
     if (connection !== "live") {
       setHealth(null);
       setReady(null);
       setMetricsText("");
+      setOpsStatus(null);
+      setDeadLetterRuns([]);
       setAuthContract(null);
       setAuthApiKeys([]);
       setAuthUsers([]);
@@ -666,6 +674,8 @@ function OpsWorkspace(props: {
         healthStatus,
         readyStatus,
         metrics,
+        status,
+        deadLetters,
         contract,
         apiKeys,
         users,
@@ -679,6 +689,8 @@ function OpsWorkspace(props: {
         client.getHealth(),
         client.getReady(),
         client.getMetricsText(),
+        client.getOpsStatus(projectId),
+        client.listDeadLetterRuns(projectId),
         client.getAuthContract(),
         client.listAuthApiKeys(projectId),
         client.listAuthUsers(projectId),
@@ -692,6 +704,8 @@ function OpsWorkspace(props: {
       setHealth(healthStatus);
       setReady(readyStatus);
       setMetricsText(metrics || "No counters emitted yet");
+      setOpsStatus(status);
+      setDeadLetterRuns(deadLetters);
       setAuthContract(contract);
       setAuthApiKeys(apiKeys);
       setAuthUsers(users);
@@ -729,6 +743,24 @@ function OpsWorkspace(props: {
   useEffect(() => {
     void loadSecretAccessLog();
   }, [selectedSecretRef]);
+
+  async function sendWorkerHeartbeat() {
+    if (connection !== "live") return;
+    try {
+      const heartbeat = await client.recordWorkerHeartbeat(projectId, "web-ops-preview", queueDepth);
+      setOpsStatus((current) => current ? {
+        ...current,
+        queue_depth: { ...current.queue_depth, worker_jobs: heartbeat.queue_depth },
+        worker_heartbeats: [
+          heartbeat,
+          ...current.worker_heartbeats.filter((item) => item.worker_id !== heartbeat.worker_id)
+        ]
+      } : current);
+      setStateText(`heartbeat ${heartbeat.worker_id}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "worker heartbeat failed");
+    }
+  }
 
   async function createLocalApiKey() {
     if (connection !== "live" || !apiKeyName.trim()) return;
@@ -953,6 +985,7 @@ function OpsWorkspace(props: {
           <Metric icon={<Activity />} label="Health" value={health?.status ?? connectionLabel(connection)} />
           <Metric icon={<CheckCircle2 />} label="Ready" value={ready?.status ?? "unknown"} />
           <Metric icon={<Database />} label="Counters" value={String(countMetricLines(metricsText))} />
+          <Metric icon={<AlertTriangle />} label="Dead letters" value={String(opsStatus?.dead_letter_count ?? 0)} />
         </div>
         <p className="systemNote">{stateText}</p>
 
@@ -972,7 +1005,57 @@ function OpsWorkspace(props: {
                 <dt>Store</dt>
                 <dd>{String(ready?.details?.store ?? "unknown")}</dd>
               </div>
+              <div>
+                <dt>Generated</dt>
+                <dd>{opsStatus ? formatTime(opsStatus.generated_at) : "unknown"}</dd>
+              </div>
             </dl>
+          </section>
+
+          <section className="opsSection">
+            <h4>Admin status</h4>
+            <div className="metricsRow compactMetrics">
+              <Metric icon={<Database />} label="Rows" value={String(storageRows)} />
+              <Metric icon={<Box />} label="Payload bytes" value={String(opsStatus?.payload_store_growth.total_bytes ?? 0)} />
+              <Metric icon={<Activity />} label="Queue" value={String(queueDepth)} />
+            </div>
+            <dl className="reviewFacts">
+              <div>
+                <dt>Open reviews</dt>
+                <dd>{String(opsStatus?.queue_depth.open_review_tasks ?? 0)}</dd>
+              </div>
+              <div>
+                <dt>Retention job</dt>
+                <dd>{opsStatus?.retention_job_status ? "recorded" : "none recorded"}</dd>
+              </div>
+              <div>
+                <dt>Automation failures</dt>
+                <dd>{String(opsStatus?.automation_action_failures ?? 0)}</dd>
+              </div>
+            </dl>
+            <button onClick={() => void sendWorkerHeartbeat()}>
+              <Activity size={15} />
+              Send heartbeat
+            </button>
+            <div className="sectionRows">
+              {workerHeartbeats.slice(0, 4).map((heartbeat) => (
+                <div key={heartbeat.worker_id}>
+                  <strong>{heartbeat.worker_id}</strong>
+                  <span>{heartbeat.worker_type} · {heartbeat.status} · queue {heartbeat.queue_depth}</span>
+                  <small>{formatTime(heartbeat.last_seen_at)}</small>
+                </div>
+              ))}
+              {!workerHeartbeats.length ? <div className="emptyState">No worker heartbeats</div> : null}
+            </div>
+            <div className="sectionRows">
+              {deadLetterRuns.slice(0, 4).map((run) => (
+                <div key={run.automation_run_id}>
+                  <strong>{run.status}</strong>
+                  <span>{run.automation_id} · {formatTime(run.started_at)}</span>
+                </div>
+              ))}
+              {!deadLetterRuns.length ? <div className="emptyState">No dead-letter runs</div> : null}
+            </div>
           </section>
 
           <section className="opsSection authSection">

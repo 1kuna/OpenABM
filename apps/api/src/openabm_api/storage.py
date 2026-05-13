@@ -1251,6 +1251,162 @@ class SQLiteStore:
             ).fetchall()
         return [self._secret_access_from_row(row) for row in rows]
 
+    def record_worker_heartbeat(self, request: dict[str, Any]) -> dict[str, Any]:
+        now = utc_now()
+        item = {
+            "worker_id": request.get("worker_id") or "local-reference-worker",
+            "project_id": request.get("project_id"),
+            "worker_type": request.get("worker_type") or "local",
+            "status": request.get("status") or "ok",
+            "queue_depth": _non_negative_int(request.get("queue_depth")),
+            "details": request.get("details") or {},
+            "last_seen_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO worker_heartbeats(
+                  worker_id, project_id, worker_type, status, queue_depth,
+                  details_json, last_seen_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(worker_id) DO UPDATE SET
+                  project_id = excluded.project_id,
+                  worker_type = excluded.worker_type,
+                  status = excluded.status,
+                  queue_depth = excluded.queue_depth,
+                  details_json = excluded.details_json,
+                  last_seen_at = excluded.last_seen_at
+                """,
+                (
+                    item["worker_id"],
+                    item["project_id"],
+                    item["worker_type"],
+                    item["status"],
+                    item["queue_depth"],
+                    encode_json(item["details"]),
+                    now,
+                ),
+            )
+        return item
+
+    def list_worker_heartbeats(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        clauses = []
+        params: list[Any] = []
+        if project_id:
+            clauses.append("(project_id = ? OR project_id IS NULL)")
+            params.append(project_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM worker_heartbeats
+                {where}
+                ORDER BY last_seen_at DESC
+                """,
+                params,
+            ).fetchall()
+        return [self._worker_heartbeat_from_row(row) for row in rows]
+
+    def list_dead_letter_runs(self, project_id: str, limit: int = 25) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM automation_runs
+                WHERE project_id = ?
+                  AND status IN ('dead_lettered', 'partial_failure')
+                ORDER BY started_at DESC
+                LIMIT ?
+                """,
+                (project_id, max(1, min(limit, 100))),
+            ).fetchall()
+        return [self._automation_run_from_row(row) for row in rows]
+
+    def ops_status(self, project_id: str) -> dict[str, Any]:
+        with self.connect() as conn:
+            storage_counts = {
+                table: self._table_count(conn, table, project_id)
+                for table in [
+                    "trace_metadata",
+                    "trace_spans",
+                    "scores",
+                    "behavior_matches",
+                    "datasets",
+                    "dataset_examples",
+                    "eval_runs",
+                    "eval_results",
+                    "issues",
+                    "investigation_runs",
+                    "impact_reports",
+                    "agent_context_packs",
+                    "review_tasks",
+                    "automation_runs",
+                    "secret_refs",
+                    "audit_log",
+                ]
+            }
+            payload_growth = conn.execute(
+                """
+                SELECT COUNT(*) AS count,
+                       COALESCE(SUM(byte_size_nullable), 0) AS total_bytes
+                FROM payload_objects
+                WHERE project_id = ? AND deleted_at IS NULL
+                """,
+                (project_id,),
+            ).fetchone()
+            open_reviews = conn.execute(
+                """
+                SELECT COUNT(*) AS count FROM review_tasks
+                WHERE project_id = ? AND status = 'open'
+                """,
+                (project_id,),
+            ).fetchone()
+            automation_failures = conn.execute(
+                """
+                SELECT COUNT(*) AS count FROM automation_runs
+                WHERE project_id = ?
+                  AND status IN ('dead_lettered', 'partial_failure')
+                """,
+                (project_id,),
+            ).fetchone()
+            latest_retention = conn.execute(
+                """
+                SELECT action, target_id, metadata_json, created_at
+                FROM audit_log
+                WHERE project_id = ? AND action = 'apply_retention_policy'
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (project_id,),
+            ).fetchone()
+        worker_heartbeats = self.list_worker_heartbeats(project_id)
+        worker_queue_depth = sum(int(item["queue_depth"]) for item in worker_heartbeats)
+        return {
+            "project_id": project_id,
+            "generated_at": utc_now(),
+            "storage_growth": storage_counts,
+            "payload_store_growth": {
+                "object_count": int(payload_growth["count"]),
+                "total_bytes": int(payload_growth["total_bytes"]),
+            },
+            "queue_depth": {
+                "open_review_tasks": int(open_reviews["count"]),
+                "worker_jobs": worker_queue_depth,
+            },
+            "retention_job_status": dict(latest_retention) if latest_retention else None,
+            "automation_action_failures": int(automation_failures["count"]),
+            "dead_letter_count": int(automation_failures["count"]),
+            "worker_heartbeats": worker_heartbeats,
+        }
+
+    @staticmethod
+    def _table_count(conn: sqlite3.Connection, table: str, project_id: str) -> int:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS count FROM {table} WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+        return int(row["count"])
+
     def upsert_trace(self, trace: dict[str, Any]) -> str:
         now = utc_now()
         self.ensure_project(trace["project_id"])
@@ -4509,6 +4665,18 @@ class SQLiteStore:
             "action": row["action"],
             "purpose": row["purpose"],
             "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _worker_heartbeat_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "worker_id": row["worker_id"],
+            "project_id": row["project_id"],
+            "worker_type": row["worker_type"],
+            "status": row["status"],
+            "queue_depth": row["queue_depth"],
+            "details": decode_json(row["details_json"], {}),
+            "last_seen_at": row["last_seen_at"],
         }
 
     @staticmethod

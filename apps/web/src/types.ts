@@ -558,6 +558,45 @@ export interface SecretAccessLogEntry {
   created_at: string;
 }
 
+export interface MetricObservation {
+  count: number;
+  sum: number;
+  max: number;
+  avg: number;
+}
+
+export interface MetricsSnapshot {
+  counters: Record<string, number>;
+  gauges: Record<string, number>;
+  observations: Record<string, MetricObservation>;
+}
+
+export interface WorkerHeartbeat {
+  worker_id: string;
+  project_id: string | null;
+  worker_type: string;
+  status: string;
+  queue_depth: number;
+  details: Record<string, unknown>;
+  last_seen_at: string;
+}
+
+export interface OpsStatus {
+  project_id: string;
+  generated_at: string;
+  storage_growth: Record<string, number>;
+  payload_store_growth: {
+    object_count: number;
+    total_bytes: number;
+  };
+  queue_depth: Record<string, number>;
+  retention_job_status: Record<string, unknown> | null;
+  automation_action_failures: number;
+  dead_letter_count: number;
+  worker_heartbeats: WorkerHeartbeat[];
+  metrics?: MetricsSnapshot;
+}
+
 export interface JudgeDefinition {
   judge_id: string;
   project_id: string;

@@ -461,6 +461,15 @@ Done:
   examples, eval results, review evidence, investigations, context packs,
   impact reports, affected entities, search documents, payload bodies, scores,
   spans, and behavior matches.
+- Added local observability coverage: API route/status/error/schema-invalid
+  counters, request latency summaries, model-provider latency/error/invalid
+  output counters, judge/eval/investigation/impact/comparison latency metrics,
+  storage and payload growth gauges, queue-depth gauges, worker heartbeats, and
+  dead-letter run inspection.
+- Added `/v1/ops/status`, `/v1/ops/worker-heartbeats`, and
+  `/v1/ops/dead-letter`, backed by a worker heartbeat migration and surfaced in
+  the Operations workspace as an admin status panel with storage, payload,
+  queue, retention, automation failure, heartbeat, and dead-letter visibility.
 
 ## Phase 9: Real-World Pilot And Revisit Decisions
 
@@ -479,8 +488,8 @@ Blocked:
 
 Verified after the latest implementation slices:
 
-- `make lint && make test`: passed, 47 tests after the privacy/export/delete
-  hardening slice.
+- `make lint`: passed.
+- `make test`: passed, 48 tests after the observability/admin-status slice.
 - `npm --prefix apps/web run build`: passed.
 - Browser QA captured desktop and mobile Trace Detail, Operations, Issues, and
   Automations workspace screenshots under `artifacts/ui-qa/`; trace detail mode
@@ -511,6 +520,11 @@ Verified after the latest implementation slices:
 - Secret/Ops QA covered local encryption status, external-provider boundary,
   secret-ref creation, rotation to version 2, access-log rendering, and verified
   plaintext secret values did not appear in rendered UI text.
+- Ops Observability QA covered the admin status panel, storage/payload/queue
+  metrics, worker heartbeat creation, and dead-letter visibility on desktop and
+  mobile with no console errors or failing API responses. Screenshots:
+  `artifacts/ui-qa/openabm-ops-observability-desktop.png` and
+  `artifacts/ui-qa/openabm-ops-observability-mobile.png`.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
 - MCP stdio smoke: `tools/list` returned 35 tools and
@@ -548,6 +562,9 @@ Known remaining gaps before calling the whole spec complete:
 - External IdP/OAuth login, real invite delivery, production secret-manager
   provider adapters, and scheduled retention workers remain beyond the local
   reference scaffold.
+- Production-grade observability exporters, log aggregation, retention-worker
+  scheduling, MCP-server metrics ingestion, and external notification delivery
+  are still future hardening beyond the local reference surfaces.
 
 ## Spec V2 Delta Incorporated
 

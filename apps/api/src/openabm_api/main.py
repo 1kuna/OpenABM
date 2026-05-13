@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -76,6 +77,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def collect_api_metrics(request: Request, call_next: Callable[[Request], Any]) -> Any:
+        started = time.perf_counter()
+        status_code = 500
+        errored = False
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            return response
+        except Exception:
+            errored = True
+            raise
+        finally:
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            route = getattr(request.scope.get("route"), "path", request.url.path)
+            route_metric = f"api.route.{request.method.lower()}.{route}.requests"
+            metrics.increment("api.requests")
+            metrics.increment(route_metric)
+            metrics.increment(f"api.status.{status_code}")
+            metrics.observe("api.request_latency_ms", elapsed_ms)
+            metrics.observe(f"api.route.{request.method.lower()}.{route}.latency_ms", elapsed_ms)
+            if errored or status_code >= 500:
+                metrics.increment("api.errors")
+
     def auth_dependency(scopes: list[str]) -> Callable[[str | None], dict[str, object]]:
         def dependency(authorization: str | None = Header(default=None)) -> dict[str, object]:
             return require_api_key(settings, store, scopes, authorization)
@@ -107,6 +132,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/metrics", response_class=PlainTextResponse)
     def metrics_endpoint() -> str:
+        _refresh_observability_gauges(metrics, store, "proj_demo")
         return metrics.render_text()
 
     @app.get("/api/auth/contract")
@@ -453,6 +479,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         del actor
         return {"data": store.list_secret_access_log(project_id, secret_ref)}
 
+    @app.get("/api/ops/status")
+    def get_ops_status(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["ops:read"])),
+    ) -> dict[str, object]:
+        del actor
+        _refresh_observability_gauges(metrics, store, project_id)
+        status = store.ops_status(project_id)
+        status["metrics"] = metrics.snapshot()
+        return status
+
+    @app.post("/api/ops/worker-heartbeats", status_code=201)
+    def record_worker_heartbeat(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["ops:write"])),
+    ) -> dict[str, object]:
+        if "project_id" not in request:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        heartbeat = store.record_worker_heartbeat(request)
+        store.append_audit(
+            "record_worker_heartbeat",
+            "worker_heartbeat",
+            request["project_id"],
+            heartbeat["worker_id"],
+            {
+                "worker_type": heartbeat["worker_type"],
+                "status": heartbeat["status"],
+                "queue_depth": heartbeat["queue_depth"],
+            },
+            actor_id=str(actor.get("actor_id") or "unknown"),
+        )
+        return heartbeat
+
+    @app.get("/api/ops/dead-letter")
+    def list_dead_letters(
+        project_id: str,
+        limit: int = 25,
+        actor: dict[str, object] = Depends(auth_dependency(["ops:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_dead_letter_runs(project_id, limit=limit)}
+
     @app.post("/api/ingest/traces", status_code=202)
     def ingest_trace(
         trace: dict[str, Any],
@@ -780,7 +852,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if source_trace is None:
             raise HTTPException(status_code=404, detail=_error("not_found", "Trace not found."))
         try:
-            provider = model_provider_from_settings(settings)
+            provider = _observed_model_provider(settings, metrics)
         except ModelConfigurationError as exc:
             return {
                 "data": [],
@@ -935,7 +1007,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
         else:
             try:
-                provider = model_provider_from_settings(settings)
+                provider = _observed_model_provider(settings, metrics)
             except ModelConfigurationError as exc:
                 raise HTTPException(
                     status_code=503,
@@ -1049,7 +1121,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if trace is None:
             raise HTTPException(status_code=404, detail=_error("not_found", "Trace not found."))
         try:
-            provider = model_provider_from_settings(settings)
+            provider = _observed_model_provider(settings, metrics)
         except ModelConfigurationError as exc:
             raise HTTPException(
                 status_code=503,
@@ -1057,6 +1129,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ) from exc
         spans = store.list_spans(request["project_id"], request["trace_id"])
         try:
+            judge_started = time.perf_counter()
             score = await run_rubric_judge(
                 provider,
                 trace,
@@ -1065,10 +1138,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 token_budget=settings.max_trace_tokens_for_judge,
             )
         except ModelCallsDisabled as exc:
+            metrics.increment("judge.failures")
             raise HTTPException(
                 status_code=503,
                 detail=_error("model_unavailable", str(exc), retryable=True),
             ) from exc
+        judge_elapsed_ms = (time.perf_counter() - judge_started) * 1000
+        metrics.observe("judge.job_latency_ms", judge_elapsed_ms)
+        if score["status"] == "invalid_output":
+            metrics.increment("judge.invalid_output")
+        if score.get("latency_ms") is None:
+            score["latency_ms"] = int(judge_elapsed_ms)
         store.record_score(request["project_id"], score)
         store.append_audit(
             "run_rubric_judge",
@@ -1401,13 +1481,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         provider = None
         if any(judge.get("judge_type") == "rubric_judge" for judge in judges):
             try:
-                provider = model_provider_from_settings(settings)
+                provider = _observed_model_provider(settings, metrics)
             except ModelConfigurationError as exc:
                 raise HTTPException(
                     status_code=503,
                     detail=_error("model_unavailable", str(exc), retryable=True),
                 ) from exc
         try:
+            eval_started = time.perf_counter()
             run = await run_eval(
                 store,
                 project_id=request["project_id"],
@@ -1420,10 +1501,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 prompt_version_id=request.get("prompt_version_id"),
             )
         except ModelCallsDisabled as exc:
+            metrics.increment("eval.failures")
             raise HTTPException(
                 status_code=503,
                 detail=_error("model_unavailable", str(exc), retryable=True),
             ) from exc
+        eval_elapsed_ms = (time.perf_counter() - eval_started) * 1000
+        metrics.observe("eval.job_latency_ms", eval_elapsed_ms)
+        metrics.observe("worker.job_latency_ms", eval_elapsed_ms)
         store.append_audit(
             "run_eval",
             "eval_run",
@@ -1468,6 +1553,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     f"/{key}",
                 )
         try:
+            comparison_started = time.perf_counter()
             comparison = store.compare_eval_runs(
                 request["project_id"],
                 request["baseline_eval_run_id"],
@@ -1475,6 +1561,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
+        metrics.observe(
+            "root_cause.comparison_latency_ms",
+            (time.perf_counter() - comparison_started) * 1000,
+        )
         return comparison
 
     @app.post("/api/docs/search")
@@ -2454,7 +2544,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         issue_id = request.get("issue_id_nullable")
         issue = store.get_issue(project_id, issue_id) if issue_id else None
         try:
-            provider = model_provider_from_settings(settings)
+            provider = _observed_model_provider(settings, metrics)
             content = await build_agent_context_pack_content(
                 provider,
                 issue=issue,
@@ -2524,9 +2614,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "project_id is required",
                 "/project_id",
             )
+        investigation_started = time.perf_counter()
+        impact_started = time.perf_counter()
         run = store.start_investigation(request)
+        metrics.observe(
+            "impact_report.generation_latency_ms",
+            (time.perf_counter() - impact_started) * 1000,
+        )
         try:
-            provider = model_provider_from_settings(settings)
+            provider = _observed_model_provider(settings, metrics)
             traces = [
                 trace
                 for trace_id in run["result"]["evidence_trace_ids"]
@@ -2585,6 +2681,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             request["project_id"],
             run["investigation_run_id"],
         )
+        metrics.observe(
+            "investigation.run_latency_ms",
+            (time.perf_counter() - investigation_started) * 1000,
+        )
         return run
 
     @app.get("/api/grounding-checks")
@@ -2617,7 +2717,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             claims = request["claims"]
         elif request.get("extract_claims_with_model"):
             try:
-                provider = model_provider_from_settings(settings)
+                provider = _observed_model_provider(settings, metrics)
                 model_extraction = await extract_grounding_claims_with_model(
                     provider,
                     text=request.get("text") or trace.get("summary") or "",
@@ -2714,7 +2814,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         if request.get("semantic_grouping_with_model"):
             try:
-                provider = model_provider_from_settings(settings)
+                provider = _observed_model_provider(settings, metrics)
                 result = await group_novel_behavior_candidates_with_model(
                     provider,
                     result,
@@ -2800,6 +2900,146 @@ def _register_v1_aliases(app: FastAPI) -> None:
             name=f"v1_{route.name}",
             include_in_schema=True,
         )
+
+
+class _ObservedModelProvider:
+    def __init__(self, provider: Any, metrics: Metrics) -> None:
+        self._provider = provider
+        self._metrics = metrics
+        self.adapter_name = str(getattr(provider, "adapter_name", "unknown"))
+        self.supported_capabilities = list(getattr(provider, "supported_capabilities", []))
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._provider, name)
+
+    def health_check(self) -> Any:
+        return self._provider.health_check()
+
+    async def chat_completion(
+        self,
+        request: dict[str, Any],
+        timeout_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        kwargs = {}
+        if timeout_seconds is not None:
+            kwargs["timeout_seconds"] = timeout_seconds
+        return await self._observe(
+            "chat_completion",
+            self._provider.chat_completion,
+            request,
+            **kwargs,
+        )
+
+    async def structured_completion(
+        self,
+        request: dict[str, Any],
+        schema: dict[str, Any],
+        timeout_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        kwargs = {}
+        if timeout_seconds is not None:
+            kwargs["timeout_seconds"] = timeout_seconds
+        return await self._observe(
+            "structured_completion",
+            self._provider.structured_completion,
+            request,
+            schema,
+            **kwargs,
+        )
+
+    async def tool_completion(
+        self,
+        request: dict[str, Any],
+        tools: list[dict[str, Any]],
+        timeout_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        kwargs = {}
+        if timeout_seconds is not None:
+            kwargs["timeout_seconds"] = timeout_seconds
+        return await self._observe(
+            "tool_completion",
+            self._provider.tool_completion,
+            request,
+            tools,
+            **kwargs,
+        )
+
+    async def _observe(
+        self,
+        method: str,
+        call: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        started = time.perf_counter()
+        try:
+            result = await call(*args, **kwargs)
+        except Exception:
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            self._metrics.increment("model_provider.errors")
+            self._metrics.increment(f"model_provider.{self.adapter_name}.{method}.errors")
+            self._metrics.observe("model_provider.latency_ms", elapsed_ms)
+            self._metrics.observe(
+                f"model_provider.{self.adapter_name}.{method}.latency_ms",
+                elapsed_ms,
+            )
+            raise
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        self._metrics.observe("model_provider.latency_ms", elapsed_ms)
+        self._metrics.observe(
+            f"model_provider.{self.adapter_name}.{method}.latency_ms",
+            elapsed_ms,
+        )
+        if result.get("status") == "invalid_output":
+            self._metrics.increment("model_provider.invalid_output")
+            self._metrics.increment(
+                f"model_provider.{self.adapter_name}.{method}.invalid_output"
+            )
+        return result
+
+
+def _observed_model_provider(settings: Settings, metrics: Metrics) -> _ObservedModelProvider:
+    try:
+        provider = model_provider_from_settings(settings)
+    except ModelConfigurationError:
+        metrics.increment("model_provider.configuration_errors")
+        raise
+    return _ObservedModelProvider(provider, metrics)
+
+
+def _refresh_observability_gauges(
+    metrics: Metrics,
+    store: SQLiteStore,
+    project_id: str,
+) -> None:
+    try:
+        status = store.ops_status(project_id)
+    except Exception:
+        metrics.increment("ops.metrics_refresh_errors")
+        return
+
+    for table, count in status["storage_growth"].items():
+        metrics.set_gauge(f"storage.{table}.rows", count)
+
+    payload_growth = status["payload_store_growth"]
+    metrics.set_gauge("payload_store.objects", payload_growth["object_count"])
+    metrics.set_gauge("payload_store.bytes", payload_growth["total_bytes"])
+
+    queue_depth = status["queue_depth"]
+    for queue_name, depth in queue_depth.items():
+        metrics.set_gauge(f"queue.{queue_name}", depth)
+
+    metrics.set_gauge("automation.action_failures", status["automation_action_failures"])
+    metrics.set_gauge("dead_letter.count", status["dead_letter_count"])
+    metrics.set_gauge("worker.heartbeats", len(status["worker_heartbeats"]))
+    metrics.set_gauge(
+        "retention.last_job_present",
+        1 if status["retention_job_status"] else 0,
+    )
+
+    for heartbeat in status["worker_heartbeats"]:
+        worker_id = heartbeat["worker_id"]
+        metrics.set_gauge(f"worker.{worker_id}.queue_depth", heartbeat["queue_depth"])
 
 
 def _behavior_backtest_evidence_ids(result: dict[str, Any]) -> list[str]:

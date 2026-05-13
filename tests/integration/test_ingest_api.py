@@ -205,6 +205,62 @@ def test_secret_refs_are_encrypted_redacted_rotatable_and_audited(tmp_path) -> N
     assert {"create", "resolve", "rotate"} <= actions
 
 
+def test_observability_status_metrics_dead_letters_and_heartbeats(tmp_path) -> None:
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][0]
+    ingest = client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    assert ingest.status_code == 207
+
+    heartbeat = client.post(
+        "/v1/ops/worker-heartbeats",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "worker_id": "pytest-worker",
+            "worker_type": "integration",
+            "status": "ok",
+            "queue_depth": 3,
+            "details": {"test": "observability"},
+        },
+    )
+    assert heartbeat.status_code == 201
+    assert heartbeat.json()["queue_depth"] == 3
+
+    status = client.get(
+        "/v1/ops/status",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert status.status_code == 200
+    body = status.json()
+    assert body["storage_growth"]["trace_metadata"] == 1
+    assert body["storage_growth"]["trace_spans"] == len(fixture["spans"])
+    assert body["queue_depth"]["worker_jobs"] == 3
+    assert body["worker_heartbeats"][0]["worker_id"] == "pytest-worker"
+    assert "metrics" in body
+
+    dead_letters = client.get(
+        "/v1/ops/dead-letter",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert dead_letters.status_code == 200
+    assert dead_letters.json()["data"] == []
+
+    metrics = client.get("/metrics")
+    assert metrics.status_code == 200
+    text = metrics.text
+    assert "openabm_api_requests" in text
+    assert "openabm_api_request_latency_ms_count" in text
+    assert "openabm_storage_trace_metadata_rows 1.0" in text
+    assert "openabm_queue_worker_jobs 3.0" in text
+    assert "openabm_worker_pytest_worker_queue_depth 3.0" in text
+
+
 def test_invalid_span_gets_partial_success_rejection(tmp_path) -> None:
     client = make_client(tmp_path)
     response = client.post(
