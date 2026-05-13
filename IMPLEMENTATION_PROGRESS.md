@@ -592,6 +592,10 @@ Done:
   of truth. Investigation results now persist an `orchestration` record with
   graph version, framework name, candidate queries, trace candidates, and
   tool-call inputs/outputs for replay/audit.
+- Extended the LangGraph investigation workflow with stored embedding-index
+  semantic similarity when available. Runs now persist semantic match details,
+  cite similar trace/span evidence through orchestration events, and record
+  skipped reasons when no seed trace or index is available.
 - Normalized LangGraph investigation orchestration events with status,
   citation IDs, and MCP-readable resource URIs so deep-agent runners can follow
   an investigation event directly to its trace/span/issue/report evidence.

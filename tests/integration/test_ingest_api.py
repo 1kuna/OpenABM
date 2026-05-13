@@ -718,6 +718,22 @@ def test_similarity_index_rebuild_persists_embedding_vectors(tmp_path, monkeypat
     assert body["data"][0]["trace_id"] == "trace_wrong_tool"
     assert body["data"][0]["evidence_span_ids"] == ["span_wrong_tool_order_lookup"]
 
+    investigation = client.post(
+        "/v1/investigations",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "seed_trace_id_nullable": "trace_happy_support",
+            "limit": 2,
+        },
+    )
+    assert investigation.status_code == 201
+    result = investigation.json()["result"]
+    assert result["semantic_similarity"]["status"] == "succeeded"
+    assert result["semantic_similarity"]["matches"][0]["trace_id"] == "trace_wrong_tool"
+    assert result["orchestration"]["semantic_trace_ids"] == ["trace_wrong_tool"]
+    assert "semantic similarity" not in result["llm_deferred"]
+
 
 def test_novelty_run_can_group_candidates_with_similarity_index(tmp_path, monkeypatch) -> None:
     class StubEmbeddingProvider:
@@ -2698,9 +2714,18 @@ def test_v1_investigation_adds_model_assistance_with_citations(tmp_path, monkeyp
         "generate_candidate_search_queries",
         "run_structured_search",
         "run_full_text_search",
+        "run_semantic_similarity_search",
         "persist_investigation_run",
     ]
-    assert {event["status"] for event in orchestration["tool_calls"]} == {"succeeded"}
+    assert response.json()["result"]["semantic_similarity"] == {
+        "status": "skipped",
+        "reason": "no_similarity_index",
+        "matches": [],
+    }
+    assert {event["status"] for event in orchestration["tool_calls"]} == {
+        "skipped",
+        "succeeded",
+    }
     structured_event = orchestration["tool_calls"][1]
     assert structured_event["citations"] == ["trace_wrong_tool"]
     assert structured_event["resource_uris"] == ["trace://trace_wrong_tool"]

@@ -4372,6 +4372,14 @@ class SQLiteStore:
             seed = self.get_trace(project_id, seed_trace_id)
             if seed is not None:
                 traces.insert(0, seed)
+        for candidate_trace_id in request.get("candidate_trace_ids") or []:
+            if not isinstance(candidate_trace_id, str):
+                continue
+            if any(trace["trace_id"] == candidate_trace_id for trace in traces):
+                continue
+            candidate_trace = self.get_trace(project_id, candidate_trace_id)
+            if candidate_trace is not None:
+                traces.append(candidate_trace)
         report = self._build_impact_report(
             project_id=project_id,
             issue_id=request.get("issue_id_nullable"),

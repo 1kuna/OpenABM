@@ -4,6 +4,8 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from openabm_worker.similarity import rank_similar_traces_from_vectors
+
 GRAPH_VERSION = "openabm_investigation_graph_v1"
 
 
@@ -32,6 +34,8 @@ class InvestigationWorkflowState(TypedDict, total=False):
     candidate_search_queries: list[str]
     structured_trace_ids: list[str]
     full_text_trace_ids: list[str]
+    semantic_trace_ids: list[str]
+    semantic_similarity: dict[str, Any]
     orchestration_events: list[dict[str, Any]]
     run: dict[str, Any]
 
@@ -53,11 +57,13 @@ def _build_investigation_graph(store: Any) -> Any:
     builder.add_node("generate_candidate_search_queries", _generate_candidate_search_queries)
     builder.add_node("run_structured_search", _run_structured_search(store))
     builder.add_node("run_full_text_search", _run_full_text_search(store))
+    builder.add_node("run_semantic_similarity_search", _run_semantic_similarity_search(store))
     builder.add_node("persist_investigation_run", _persist_investigation_run(store))
     builder.add_edge(START, "generate_candidate_search_queries")
     builder.add_edge("generate_candidate_search_queries", "run_structured_search")
     builder.add_edge("run_structured_search", "run_full_text_search")
-    builder.add_edge("run_full_text_search", "persist_investigation_run")
+    builder.add_edge("run_full_text_search", "run_semantic_similarity_search")
+    builder.add_edge("run_semantic_similarity_search", "persist_investigation_run")
     builder.add_edge("persist_investigation_run", END)
     return builder.compile()
 
@@ -156,17 +162,124 @@ def _run_full_text_search(store: Any) -> Any:
     return node
 
 
+def _run_semantic_similarity_search(store: Any) -> Any:
+    def node(state: InvestigationWorkflowState) -> dict[str, Any]:
+        request = state["request"]
+        project_id = state["project_id"]
+        seed_trace_id = request.get("seed_trace_id_nullable")
+        if not isinstance(seed_trace_id, str) or not seed_trace_id:
+            return _semantic_similarity_state(
+                state,
+                {
+                    "status": "skipped",
+                    "reason": "seed_trace_required",
+                    "matches": [],
+                },
+            )
+
+        representation_version = _select_similarity_representation(
+            store,
+            project_id,
+            request.get("similarity_representation_version"),
+        )
+        if representation_version is None:
+            return _semantic_similarity_state(
+                state,
+                {
+                    "status": "skipped",
+                    "reason": "no_similarity_index",
+                    "matches": [],
+                },
+            )
+
+        source_vector = store.get_similarity_vector(
+            project_id,
+            "trace",
+            seed_trace_id,
+            representation_version,
+        )
+        if source_vector is None:
+            return _semantic_similarity_state(
+                state,
+                {
+                    "status": "skipped",
+                    "reason": "source_trace_not_indexed",
+                    "representation_version": representation_version,
+                    "matches": [],
+                },
+            )
+
+        scoped_trace_ids = set(state.get("structured_trace_ids", []))
+        candidate_trace_vectors = [
+            vector
+            for vector in store.list_similarity_vectors(
+                project_id,
+                representation_version,
+                entity_type="trace",
+            )
+            if vector["entity_id"] != seed_trace_id
+            and (not scoped_trace_ids or vector["entity_id"] in scoped_trace_ids)
+        ]
+        if not candidate_trace_vectors:
+            return _semantic_similarity_state(
+                state,
+                {
+                    "status": "skipped",
+                    "reason": "no_indexed_candidates",
+                    "representation_version": representation_version,
+                    "matches": [],
+                },
+            )
+
+        candidate_trace_ids = [vector["entity_id"] for vector in candidate_trace_vectors]
+        result = rank_similar_traces_from_vectors(
+            source_vector=source_vector,
+            candidate_trace_vectors=candidate_trace_vectors,
+            candidate_span_vectors=store.list_similarity_vectors(
+                project_id,
+                representation_version,
+                entity_type="span",
+                trace_ids=candidate_trace_ids,
+            ),
+            limit=int(request.get("limit", 50)),
+        )
+        result["representation_version"] = representation_version
+        return _semantic_similarity_state(state, result)
+
+    return node
+
+
 def _persist_investigation_run(store: Any) -> Any:
     def node(state: InvestigationWorkflowState) -> dict[str, Any]:
         request = state["request"]
-        run = store.start_investigation(request)
+        enriched_request = {
+            **request,
+            "candidate_trace_ids": _ordered_unique(
+                [
+                    *state.get("structured_trace_ids", []),
+                    *state.get("full_text_trace_ids", []),
+                    *state.get("semantic_trace_ids", []),
+                ]
+            ),
+        }
+        run = store.start_investigation(enriched_request)
         result = dict(run["result"])
+        semantic_similarity = state.get(
+            "semantic_similarity",
+            {"status": "skipped", "reason": "not_run", "matches": []},
+        )
+        result["semantic_similarity"] = semantic_similarity
+        if semantic_similarity.get("status") == "succeeded":
+            result["llm_deferred"] = [
+                item for item in result.get("llm_deferred", []) if item != "semantic similarity"
+            ]
         result["orchestration"] = {
             "framework": "langgraph",
             "graph_version": GRAPH_VERSION,
             "candidate_search_queries": state.get("candidate_search_queries", []),
             "structured_trace_ids": state.get("structured_trace_ids", []),
             "full_text_trace_ids": state.get("full_text_trace_ids", []),
+            "semantic_trace_ids": state.get("semantic_trace_ids", []),
             "tool_calls": _append_event(
                 state,
                 {
@@ -193,6 +306,74 @@ def _persist_investigation_run(store: Any) -> Any:
         return {"run": run, "orchestration_events": result["orchestration"]["tool_calls"]}
 
     return node
+
+
+def _semantic_similarity_state(
+    state: InvestigationWorkflowState,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    trace_ids = [
+        match["trace_id"]
+        for match in result.get("matches", [])
+        if isinstance(match, dict) and isinstance(match.get("trace_id"), str)
+    ]
+    return {
+        "semantic_trace_ids": trace_ids,
+        "semantic_similarity": result,
+        "orchestration_events": _append_event(
+            state,
+            {
+                "node": "run_semantic_similarity_search",
+                "tool": "search_similar",
+                "status": result.get("status", "succeeded"),
+                "side_effects": False,
+                "input": {
+                    "seed_trace_id_nullable": state["request"].get("seed_trace_id_nullable"),
+                    "representation_version": result.get("representation_version"),
+                },
+                "output": {
+                    "reason": result.get("reason"),
+                    "trace_ids": trace_ids,
+                    "match_count": len(trace_ids),
+                },
+            },
+        ),
+    }
+
+
+def _select_similarity_representation(
+    store: Any,
+    project_id: str,
+    requested: Any,
+) -> str | None:
+    if isinstance(requested, str) and requested.strip():
+        return requested.strip()
+    representations = [
+        item
+        for item in store.similarity_index_summary(project_id).get("representations", [])
+        if item.get("entity_type") == "trace"
+    ]
+    if not representations:
+        return None
+    selected = sorted(
+        representations,
+        key=lambda item: (
+            str(item.get("last_updated_at") or ""),
+            str(item.get("representation_version") or ""),
+        ),
+        reverse=True,
+    )[0]
+    return str(selected["representation_version"])
+
+
+def _ordered_unique(values: list[str]) -> list[str]:
+    seen = set()
+    ordered = []
+    for value in values:
+        if value not in seen:
+            seen.add(value)
+            ordered.append(value)
+    return ordered
 
 
 def _append_event(
