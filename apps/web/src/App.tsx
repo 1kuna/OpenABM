@@ -2664,7 +2664,9 @@ function TraceExplorer(props: {
   const [traceListState, setTraceListState] = useState("Trace list ready");
   const [scoresByTrace, setScoresByTrace] = useState<Record<string, ScoreResult[]>>({});
   const [behaviorMatchesByTrace, setBehaviorMatchesByTrace] = useState<Record<string, BehaviorMatch[]>>({});
-  const selectedSpan = detail?.spans[0] ?? null;
+  const [datasetMembershipByTrace, setDatasetMembershipByTrace] = useState<Record<string, DatasetMembership[]>>({});
+  const [selectedSpanId, setSelectedSpanId] = useState("");
+  const selectedSpan = detail?.spans.find((span) => span.span_id === selectedSpanId) ?? detail?.spans[0] ?? null;
   const selectedSavedSearch = savedSearches.find((item) => item.saved_search_id === selectedSavedSearchId) ?? null;
   const selectedDataset = datasets.find((dataset) => dataset.dataset_id === selectedDatasetId) ?? datasets[0] ?? null;
 
@@ -2674,6 +2676,7 @@ function TraceExplorer(props: {
       setDatasets([]);
       setScoresByTrace({});
       setBehaviorMatchesByTrace({});
+      setDatasetMembershipByTrace({});
       setTraceListState("fixture mode");
       return;
     }
@@ -2684,10 +2687,17 @@ function TraceExplorer(props: {
         props.client.listScores(props.projectId),
         props.client.listBehaviorMatches(props.projectId)
       ]);
+      const datasetExamples = await Promise.all(
+        loadedDatasets.map(async (dataset) => ({
+          dataset,
+          examples: await props.client.listDatasetExamples(props.projectId, dataset.dataset_id)
+        }))
+      );
       setSavedSearches(loadedSearches);
       setDatasets(loadedDatasets);
       setScoresByTrace(groupByTraceId(loadedScores));
       setBehaviorMatchesByTrace(groupByTraceId(loadedBehaviorMatches));
+      setDatasetMembershipByTrace(groupDatasetMembership(datasetExamples));
       setSelectedSavedSearchId((current) =>
         loadedSearches.some((search) => search.saved_search_id === current)
           ? current
@@ -2709,6 +2719,10 @@ function TraceExplorer(props: {
   useEffect(() => {
     void loadTraceListTools();
   }, [props.client, props.connection, props.projectId]);
+
+  useEffect(() => {
+    setSelectedSpanId(detail?.spans[0]?.span_id ?? "");
+  }, [detail?.trace.trace_id]);
 
   async function createSavedSearch() {
     if (props.connection !== "live" || !savedSearchName.trim()) return;
@@ -2751,6 +2765,37 @@ function TraceExplorer(props: {
       setTraceListState(`added ${examples.length} traces to ${dataset.name}`);
     } catch (error) {
       setTraceListState(error instanceof Error ? error.message : "bulk dataset action failed");
+    }
+  }
+
+  async function addSelectedTraceToDataset() {
+    if (props.connection !== "live" || !detail) return;
+    const dataset = selectedDataset ?? (await createDatasetForTraceList());
+    if (!dataset) return;
+    try {
+      const example = await props.client.addTraceToDataset(
+        props.projectId,
+        dataset.dataset_id,
+        detail.trace.trace_id,
+        ["trace_detail"]
+      );
+      setDatasetMembershipByTrace((current) => ({
+        ...current,
+        [detail.trace.trace_id]: [
+          {
+            dataset_id: dataset.dataset_id,
+            dataset_name: dataset.name,
+            dataset_example_id: example.dataset_example_id,
+            labels: example.labels
+          },
+          ...(current[detail.trace.trace_id] ?? []).filter(
+            (membership) => membership.dataset_example_id !== example.dataset_example_id
+          )
+        ]
+      }));
+      setTraceListState(`added ${detail.trace.trace_id} to ${dataset.name}`);
+    } catch (error) {
+      setTraceListState(error instanceof Error ? error.message : "trace add failed");
     }
   }
 
@@ -2898,8 +2943,19 @@ function TraceExplorer(props: {
                 </button>
               ))}
             </div>
-            <TraceModeView detail={detail} mode={detailMode} />
+            <TraceModeView
+              detail={detail}
+              mode={detailMode}
+              selectedSpanId={selectedSpan?.span_id ?? ""}
+              onSelectSpan={setSelectedSpanId}
+            />
             <Inspector span={selectedSpan} />
+            <TraceEvidencePanel
+              trace={detail.trace}
+              scores={scoresByTrace[detail.trace.trace_id] ?? []}
+              behaviorMatches={behaviorMatchesByTrace[detail.trace.trace_id] ?? []}
+              datasetMemberships={datasetMembershipByTrace[detail.trace.trace_id] ?? []}
+            />
             <div className="actionStrip">
               <button onClick={props.onCheckSimilarity}>
                 <Search size={15} />
@@ -2909,9 +2965,9 @@ function TraceExplorer(props: {
                 <Braces size={15} />
                 Deterministic check
               </button>
-              <button>
+              <button onClick={() => void addSelectedTraceToDataset()}>
                 <Database size={15} />
-                Dataset draft
+                Add trace
               </button>
             </div>
             <p className="systemNote">{props.similarState}</p>
@@ -2932,23 +2988,45 @@ const traceModeLabels: Array<{ value: TraceDetailMode; label: string }> = [
   { value: "code", label: "Code/error" }
 ];
 
-function TraceModeView({ detail, mode }: { detail: TraceDetail; mode: TraceDetailMode }) {
-  if (mode === "tree") return <SpanTree detail={detail} />;
-  if (mode === "conversation") return <ConversationView detail={detail} />;
-  if (mode === "tools") return <ToolSequenceView detail={detail} />;
-  if (mode === "code") return <CodeErrorView detail={detail} />;
-  return <Timeline rows={detail.reconstruction.timeline_rows} />;
+function TraceModeView(props: {
+  detail: TraceDetail;
+  mode: TraceDetailMode;
+  selectedSpanId: string;
+  onSelectSpan: (spanId: string) => void;
+}) {
+  const { detail, mode, selectedSpanId, onSelectSpan } = props;
+  if (mode === "tree") return <SpanTree detail={detail} selectedSpanId={selectedSpanId} onSelectSpan={onSelectSpan} />;
+  if (mode === "conversation") return <ConversationView detail={detail} selectedSpanId={selectedSpanId} onSelectSpan={onSelectSpan} />;
+  if (mode === "tools") return <ToolSequenceView detail={detail} selectedSpanId={selectedSpanId} onSelectSpan={onSelectSpan} />;
+  if (mode === "code") return <CodeErrorView detail={detail} selectedSpanId={selectedSpanId} onSelectSpan={onSelectSpan} />;
+  return <Timeline rows={detail.reconstruction.timeline_rows} selectedSpanId={selectedSpanId} onSelectSpan={onSelectSpan} />;
 }
 
-function SpanTree({ detail }: { detail: TraceDetail }) {
+function SpanTree(props: { detail: TraceDetail; selectedSpanId: string; onSelectSpan: (spanId: string) => void }) {
+  const { detail, selectedSpanId, onSelectSpan } = props;
   const roots = detail.reconstruction.span_tree.length ? detail.reconstruction.span_tree : buildSpanTree(detail.spans);
   return (
     <div className="traceModePanel spanTreePanel">
       {roots.map((node) => (
-        <SpanTreeNodeView key={node.span.span_id} node={node} depth={0} detail={detail} />
+        <SpanTreeNodeView
+          key={node.span.span_id}
+          node={node}
+          depth={0}
+          detail={detail}
+          selectedSpanId={selectedSpanId}
+          onSelectSpan={onSelectSpan}
+        />
       ))}
       {detail.reconstruction.missing_parent_group.map((node) => (
-        <SpanTreeNodeView key={node.span.span_id} node={node} depth={0} detail={detail} missing />
+        <SpanTreeNodeView
+          key={node.span.span_id}
+          node={node}
+          depth={0}
+          detail={detail}
+          selectedSpanId={selectedSpanId}
+          onSelectSpan={onSelectSpan}
+          missing
+        />
       ))}
       {!roots.length && !detail.reconstruction.missing_parent_group.length ? (
         <p className="systemNote">No span tree available</p>
@@ -2957,12 +3035,22 @@ function SpanTree({ detail }: { detail: TraceDetail }) {
   );
 }
 
-function SpanTreeNodeView(props: { node: SpanNode; depth: number; detail: TraceDetail; missing?: boolean }) {
-  const { node, depth, detail, missing } = props;
+function SpanTreeNodeView(props: {
+  node: SpanNode;
+  depth: number;
+  detail: TraceDetail;
+  selectedSpanId: string;
+  onSelectSpan: (spanId: string) => void;
+  missing?: boolean;
+}) {
+  const { node, depth, detail, selectedSpanId, onSelectSpan, missing } = props;
   const payloadState = detail.reconstruction.payload_availability[node.span.span_id] ?? node.payload_state;
   return (
     <div className="spanTreeNode" style={{ marginLeft: `${Math.min(depth * 18, 72)}px` }}>
-      <div className="spanTreeCard">
+      <button
+        className={`spanTreeCard ${selectedSpanId === node.span.span_id ? "selectedSpanCard" : ""}`}
+        onClick={() => onSelectSpan(node.span.span_id)}
+      >
         <span className={`dot ${node.span.status}`} />
         <div>
           <strong>{node.span.name}</strong>
@@ -2971,43 +3059,60 @@ function SpanTreeNodeView(props: { node: SpanNode; depth: number; detail: TraceD
             {missing ? " · missing parent" : ""}
           </small>
         </div>
-      </div>
+      </button>
       {node.children.map((child) => (
-        <SpanTreeNodeView key={child.span.span_id} node={child} depth={depth + 1} detail={detail} />
+        <SpanTreeNodeView
+          key={child.span.span_id}
+          node={child}
+          depth={depth + 1}
+          detail={detail}
+          selectedSpanId={selectedSpanId}
+          onSelectSpan={onSelectSpan}
+        />
       ))}
     </div>
   );
 }
 
-function Timeline({ rows }: { rows: TimelineRow[] }) {
+function Timeline(props: { rows: TimelineRow[]; selectedSpanId: string; onSelectSpan: (spanId: string) => void }) {
+  const { rows, selectedSpanId, onSelectSpan } = props;
   return (
     <div className="traceModePanel timeline">
       {rows.map((row) => (
-        <div className="timelineRow" key={row.span_id}>
+        <button
+          className={`timelineRow ${selectedSpanId === row.span_id ? "selectedSpanCard" : ""}`}
+          key={row.span_id}
+          onClick={() => onSelectSpan(row.span_id)}
+        >
           <span className={`dot ${row.status}`} />
           <div>
             <strong>{row.name}</strong>
             <small>{row.span_type} · {formatTime(row.started_at)}</small>
           </div>
-        </div>
+        </button>
       ))}
     </div>
   );
 }
 
-function ConversationView({ detail }: { detail: TraceDetail }) {
+function ConversationView(props: { detail: TraceDetail; selectedSpanId: string; onSelectSpan: (spanId: string) => void }) {
+  const { detail, selectedSpanId, onSelectSpan } = props;
   const rows = conversationRows(detail);
   return (
     <div className="traceModePanel conversationRows">
       {rows.map((row, index) => (
-        <div className={`conversationRow ${row.role}`} key={`${row.spanId}-${row.role}-${index}`}>
+        <button
+          className={`conversationRow ${row.role} ${selectedSpanId === row.spanId ? "selectedSpanCard" : ""}`}
+          key={`${row.spanId}-${row.role}-${index}`}
+          onClick={() => onSelectSpan(row.spanId)}
+        >
           <span>{row.role}</span>
           <div>
             <strong>{row.title}</strong>
             <p>{row.text}</p>
             <small>{row.redactionState} · {row.spanType}</small>
           </div>
-        </div>
+        </button>
       ))}
       {!rows.length ? <p className="systemNote">No conversation payloads captured</p> : null}
       {detail.spans.flatMap((span) => span.events).length ? (
@@ -3026,12 +3131,17 @@ function ConversationView({ detail }: { detail: TraceDetail }) {
   );
 }
 
-function ToolSequenceView({ detail }: { detail: TraceDetail }) {
+function ToolSequenceView(props: { detail: TraceDetail; selectedSpanId: string; onSelectSpan: (spanId: string) => void }) {
+  const { detail, selectedSpanId, onSelectSpan } = props;
   const tools = detail.spans.filter((span) => span.span_type === "tool" || Boolean(span.attributes["tool.name"]));
   return (
     <div className="traceModePanel toolSequence">
       {tools.map((span, index) => (
-        <div className="toolStep" key={span.span_id}>
+        <button
+          className={`toolStep ${selectedSpanId === span.span_id ? "selectedSpanCard" : ""}`}
+          key={span.span_id}
+          onClick={() => onSelectSpan(span.span_id)}
+        >
           <span>{index + 1}</span>
           <div>
             <strong>{String(span.attributes["tool.name"] ?? span.name)}</strong>
@@ -3047,14 +3157,15 @@ function ToolSequenceView({ detail }: { detail: TraceDetail }) {
               </div>
             </dl>
           </div>
-        </div>
+        </button>
       ))}
       {!tools.length ? <p className="systemNote">No tool calls captured</p> : null}
     </div>
   );
 }
 
-function CodeErrorView({ detail }: { detail: TraceDetail }) {
+function CodeErrorView(props: { detail: TraceDetail; selectedSpanId: string; onSelectSpan: (spanId: string) => void }) {
+  const { detail, selectedSpanId, onSelectSpan } = props;
   const rows = detail.spans.filter(hasCodeOrErrorContext);
   const deployment = Object.fromEntries(
     Object.entries(detail.trace.attributes).filter(([key]) =>
@@ -3070,13 +3181,17 @@ function CodeErrorView({ detail }: { detail: TraceDetail }) {
         </div>
       ) : null}
       {rows.map((span) => (
-        <div className="codeErrorRow" key={span.span_id}>
+        <button
+          className={`codeErrorRow ${selectedSpanId === span.span_id ? "selectedSpanCard" : ""}`}
+          key={span.span_id}
+          onClick={() => onSelectSpan(span.span_id)}
+        >
           <div>
             <strong>{span.name}</strong>
             <small>{span.span_type} · {span.status} · {span.span_id}</small>
           </div>
           <pre>{JSON.stringify(codeErrorAttributes(span), null, 2)}</pre>
-        </div>
+        </button>
       ))}
       {!rows.length && !Object.keys(deployment).length ? (
         <p className="systemNote">No code or error context captured for this trace</p>
@@ -3093,7 +3208,111 @@ function Inspector({ span }: { span: SpanEnvelope | null }) {
         <span>{span.span_type}</span>
         <strong>{span.name}</strong>
       </div>
-      <pre>{JSON.stringify({ attributes: span.attributes, events: span.events }, null, 2)}</pre>
+      <dl className="reviewFacts inspectorFacts">
+        <div>
+          <dt>Span</dt>
+          <dd>{span.span_id}</dd>
+        </div>
+        <div>
+          <dt>Parent</dt>
+          <dd>{span.parent_span_id ?? "root"}</dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd>{span.status}</dd>
+        </div>
+        <div>
+          <dt>Latency</dt>
+          <dd>{spanLatency(span)}</dd>
+        </div>
+      </dl>
+      <div className="payloadGrid">
+        <PayloadViewer title="Input payload" payload={span.input} />
+        <PayloadViewer title="Output payload" payload={span.output} />
+      </div>
+      <div className="inspectorSections">
+        <section>
+          <h4>Events</h4>
+          {span.events.length ? (
+            <div className="eventRows">
+              {span.events.map((event) => (
+                <div key={`${event.name}-${event.time}`}>
+                  <strong>{event.name}</strong>
+                  <small>{formatTime(event.time)}</small>
+                  <pre>{JSON.stringify(event.attributes, null, 2)}</pre>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="systemNote">No events captured</p>
+          )}
+        </section>
+        <section>
+          <h4>Attributes</h4>
+          <pre>{JSON.stringify(span.attributes, null, 2)}</pre>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function PayloadViewer({ title, payload }: { title: string; payload: SpanEnvelope["input"] }) {
+  return (
+    <section className="payloadViewer">
+      <div>
+        <h4>{title}</h4>
+        <span>{payload?.redaction_state ?? payload?.mode ?? "none"}</span>
+      </div>
+      <pre>{payloadText(payload)}</pre>
+    </section>
+  );
+}
+
+function TraceEvidencePanel(props: {
+  trace: TraceEnvelope;
+  scores: ScoreResult[];
+  behaviorMatches: BehaviorMatch[];
+  datasetMemberships: DatasetMembership[];
+}) {
+  const { trace, scores, behaviorMatches, datasetMemberships } = props;
+  return (
+    <div className="traceEvidencePanel">
+      <section>
+        <h4>Scores</h4>
+        <div className="evidenceRows">
+          {scores.map((score) => (
+            <div key={score.score_id}>
+              <strong>{formatScore(asRecord(score))}</strong>
+              <span>{score.status} · {score.judge_id} · evidence {score.evidence_span_ids.join(", ") || "none"}</span>
+            </div>
+          ))}
+          {!scores.length ? <p className="systemNote">No scores persisted for {trace.trace_id}</p> : null}
+        </div>
+      </section>
+      <section>
+        <h4>Behavior matches</h4>
+        <div className="evidenceRows">
+          {behaviorMatches.map((match) => (
+            <div key={match.behavior_match_id}>
+              <strong>{match.behavior_id}</strong>
+              <span>{match.status} · evidence {match.evidence_span_ids.join(", ") || "none"}</span>
+            </div>
+          ))}
+          {!behaviorMatches.length ? <p className="systemNote">No behavior matches persisted</p> : null}
+        </div>
+      </section>
+      <section>
+        <h4>Dataset membership</h4>
+        <div className="evidenceRows">
+          {datasetMemberships.map((membership) => (
+            <div key={membership.dataset_example_id}>
+              <strong>{membership.dataset_name}</strong>
+              <span>{membership.labels.join(", ") || "unlabeled"} · {membership.dataset_example_id}</span>
+            </div>
+          ))}
+          {!datasetMemberships.length ? <p className="systemNote">No dataset examples linked yet</p> : null}
+        </div>
+      </section>
     </div>
   );
 }
@@ -3459,6 +3678,13 @@ type TraceBadge = {
   tone: "behavior" | "score" | "attribute";
 };
 
+type DatasetMembership = {
+  dataset_id: string;
+  dataset_name: string;
+  dataset_example_id: string;
+  labels: string[];
+};
+
 function TraceBadges({ badges }: { badges: TraceBadge[] }) {
   if (!badges.length) return <span className="traceBadge muted">none</span>;
   const visible = badges.slice(0, 5);
@@ -3596,12 +3822,39 @@ function groupByTraceId<T extends { trace_id: string }>(items: T[]) {
   }, {});
 }
 
+function groupDatasetMembership(items: Array<{ dataset: DatasetDefinition; examples: DatasetExample[] }>) {
+  return items.reduce<Record<string, DatasetMembership[]>>((grouped, item) => {
+    for (const example of item.examples) {
+      grouped[example.source_trace_id] = [
+        ...(grouped[example.source_trace_id] ?? []),
+        {
+          dataset_id: item.dataset.dataset_id,
+          dataset_name: item.dataset.name,
+          dataset_example_id: example.dataset_example_id,
+          labels: example.labels
+        }
+      ];
+    }
+    return grouped;
+  }, {});
+}
+
 function traceLatency(trace: TraceEnvelope) {
   const explicitMs = firstNumber(trace.attributes, ["duration_ms", "latency_ms", "trace.duration_ms", "trace.latency_ms"]);
   if (explicitMs != null) return formatDuration(explicitMs);
   if (!trace.ended_at) return "running";
   const started = Date.parse(trace.started_at);
   const ended = Date.parse(trace.ended_at);
+  if (Number.isNaN(started) || Number.isNaN(ended) || ended < started) return "unknown";
+  return formatDuration(ended - started);
+}
+
+function spanLatency(span: SpanEnvelope) {
+  const explicitMs = firstNumber(span.attributes, ["duration_ms", "latency_ms", "span.duration_ms", "span.latency_ms"]);
+  if (explicitMs != null) return formatDuration(explicitMs);
+  if (!span.ended_at) return "running";
+  const started = Date.parse(span.started_at);
+  const ended = Date.parse(span.ended_at);
   if (Number.isNaN(started) || Number.isNaN(ended) || ended < started) return "unknown";
   return formatDuration(ended - started);
 }

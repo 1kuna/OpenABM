@@ -134,6 +134,12 @@ Done:
   thread payloads, tool sequence, and code/error context views. These are
   derived from reconstructed spans, payload redaction states, events, and
   captured attributes without hardcoding semantic decisions.
+- Added selectable spans across trace detail modes. The inspector now follows
+  the selected span and shows span identity, parent/status/latency, input/output
+  payloads with redaction state, events, and raw captured attributes.
+- Added trace detail evidence panels for persisted scores, behavior matches, and
+  dataset membership, plus an action that adds the selected trace to the
+  currently selected or newly created dataset.
 - Added trace-list saved search controls and a bulk dataset action that saves
   the current trace query, reapplies saved searches, creates datasets, and adds
   the visible trace result set as provenance-linked dataset examples.
@@ -426,11 +432,12 @@ Verified after the latest implementation slices:
 - Browser QA captured desktop and mobile Trace Detail, Operations, Issues, and
   Automations workspace screenshots under `artifacts/ui-qa/`; trace detail mode
   switching, saved search creation/application, trace-list dataset bulk add,
-  trace-list latency/token/cost columns, score and behavior badges, retention
-  dry-run, export manifest, classification, issue intake, screenshot intake,
-  ChatOps investigation, notification-target creation, automation creation, and
-  automation run-once flows completed against the live local API with no console
-  errors or failing API responses.
+  trace-list latency/token/cost columns, score and behavior badges, selected
+  span inspection, payload/evidence panels, trace-detail add-to-dataset,
+  retention dry-run, export manifest, classification, issue intake, screenshot
+  intake, ChatOps investigation, notification-target creation, automation
+  creation, and automation run-once flows completed against the live local API
+  with no console errors or failing API responses.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
 - MCP stdio smoke: `tools/list` returned 35 tools and

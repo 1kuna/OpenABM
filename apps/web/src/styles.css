@@ -962,9 +962,15 @@ td span {
   grid-template-columns: 14px minmax(0, 1fr);
   gap: 10px;
   align-items: start;
+  width: 100%;
   border: 1px solid #edf0f4;
   border-radius: 7px;
+  background: #ffffff;
+  color: #111827;
+  cursor: pointer;
+  font: inherit;
   padding: 9px;
+  text-align: left;
 }
 
 .spanTreeCard strong,
@@ -984,6 +990,15 @@ td span {
   grid-template-columns: 14px 1fr;
   gap: 10px;
   align-items: start;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #111827;
+  cursor: pointer;
+  font: inherit;
+  padding: 7px;
+  text-align: left;
 }
 
 .dot {
@@ -1021,6 +1036,15 @@ td span {
   grid-template-columns: 82px minmax(0, 1fr);
   gap: 10px;
   align-items: start;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #111827;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: left;
 }
 
 .conversationRow > span {
@@ -1078,7 +1102,16 @@ td span {
   gap: 5px;
   border: 1px solid #edf0f4;
   border-radius: 7px;
+  background: #ffffff;
+  color: #111827;
+  font: inherit;
   padding: 9px;
+  text-align: left;
+}
+
+.codeErrorRow {
+  cursor: pointer;
+  width: 100%;
 }
 
 .codeContextBlock strong,
@@ -1091,6 +1124,15 @@ td span {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
   gap: 10px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #111827;
+  cursor: pointer;
+  font: inherit;
+  padding: 7px;
+  text-align: left;
 }
 
 .toolStep > span {
@@ -1127,6 +1169,11 @@ td span {
   margin: 3px 0 0;
 }
 
+.selectedSpanCard {
+  border-color: #111827;
+  box-shadow: inset 3px 0 0 #111827;
+}
+
 .inspector {
   border: 1px solid #e5e7eb;
   border-radius: 7px;
@@ -1145,6 +1192,90 @@ td span {
 .inspectorHeader span {
   color: #6b7280;
   font-size: 12px;
+}
+
+.inspectorFacts {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 12px;
+}
+
+.payloadGrid,
+.traceEvidencePanel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.payloadViewer,
+.inspectorSections section,
+.traceEvidencePanel section {
+  border: 1px solid #edf0f4;
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.payloadViewer > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  background: #f9fafb;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.payloadViewer h4,
+.inspectorSections h4,
+.traceEvidencePanel h4 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.payloadViewer span {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.inspectorSections {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.inspectorSections h4,
+.traceEvidencePanel h4 {
+  padding: 9px 10px;
+  background: #f9fafb;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.eventRows,
+.evidenceRows {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.eventRows > div,
+.evidenceRows > div {
+  display: grid;
+  gap: 3px;
+  border: 1px solid #edf0f4;
+  border-radius: 7px;
+  padding: 8px;
+}
+
+.eventRows small,
+.evidenceRows span {
+  color: #6b7280;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.evidenceRows strong {
+  overflow-wrap: anywhere;
 }
 
 pre {
@@ -1940,6 +2071,13 @@ pre {
   .toolStep,
   .toolStep dl,
   .savedSearchControls {
+    grid-template-columns: 1fr;
+  }
+
+  .inspectorFacts,
+  .payloadGrid,
+  .inspectorSections,
+  .traceEvidencePanel {
     grid-template-columns: 1fr;
   }
 
