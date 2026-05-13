@@ -2407,6 +2407,14 @@ function JudgeWorkspace(props: {
   const [selectedId, setSelectedId] = useState("");
   const [report, setReport] = useState<JudgeCalibrationReport | null>(null);
   const [promotion, setPromotion] = useState<JudgePromotionResult | null>(null);
+  const [traceOptions, setTraceOptions] = useState<TraceEnvelope[]>([]);
+  const [testTraceId, setTestTraceId] = useState("");
+  const [testScore, setTestScore] = useState<ScoreResult | null>(null);
+  const [editorName, setEditorName] = useState("Refund wrong-tool rubric");
+  const [editorDescription, setEditorDescription] = useState("Flags refund traces where the agent used an unrelated order lookup.");
+  const [editorRubric, setEditorRubric] = useState('{\n  "fail": "The trace shows wrong or insufficient tool use.",\n  "pass": "The trace uses appropriate tools and evidence.",\n  "unsure": "The trace lacks enough evidence to decide."\n}');
+  const [editorFailureModes, setEditorFailureModes] = useState("wrong_tool_for_refund");
+  const [editorGoldenExamples, setEditorGoldenExamples] = useState("[]");
   const [statusText, setStatusText] = useState("Judge workspace needs a live API");
   const [minScoreCount, setMinScoreCount] = useState("1");
   const [maxInvalidRate, setMaxInvalidRate] = useState("0");
@@ -2421,12 +2429,24 @@ function JudgeWorkspace(props: {
       setSelectedId("");
       setReport(null);
       setPromotion(null);
+      setTraceOptions([]);
+      setTestTraceId("");
+      setTestScore(null);
       setStatusText("fixture mode");
       return;
     }
     try {
-      const loaded = await client.listJudges(projectId);
+      const [loaded, loadedTraces] = await Promise.all([
+        client.listJudges(projectId),
+        client.listTraces(projectId)
+      ]);
       setJudges(loaded);
+      setTraceOptions(loadedTraces);
+      setTestTraceId((current) =>
+        loadedTraces.some((trace) => trace.trace_id === current)
+          ? current
+          : loadedTraces[0]?.trace_id ?? ""
+      );
       setSelectedId((current) =>
         loaded.some((judge) => judge.judge_id === current)
           ? current
@@ -2474,6 +2494,20 @@ function JudgeWorkspace(props: {
     };
   }, [client, connection, projectId, selectedJudge?.judge_id]);
 
+  useEffect(() => {
+    if (!selectedJudge) return;
+    setEditorName(selectedJudge.name);
+    setEditorDescription(selectedJudge.description ?? "");
+    const definition = latestJudgeVersion(selectedJudge)?.definition ?? {};
+    const rubric = asRecord(definition.rubric);
+    if (Object.keys(rubric).length) setEditorRubric(JSON.stringify(rubric, null, 2));
+    const failureModes = Array.isArray(definition.failure_modes)
+      ? definition.failure_modes.map(String).join(", ")
+      : "";
+    if (failureModes) setEditorFailureModes(failureModes);
+    if (definition.golden_examples) setEditorGoldenExamples(JSON.stringify(definition.golden_examples, null, 2));
+  }, [selectedJudge?.judge_id, selectedJudge?.versions?.length]);
+
   async function promoteSelectedJudge() {
     if (!selectedJudge || connection !== "live") return;
     const policy = {
@@ -2494,6 +2528,70 @@ function JudgeWorkspace(props: {
       setStatusText(result.status === "promoted" ? "judge promoted" : "promotion blocked");
     } catch (error) {
       setStatusText(error instanceof Error ? error.message : "promotion failed");
+    }
+  }
+
+  function editorDefinition() {
+    return {
+      judge_type: "rubric_judge",
+      rubric: parseJsonObject(editorRubric),
+      failure_modes: editorFailureModes
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+      require_span_citations: true,
+      golden_examples: JSON.parse(editorGoldenExamples) as unknown
+    };
+  }
+
+  async function createDraftFromEditor() {
+    if (connection !== "live") return;
+    try {
+      const created = await client.createJudgeDraft(projectId, {
+        name: editorName,
+        description: editorDescription,
+        judgeType: "rubric_judge",
+        definition: editorDefinition()
+      });
+      setJudges((current) => [created, ...current.filter((judge) => judge.judge_id !== created.judge_id)]);
+      setSelectedId(created.judge_id);
+      setTestScore(null);
+      setStatusText(`created ${created.name}`);
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : "judge draft creation failed");
+    }
+  }
+
+  async function commitEditorVersion() {
+    if (!selectedJudge || connection !== "live") return;
+    try {
+      const version = await client.commitJudgeVersion(projectId, selectedJudge.judge_id, editorDefinition());
+      const freshJudge = await client.getJudge(projectId, selectedJudge.judge_id);
+      setJudges((current) =>
+        current.map((judge) => (judge.judge_id === freshJudge.judge_id ? freshJudge : judge))
+      );
+      setStatusText(`committed judge version ${version.version}`);
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : "judge version commit failed");
+    }
+  }
+
+  async function runEditorTest() {
+    if (!selectedJudge || !testTraceId || connection !== "live") return;
+    try {
+      const freshJudge = await client.getJudge(projectId, selectedJudge.judge_id);
+      const payload = runnableJudgePayload(freshJudge);
+      if (!payload) {
+        setStatusText("selected judge has no runnable rubric version");
+        return;
+      }
+      setStatusText(`testing ${freshJudge.name}`);
+      const score = await client.runRubricJudge(projectId, testTraceId, payload);
+      setTestScore(score);
+      setReport(await client.getJudgeCalibrationReport(projectId, freshJudge.judge_id));
+      setStatusText(`test returned ${formatScore(asRecord(score))}`);
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : "judge test failed");
     }
   }
 
@@ -2577,6 +2675,70 @@ function JudgeWorkspace(props: {
                 ) : (
                   <div className="emptyState">No calibration report</div>
                 )}
+              </section>
+
+              <section className="judgeSection judgeEditor">
+                <h4>Editor</h4>
+                <div className="policyGrid">
+                  <label>
+                    Name
+                    <input value={editorName} onChange={(event) => setEditorName(event.target.value)} />
+                  </label>
+                  <label>
+                    Description
+                    <input value={editorDescription} onChange={(event) => setEditorDescription(event.target.value)} />
+                  </label>
+                </div>
+                <label className="notesBox">
+                  Rubric JSON
+                  <textarea value={editorRubric} onChange={(event) => setEditorRubric(event.target.value)} spellCheck={false} />
+                </label>
+                <label className="notesBox">
+                  Failure modes
+                  <input value={editorFailureModes} onChange={(event) => setEditorFailureModes(event.target.value)} />
+                </label>
+                <label className="notesBox">
+                  Golden examples JSON
+                  <textarea value={editorGoldenExamples} onChange={(event) => setEditorGoldenExamples(event.target.value)} spellCheck={false} />
+                </label>
+                <div className="actionStrip">
+                  <button onClick={() => void createDraftFromEditor()}>
+                    <FileSearch size={15} />
+                    Create draft
+                  </button>
+                  <button onClick={() => void commitEditorVersion()} disabled={!selectedJudge}>
+                    <CheckCircle2 size={15} />
+                    Commit version
+                  </button>
+                </div>
+              </section>
+
+              <section className="judgeSection">
+                <h4>Output schema and test</h4>
+                <pre>{JSON.stringify(rubricOutputSchemaPreview(), null, 2)}</pre>
+                <div className="policyGrid">
+                  <label>
+                    Test trace
+                    <select value={testTraceId} onChange={(event) => setTestTraceId(event.target.value)}>
+                      <option value="">Select trace</option>
+                      {traceOptions.map((trace) => (
+                        <option key={trace.trace_id} value={trace.trace_id}>
+                          {trace.trace_id} · {trace.status}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <button className="primaryButton" onClick={() => void runEditorTest()} disabled={!selectedJudge || !testTraceId}>
+                  <Play size={15} />
+                  Run test
+                </button>
+                {testScore ? (
+                  <div className="promotionResult promoted">
+                    <strong>{formatScore(asRecord(testScore))}</strong>
+                    <span>{testScore.status} · evidence {testScore.evidence_span_ids.join(", ") || "none"}</span>
+                  </div>
+                ) : <p className="systemNote">No test result yet</p>}
               </section>
 
               <section className="judgeSection">
@@ -4032,6 +4194,18 @@ function runnableJudgePayload(judge: JudgeDefinition): Record<string, unknown> |
     judge_type: judgeType,
     name: judge.name,
     description: judge.description
+  };
+}
+
+function rubricOutputSchemaPreview() {
+  return {
+    required: ["verdict", "score", "confidence", "reasoning", "evidence_span_ids"],
+    verdict: ["pass", "fail", "unsure"],
+    score: "number 0..1",
+    confidence: "number 0..1",
+    reasoning: "string",
+    evidence_span_ids: "captured span ids",
+    failure_mode: "string or null"
   };
 }
 

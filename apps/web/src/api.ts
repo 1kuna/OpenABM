@@ -23,6 +23,7 @@ import type {
   JudgeCalibrationReport,
   JudgeDefinition,
   JudgePromotionResult,
+  JudgeVersion,
   LabelTraceBehaviorResult,
   NotificationTarget,
   Project,
@@ -485,6 +486,35 @@ export class OpenAbmClient {
   async getJudge(projectId: string, judgeId: string): Promise<JudgeDefinition> {
     const params = new URLSearchParams({ project_id: projectId });
     return this.get<JudgeDefinition>(`/v1/judges/${judgeId}?${params.toString()}`);
+  }
+
+  async createJudgeDraft(
+    projectId: string,
+    request: {
+      name: string;
+      description?: string;
+      judgeType: string;
+      definition: Record<string, unknown>;
+    }
+  ): Promise<JudgeDefinition> {
+    return this.post<JudgeDefinition>("/v1/judges/drafts", {
+      project_id: projectId,
+      name: request.name,
+      description: request.description || null,
+      judge_type: request.judgeType,
+      definition: request.definition
+    });
+  }
+
+  async commitJudgeVersion(
+    projectId: string,
+    judgeId: string,
+    definition: Record<string, unknown>
+  ): Promise<JudgeVersion> {
+    return this.post<JudgeVersion>(`/v1/judges/${judgeId}/versions`, {
+      project_id: projectId,
+      definition
+    });
   }
 
   async getJudgeCalibrationReport(projectId: string, judgeId: string): Promise<JudgeCalibrationReport> {

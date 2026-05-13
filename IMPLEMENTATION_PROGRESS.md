@@ -206,6 +206,10 @@ Done:
 - Added judge registry storage/API for draft judges and immutable judge
   versions, including explicit-definition drafts and local-model natural
   language judge drafting that always creates human review work before use.
+- Added a web Judge Editor surface for metadata, rubric JSON editing,
+  output-schema preview, test trace selection, persisted golden-example
+  metadata, explicit draft creation, immutable version commits, and test-result
+  display.
 - Verified a live LM Studio structured-output canary against
   `qwen3.5-9b-mlx`; output was valid JSON, unrepaired, and reported
   reasoning-token usage.
@@ -449,9 +453,9 @@ Verified after the latest implementation slices:
   trace-detail behavior labeling, deterministic assertion checks, similar trace
   result rendering, and local qwen-backed rubric judge execution, retention
   dry-run, export manifest, classification, issue intake, screenshot intake,
-  ChatOps investigation, notification-target creation, automation creation, and
-  automation run-once flows completed against the live local API with no console
-  errors or failing API responses.
+  ChatOps investigation, Judge Editor draft creation/version commit, notification
+  target creation, automation creation, and automation run-once flows completed
+  against the live local API with no console errors or failing API responses.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
 - MCP stdio smoke: `tools/list` returned 35 tools and

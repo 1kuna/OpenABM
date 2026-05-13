@@ -1365,13 +1365,19 @@ pre {
   font-size: 12px;
 }
 
-.notesBox textarea {
+.notesBox textarea,
+.notesBox input {
   min-height: 120px;
   resize: vertical;
   border: 1px solid #d1d5db;
   border-radius: 7px;
   padding: 10px;
   color: #111827;
+}
+
+.notesBox input {
+  min-height: 34px;
+  resize: none;
 }
 
 .reviewActions {
@@ -1460,7 +1466,8 @@ pre {
   min-width: 0;
 }
 
-.policyGrid input {
+.policyGrid input,
+.policyGrid select {
   border: 1px solid #d1d5db;
   border-radius: 6px;
   color: #111827;
