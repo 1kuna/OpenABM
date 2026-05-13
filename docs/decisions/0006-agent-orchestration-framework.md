@@ -14,6 +14,12 @@ spending effort on generic agent-loop mechanics instead of OpenABM's core
 product contracts: trace provenance, judge evidence, eval reproducibility,
 review gates, and audit trails.
 
+Zach's explicit direction on 2026-05-13 is to avoid reinventing generic
+deep-agent machinery when mature open-source projects can carry that load.
+LangChain/LangGraph should be treated as the likely long-term orchestration
+lane, with Pi/pi-agent-core kept under consideration where it provides a
+cleaner local-first loop, streaming, or provider abstraction.
+
 ## Direction
 
 Use OpenABM-owned deterministic contracts for trace search, context packs,
@@ -34,16 +40,20 @@ framework before implementing a custom runner:
 
 ## Current OSS Read
 
-As of 2026-05-12, primary project sources support keeping these candidates in
+As of 2026-05-13, primary project sources support keeping these candidates in
 the evaluation lane:
 
 - LangGraph positions itself as the low-level orchestration runtime for
   long-running, stateful agents with durable execution, persistence, streaming,
   memory, and human-in-the-loop control:
   <https://docs.langchain.com/oss/python/langgraph/overview>.
+- LangGraph's own docs distinguish Deep Agents as the harness layer,
+  LangChain as framework/integrations, and LangGraph as the runtime for durable
+  execution, streaming, human-in-the-loop behavior, and persistence.
 - LangChain Deep Agents positions itself as an open-source agent harness built
-  on LangChain and LangGraph, with planning, subagents, filesystem-backed
-  context, skills, memory, and MCP support:
+  on LangChain and the LangGraph runtime, with planning, subagents,
+  filesystem-backed context, skills, memory, MCP-oriented surfaces, pluggable
+  backends, and sandbox options:
   <https://docs.langchain.com/oss/python/deepagents/overview> and
   <https://github.com/langchain-ai/deepagents>.
 - Pi has both a Python `pi-agent-core` package and the TypeScript Pi mono repo.

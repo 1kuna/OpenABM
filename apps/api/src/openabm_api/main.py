@@ -3970,23 +3970,26 @@ def _execute_notification_action(
             "reason": "external notifications are disabled",
             "group_key": group_key,
         }
-    if target["type"] != "webhook":
-        return {
-            **planned,
-            "status": "failed",
-            "delivery_status": "unsupported_target_type",
-            "reason": "live delivery currently supports webhook targets",
-            "group_key": group_key,
-        }
     secret_ref = _notification_secret_ref(target)
     if secret_ref is None:
         return {
             **planned,
             "status": "failed",
             "delivery_status": "missing_secret_ref",
-            "reason": "webhook target has no secret ref",
+            "reason": "notification target has no secret ref",
             "group_key": group_key,
         }
+    if target["type"] != "webhook":
+        return _queue_notification_adapter_delivery(
+            store,
+            project_id,
+            target,
+            planned,
+            trace_id,
+            group_key,
+            secret_ref,
+            metadata,
+        )
     try:
         webhook_url = _resolve_notification_secret(store, secret_cipher, project_id, secret_ref)
     except (KeyError, SecretDecryptionError) as exc:
@@ -4035,6 +4038,50 @@ def _execute_notification_action(
         "status": "succeeded",
         "delivery_status": "delivered",
         "http_status": response.status_code,
+        "group_key": group_key,
+        "audit_id": audit_id,
+    }
+
+
+def _queue_notification_adapter_delivery(
+    store: SQLiteStore,
+    project_id: str,
+    target: dict[str, Any],
+    planned: dict[str, Any],
+    trace_id: str | None,
+    group_key: str,
+    secret_ref: str,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    target_type = target["type"]
+    action = planned["action"]
+    payload = {
+        "project_id": project_id,
+        "target_id": target["target_id"],
+        "target_type": target_type,
+        "trace_id": trace_id,
+        "message": action.get("message"),
+        "group_key": group_key,
+    }
+    audit_id = store.append_audit(
+        "queue_notification_adapter_delivery",
+        "notification_target",
+        project_id,
+        target["target_id"],
+        {
+            **metadata,
+            "target_type": target_type,
+            "adapter_status": "local_outbox",
+            "config_secret_ref": secret_ref,
+            "payload_keys": sorted(payload.keys()),
+        },
+    )
+    return {
+        **planned,
+        "status": "succeeded",
+        "delivery_status": "queued_for_adapter",
+        "adapter_status": "local_outbox",
+        "target_type": target_type,
         "group_key": group_key,
         "audit_id": audit_id,
     }

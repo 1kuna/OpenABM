@@ -17,6 +17,10 @@ work can resume from concrete state instead of memory.
   model capability gap.
 - Commit coherent slices as the scaffold becomes runnable.
 - Public artifacts must use original OpenABM language, schemas, examples, and UI.
+- Prefer mature open-source orchestration where it fits. LangGraph/Deep Agents
+  are the likely long-term lane for deep-agent orchestration; Pi/pi-agent-core
+  stays a candidate for thinner local-first tool-loop/streaming pieces. OpenABM
+  contracts, evidence, provenance, and review gates remain the source of truth.
 
 ## Phase 0: Product, Legal, And Decision Infrastructure
 
@@ -38,7 +42,8 @@ In this pass:
   contracts first, then evaluating LangGraph/Deep Agents or Pi-style cores
   instead of reinventing a deep-agent runtime.
 - Source-check the current LangGraph, Deep Agents, and Pi/pi-agent-core project
-  surfaces before adding any orchestration dependency.
+  surfaces before adding any orchestration dependency; refreshed this read on
+  2026-05-13 after Zach clarified the OSS-first preference.
 - Add GitHub CI scaffolding for Python contracts/runtime tests, web build,
   dependency review, and Dependabot update tracking, plus a local `make ci`
   target that runs lint, tests, OpenAPI JSON validation, docs link checks, and
@@ -350,6 +355,11 @@ Done:
   encrypted secret ref for the endpoint URL. Delivery records audit IDs,
   grouping keys, HTTP status, transport failures, and retry/dead-letter state
   without rendering plaintext secrets.
+- Added a local adapter-outbox delivery path for non-webhook notification target
+  types (`chat`, `email`, `issue_tracker`, and `custom`). Live non-webhook
+  deliveries now record a queued adapter audit envelope instead of failing as an
+  unsupported target type, while vendor-specific transports remain outside the
+  local reference implementation.
 - Added explicit automation compensation actions. If an action fails with
   `on_failure: compensate`, OpenABM executes configured `compensation_actions`
   from the failed action and prior successful actions in reverse order, records
@@ -739,9 +749,10 @@ Known remaining gaps before calling the whole spec complete:
 - External IdP/OAuth login, real invite delivery, and production secret-manager
   provider adapters remain beyond the local reference scaffold.
 - Production-grade observability exporters, log aggregation, external
-  deployment supervision, and non-webhook notification adapters are still future
-  hardening beyond the local reference surfaces; local worker stale/unhealthy
-  heartbeat detection is now implemented.
+  deployment supervision, and vendor-specific non-webhook transports are still
+  future hardening beyond the local reference surfaces; local worker
+  stale/unhealthy heartbeat detection and non-webhook adapter outbox records are
+  now implemented.
 
 ## Spec V2 Delta Incorporated
 
@@ -830,6 +841,9 @@ Implemented in this pass:
 - Added opt-in live webhook notification delivery from encrypted secret refs;
   live sends are disabled unless the local operator explicitly enables external
   notifications.
+- Added live non-webhook notification adapter outbox records so email/chat/
+  issue-tracker/custom targets have an audited local delivery contract while
+  vendor transports remain adapter-specific future work.
 - Notification target creation now rejects plaintext config blobs and validates
   `config_secret_refs`; active targets require at least one secret ref, while
   paused placeholders can be created without mounting secrets.

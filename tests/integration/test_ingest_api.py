@@ -1557,6 +1557,64 @@ def test_v1_live_webhook_notification_is_secret_backed_and_audited(tmp_path, mon
     assert observed["json"]["trace_id"] == trace_id
     assert "openabm-webhook" not in json.dumps(result)
 
+    email_secret = client.post(
+        "/v1/secrets",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "secret_ref": "secret_live_email_adapter",
+            "purpose": "notification_email_adapter",
+            "value": "local-email-adapter-config",
+        },
+    )
+    assert email_secret.status_code == 201
+    email_target = client.post(
+        "/v1/notification-targets",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "type": "email",
+            "display_name": "Email adapter",
+            "config_secret_refs": ["secret_live_email_adapter"],
+        },
+    )
+    assert email_target.status_code == 201
+    email_automation = client.post(
+        "/v1/automations",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "name": "email notification adapter",
+            "trigger": {"type": "trace_completed"},
+            "conditions": {
+                "combine": "all",
+                "items": [{"field": "trace.status", "op": "eq", "value": "error"}],
+            },
+            "actions": [
+                {
+                    "type": "send_notification",
+                    "target_id": email_target.json()["target_id"],
+                    "message": "Refund error needs review by email",
+                    "delivery_mode": "live",
+                    "group_key": "refund-email",
+                }
+            ],
+        },
+    )
+    assert email_automation.status_code == 201
+    email_run = client.post(
+        f"/v1/automations/{email_automation.json()['automation_id']}/run",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "trace_id": trace_id},
+    )
+    assert email_run.status_code == 201
+    email_result = email_run.json()["action_results"][0]
+    assert email_result["status"] == "succeeded"
+    assert email_result["delivery_status"] == "queued_for_adapter"
+    assert email_result["adapter_status"] == "local_outbox"
+    assert email_result["target_type"] == "email"
+    assert "local-email-adapter-config" not in json.dumps(email_result)
+
 
 def test_v1_grounding_checks_and_novelty_runs_are_reviewable(tmp_path) -> None:
     client = make_client(tmp_path)
