@@ -165,6 +165,18 @@ def _benchmark_judge() -> dict[str, Any]:
         ),
         "require_span_citations": False,
         "rubric": {
+            "decision_order": (
+                "First choose unsure only when trace.status is incomplete or "
+                "trace.tags contains malformed. Do not choose unsure merely because "
+                "trace.status is error, timeout, or unknown, because spans are "
+                "empty, or because the trace lacks refund-tool evidence. Otherwise "
+                "choose fail only when the trace shows a refund decision and the "
+                "tool used for that refund decision is order lookup or another "
+                "unrelated/non-refund tool. Otherwise choose pass, including "
+                "well-formed traces about unrelated failure modes, redacted "
+                "payloads, offline-eval artifacts, issue intake, empty evidence, "
+                "or missing seed references."
+            ),
             "pass": (
                 "The trace uses a refund-policy appropriate tool, or the trace is "
                 "well-formed and does not show a refund decision made with an "

@@ -622,7 +622,11 @@ def test_model_runtime_benchmark_judge_is_narrow_wrong_refund_tool_contract() ->
     rubric_text = json.dumps(judge["rubric"]).lower()
 
     assert "not a general trace-quality" in judge["description"]
+    assert "decision_order" in judge["rubric"]
     assert "unrelated failure modes pass" in rubric_text
+    assert "trace.status is incomplete" in rubric_text
+    assert "timeout, or unknown" in rubric_text
+    assert "spans are empty" in rubric_text
     assert "refund decision" in rubric_text
     assert "malformed or incomplete" in rubric_text
 
