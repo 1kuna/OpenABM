@@ -757,6 +757,10 @@ Verified after the latest implementation slices:
   deployment/tool version identifiers, ingest and trace detail preserve them,
   eval run comparison reports prompt/config/context deltas, and impact/root-cause
   output surfaces correlated runtime provenance distributions.
+- Differential root-cause regression passed: impact reports now compare the
+  failing cohort against a baseline cohort across status, dimensions, runtime
+  provenance, tool usage, span status, and error types, with failing/baseline
+  metrics, deltas, and representative trace/span IDs on each candidate.
 - Code-sandbox conformance regression passed: the dev sandbox scrubs secrets,
   denies blocked network imports, restricts file reads/writes to the input/output
   bundle and temporary artifact directory, maps timeouts and invalid results to

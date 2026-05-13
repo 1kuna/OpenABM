@@ -507,6 +507,22 @@ def _runtime_provenance_distribution(traces: list[dict[str, Any]]) -> dict[str, 
     return {key: values for key, values in distribution.items() if values}
 
 
+def _differential_hypothesis(field: str, value: str) -> str:
+    labels = {
+        "status": "trace status",
+        "span_status": "span status",
+        "error_type": "error type",
+        "tool_name": "tool usage",
+        "prompt_version_id": "prompt version",
+        "agent_config_version_id": "agent config version",
+        "deployment_context_id": "deployment context",
+        "tool_version_id": "tool version",
+    }
+    if field.startswith("dimension:"):
+        labels[field] = f"business dimension {field.removeprefix('dimension:')}"
+    return f"Failing cohort overrepresents {labels.get(field, field)}: {value}."
+
+
 def _judge_promotion_blockers(
     report: dict[str, Any],
     review_tasks: list[dict[str, Any]],
@@ -5566,6 +5582,14 @@ class SQLiteStore:
                     "confidence_or_uncertainty": "deterministic_correlation_only",
                 }
             )
+        suspected.extend(
+            self._differential_root_cause_candidates(
+                project_id,
+                failing_traces=traces,
+                failing_trace_ids=set(trace_ids),
+                dimensions_by_trace=dimensions_by_trace,
+            )
+        )
         now = utc_now()
         return {
             "report_id": new_id("impact_report"),
@@ -5589,6 +5613,132 @@ class SQLiteStore:
             ),
             "created_at": now,
         }
+
+    def _differential_root_cause_candidates(
+        self,
+        project_id: str,
+        *,
+        failing_traces: list[dict[str, Any]],
+        failing_trace_ids: set[str],
+        dimensions_by_trace: dict[str, list[dict[str, Any]]],
+    ) -> list[dict[str, Any]]:
+        if not failing_traces:
+            return []
+        baseline_traces = [
+            trace
+            for trace in self.search_traces(project_id, filters={}, limit=500)
+            if trace["trace_id"] not in failing_trace_ids
+        ]
+        failing_index = self._cohort_feature_index(
+            project_id,
+            failing_traces,
+            dimensions_by_trace,
+        )
+        baseline_index = self._cohort_feature_index(
+            project_id,
+            baseline_traces,
+            dimensions_by_trace,
+        )
+        candidates = []
+        failing_size = len(failing_traces)
+        baseline_size = len(baseline_traces)
+        for feature, failing_refs in failing_index.items():
+            baseline_refs = baseline_index.get(feature, {"trace_ids": set(), "span_ids": set()})
+            failing_count = len(failing_refs["trace_ids"])
+            baseline_count = len(baseline_refs["trace_ids"])
+            failing_rate = failing_count / failing_size
+            baseline_rate = baseline_count / baseline_size if baseline_size else 0.0
+            rate_delta = failing_rate - baseline_rate
+            if rate_delta <= 0:
+                continue
+            field, value = feature
+            candidates.append(
+                {
+                    "candidate_id": new_id("root_cause_candidate"),
+                    "hypothesis": _differential_hypothesis(field, value),
+                    "evidence_summary": {
+                        "field": field,
+                        "value": value,
+                        "failing_count": failing_count,
+                        "baseline_count": baseline_count,
+                        "failing_cohort_size": failing_size,
+                        "baseline_cohort_size": baseline_size,
+                    },
+                    "failing_cohort_metric": {
+                        "count": failing_count,
+                        "rate": round(failing_rate, 4),
+                    },
+                    "baseline_cohort_metric": {
+                        "count": baseline_count,
+                        "rate": round(baseline_rate, 4),
+                    },
+                    "lift_or_delta": {
+                        "rate_delta": round(rate_delta, 4),
+                        "lift": None
+                        if baseline_rate == 0
+                        else round(failing_rate / baseline_rate, 4),
+                    },
+                    "representative_trace_ids": sorted(failing_refs["trace_ids"])[:5],
+                    "representative_span_ids": sorted(failing_refs["span_ids"])[:5],
+                    "confidence_or_uncertainty": (
+                        "deterministic_differential_signal_only_not_causal"
+                    ),
+                }
+            )
+        return sorted(
+            candidates,
+            key=lambda item: (
+                item["lift_or_delta"]["rate_delta"],
+                item["failing_cohort_metric"]["count"],
+            ),
+            reverse=True,
+        )[:20]
+
+    def _cohort_feature_index(
+        self,
+        project_id: str,
+        traces: list[dict[str, Any]],
+        dimensions_by_trace: dict[str, list[dict[str, Any]]],
+    ) -> dict[tuple[str, str], dict[str, set[str]]]:
+        index: dict[tuple[str, str], dict[str, set[str]]] = {}
+
+        def add(field: str, value: Any, trace_id: str, span_id: str | None = None) -> None:
+            text = _optional_string(value)
+            if not text:
+                return
+            refs = index.setdefault((field, text), {"trace_ids": set(), "span_ids": set()})
+            refs["trace_ids"].add(trace_id)
+            if span_id:
+                refs["span_ids"].add(span_id)
+
+        for trace in traces:
+            trace_id = trace["trace_id"]
+            add("status", trace.get("status"), trace_id)
+            provenance = _trace_runtime_provenance(trace)
+            for key in ["prompt_version_id", "agent_config_version_id", "deployment_context_id"]:
+                add(key, provenance.get(key), trace_id)
+            for tool_version_id in provenance["tool_version_ids"]:
+                add("tool_version_id", tool_version_id, trace_id)
+            for dimension in dimensions_by_trace.get(trace_id, []):
+                add(f"dimension:{dimension['key']}", dimension.get("value"), trace_id)
+            for span in self.list_spans(project_id, trace_id):
+                attributes = (
+                    span.get("attributes") if isinstance(span.get("attributes"), dict) else {}
+                )
+                add("span_status", span.get("status"), trace_id, span["span_id"])
+                add(
+                    "error_type",
+                    attributes.get("error.type") or attributes.get("error_type"),
+                    trace_id,
+                    span["span_id"],
+                )
+                if span.get("span_type") == "tool":
+                    tool_name = attributes.get("tool.name")
+                    nested_tool = attributes.get("tool")
+                    if not tool_name and isinstance(nested_tool, dict):
+                        tool_name = nested_tool.get("name")
+                    add("tool_name", tool_name or span.get("name"), trace_id, span["span_id"])
+        return index
 
     def append_audit(
         self,

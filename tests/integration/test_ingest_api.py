@@ -1601,6 +1601,21 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
         candidate["hypothesis"] == "Trace cohort has correlated runtime provenance identifiers."
         for candidate in impact["suspected_root_causes"]
     )
+    prompt_candidate = next(
+        candidate
+        for candidate in impact["suspected_root_causes"]
+        if candidate.get("evidence_summary", {}).get("field") == "prompt_version_id"
+    )
+    assert prompt_candidate["failing_cohort_metric"] == {"count": 1, "rate": 1.0}
+    assert prompt_candidate["baseline_cohort_metric"] == {"count": 0, "rate": 0.0}
+    assert prompt_candidate["lift_or_delta"]["rate_delta"] == 1.0
+    assert prompt_candidate["representative_trace_ids"] == [trace["trace_id"]]
+    tool_candidate = next(
+        candidate
+        for candidate in impact["suspected_root_causes"]
+        if candidate.get("evidence_summary", {}).get("field") == "tool_name"
+    )
+    assert tool_candidate["representative_span_ids"] == ["span_wrong_tool_order_lookup"]
 
 
 def test_v1_automation_run_creates_review_task_and_notification_preview(tmp_path) -> None:
