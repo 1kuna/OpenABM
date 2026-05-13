@@ -355,11 +355,16 @@ Done:
   planning tool, validates the returned arguments, and reports context length,
   memory guard status, available memory, provider/model, usage, and timeout
   behavior.
+- Expanded the agent-flow smoke's allowed OpenABM tool set beyond investigation
+  search to include eval comparison plus prompt and agent-config registry
+  inspection/commit tools, so local tool-call canaries can cover the
+  improve-and-regress loop without executing side effects.
 - Verified a live LM Studio agent-flow tool-call smoke against
   `qwen3.5-9b-mlx`; the model emitted one valid `record_agent_flow_plan` tool
-  call using real OpenABM MCP tool names (`search_traces`, `get_trace`,
-  `search_spans`), with 262144 context, memory guard `ready`, no generation
-  timeout, 1141 total tokens, and 456 reasoning tokens. The ignored
+  call using real OpenABM MCP tool names including `search_traces`,
+  `start_investigation_run`, `run_judge`, `run_eval`, `compare_agent_configs`,
+  `list_prompts`, and `get_prompt`, with 262144 context, memory guard `ready`,
+  no generation timeout, 1297 total tokens, and 485 reasoning tokens. The ignored
   machine-readable result is under
   `artifacts/model-canaries/agent-flow-smoke-qwen35-9b-20260513.json`.
 - Added judge output validation for verdicts and span citations.

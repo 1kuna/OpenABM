@@ -230,6 +230,13 @@ def test_agent_flow_tool_smoke_validates_required_tool_call() -> None:
 def test_agent_flow_tool_choices_are_real_mcp_tools() -> None:
     mcp_tool_names = {tool["name"] for tool in all_tool_definitions()}
     assert set(OPENABM_AGENT_FLOW_TOOL_NAMES) <= mcp_tool_names
+    assert {
+        "commit_prompt",
+        "commit_agent_config",
+        "compare_agent_configs",
+        "run_eval",
+        "compare_eval_runs",
+    } <= set(OPENABM_AGENT_FLOW_TOOL_NAMES)
 
 
 def test_agent_flow_tool_smoke_rejects_missing_required_arguments() -> None:

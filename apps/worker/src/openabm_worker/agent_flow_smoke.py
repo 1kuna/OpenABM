@@ -12,13 +12,23 @@ OPENABM_AGENT_FLOW_TOOL_NAMES = [
     "start_investigation_run",
     "create_agent_context_pack",
     "run_judge",
+    "run_eval",
+    "compare_eval_runs",
+    "list_prompts",
+    "get_prompt",
+    "commit_prompt",
+    "list_agent_configs",
+    "get_agent_config",
+    "commit_agent_config",
+    "compare_agent_configs",
     "search_docs",
 ]
 
 DEFAULT_AGENT_FLOW_INCIDENT = (
     "A refund-support agent used order_lookup instead of refund_policy_lookup, "
     "then produced an unsupported refund denial. Plan the first OpenABM "
-    "investigation search steps and cite which OpenABM tools should be used."
+    "investigation, regression, and prompt/runtime configuration review steps, "
+    "and cite which OpenABM tools should be used."
 )
 
 AGENT_FLOW_SMOKE_TOOL = {
@@ -68,6 +78,7 @@ async def run_agent_flow_tool_smoke(
                 "content": (
                     "You are testing OpenABM's local agentic tool-calling lane. "
                     "Use the provided tool exactly once. Do not answer in prose. "
+                    "Plan investigation, eval, and guarded remediation steps. "
                     "Choose expected_tools only from these OpenABM MCP tools: "
                     f"{', '.join(OPENABM_AGENT_FLOW_TOOL_NAMES)}."
                 ),
