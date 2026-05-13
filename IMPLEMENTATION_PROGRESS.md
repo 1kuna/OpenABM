@@ -596,6 +596,11 @@ Done:
   behavior candidates carry reviewable positive and negative trace examples.
   Similarity-index and model semantic grouping now preserve those negative
   examples when deterministic signature candidates are merged.
+- Added a deterministic novelty clustering benchmark over the golden fixture
+  corpus and surfaced it through `openabm bench novelty-clustering`. The
+  benchmark now checks recall over fixture-labeled behavior traces, records
+  unlabeled review workload separately from missed labels, and caught/closed the
+  timeout-tool-loop gap by making timeout traces novelty-eligible.
 - Added optional local-model semantic grouping for novelty runs through tool
   calls. The model can name and merge deterministic signature candidates, but
   trace membership is validated against source candidates before persistence.
@@ -970,8 +975,9 @@ Known remaining gaps before calling the whole spec complete:
 - Passive novelty detection has deterministic exact-signature grouping,
   deterministic baseline negative examples for review, optional model semantic
   grouping/naming with validated membership, and optional similarity-index
-  grouping over stored trace vectors; broader clustering benchmarks and
-  production vector-store choices remain future work.
+  grouping over stored trace vectors. A golden-fixture clustering benchmark now
+  protects labeled-behavior recall; broader pilot-scale clustering benchmarks
+  and production vector-store choices remain future work.
 - Grounding/fabricated-value checks support explicit, deterministically split,
   and model-extracted claims with exact evidence matching, plus review-gated
   model contradiction adjudication with validated span citations; broad

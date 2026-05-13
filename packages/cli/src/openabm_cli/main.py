@@ -17,6 +17,7 @@ from openabm_worker.model_benchmark import (
     run_model_runtime_benchmark,
 )
 from openabm_worker.model_runtime import model_provider_from_settings
+from openabm_worker.novelty import run_novelty_clustering_benchmark
 from openabm_worker.offline_eval import run_deterministic_eval
 from openabm_worker.retention import run_retention_once
 from rich.console import Console
@@ -160,6 +161,30 @@ def bench_agent_flow_smoke(
     settings = Settings.from_env()
     model_provider = model_provider_from_settings(settings)
     result = asyncio.run(run_agent_flow_tool_smoke(model_provider, incident=incident))
+    text = json.dumps(result, indent=2, sort_keys=True)
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text + "\n")
+    console.print_json(text)
+
+
+@bench_app.command("novelty-clustering")
+def bench_novelty_clustering(
+    fixtures: Annotated[str, typer.Option(help="Fixture set to benchmark.")] = "golden",
+    output: Annotated[Path | None, typer.Option(help="Optional JSON output path.")] = None,
+    min_labeled_recall: Annotated[
+        float,
+        typer.Option(help="Minimum recall over fixture-labeled behavior traces."),
+    ] = 1.0,
+) -> None:
+    if fixtures != "golden":
+        raise typer.BadParameter("Only the golden fixture set is available in the reference repo.")
+    corpus = json.loads(FIXTURE_PATH.read_text())
+    result = run_novelty_clustering_benchmark(
+        corpus["fixtures"],
+        min_labeled_recall=min_labeled_recall,
+    )
+    result["fixture_version"] = corpus["fixture_version"]
     text = json.dumps(result, indent=2, sort_keys=True)
     if output is not None:
         output.parent.mkdir(parents=True, exist_ok=True)

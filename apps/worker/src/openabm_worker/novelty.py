@@ -4,6 +4,8 @@ import json
 import math
 from typing import Any
 
+NOVELTY_ELIGIBLE_STATUSES = {"error", "failed", "timeout"}
+
 NOVELTY_GROUPING_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -61,7 +63,7 @@ def detect_novel_behavior_candidates(
     }
     grouped: dict[str, dict[str, Any]] = {}
     for trace in traces:
-        if trace.get("status") not in {"error", "failed"}:
+        if trace.get("status") not in NOVELTY_ELIGIBLE_STATUSES:
             continue
         signature = _trace_signature(trace, spans_by_trace.get(trace["trace_id"], []))
         if signature in known_names:
@@ -98,6 +100,110 @@ def detect_novel_behavior_candidates(
         "uncertainty": (
             "Deterministic novelty groups exact error/tool signatures; semantic grouping "
             "can be layered behind the model provider."
+        ),
+    }
+
+
+def run_novelty_clustering_benchmark(
+    fixtures: list[dict[str, Any]],
+    *,
+    known_behaviors: list[dict[str, Any]] | None = None,
+    min_labeled_recall: float = 1.0,
+    negative_example_limit: int = 3,
+) -> dict[str, Any]:
+    traces = [fixture["trace"] for fixture in fixtures]
+    spans_by_trace = {
+        fixture["trace"]["trace_id"]: fixture.get("spans", [])
+        for fixture in fixtures
+    }
+    expected_labels_by_trace = {
+        fixture["trace"]["trace_id"]: list(
+            fixture.get("expected", {}).get("behavior_labels") or []
+        )
+        for fixture in fixtures
+        if fixture.get("expected", {}).get("behavior_labels")
+    }
+    baseline_traces = [
+        trace
+        for trace in traces
+        if trace.get("status") == "ok" and trace["trace_id"] not in expected_labels_by_trace
+    ]
+    baseline_spans_by_trace = {
+        trace["trace_id"]: spans_by_trace.get(trace["trace_id"], [])
+        for trace in baseline_traces
+    }
+    result = detect_novel_behavior_candidates(
+        traces,
+        spans_by_trace,
+        known_behaviors or [],
+        baseline_traces=baseline_traces,
+        baseline_spans_by_trace=baseline_spans_by_trace,
+        negative_example_limit=negative_example_limit,
+    )
+    candidates = result.get("new_behavior_candidates", [])
+    detected_by_trace: dict[str, list[str]] = {}
+    candidate_rows = []
+    for candidate in candidates:
+        positive_trace_ids = list(candidate.get("representative_positive_traces", []))
+        expected_labels = sorted(
+            {
+                label
+                for trace_id in positive_trace_ids
+                for label in expected_labels_by_trace.get(trace_id, [])
+            }
+        )
+        for trace_id in positive_trace_ids:
+            detected_by_trace.setdefault(trace_id, []).append(candidate["name"])
+        candidate_rows.append(
+            {
+                "candidate_name": candidate["name"],
+                "frequency": candidate.get("frequency", 0),
+                "positive_trace_ids": positive_trace_ids,
+                "negative_trace_ids": list(candidate.get("representative_negative_traces", [])),
+                "expected_behavior_labels": expected_labels,
+                "unlabeled_trace_ids": [
+                    trace_id
+                    for trace_id in positive_trace_ids
+                    if trace_id not in expected_labels_by_trace
+                ],
+            }
+        )
+    expected_trace_ids = set(expected_labels_by_trace)
+    detected_trace_ids = set(detected_by_trace)
+    detected_expected = sorted(expected_trace_ids & detected_trace_ids)
+    missed_expected = sorted(expected_trace_ids - detected_trace_ids)
+    labeled_recall = (
+        len(detected_expected) / len(expected_trace_ids)
+        if expected_trace_ids else 1.0
+    )
+    return {
+        "status": "passed" if labeled_recall >= min_labeled_recall else "failed",
+        "benchmark": "novelty_clustering",
+        "config": {
+            "eligible_statuses": sorted(NOVELTY_ELIGIBLE_STATUSES),
+            "min_labeled_recall": min_labeled_recall,
+            "negative_example_limit": negative_example_limit,
+        },
+        "metrics": {
+            "fixture_count": len(fixtures),
+            "candidate_count": len(candidates),
+            "expected_labeled_trace_count": len(expected_trace_ids),
+            "detected_labeled_trace_count": len(detected_expected),
+            "missed_labeled_trace_count": len(missed_expected),
+            "unlabeled_detected_trace_count": len(detected_trace_ids - expected_trace_ids),
+            "labeled_recall": round(labeled_recall, 4),
+        },
+        "expected_labels_by_trace": expected_labels_by_trace,
+        "detected_candidates_by_trace": detected_by_trace,
+        "detected_labeled_trace_ids": detected_expected,
+        "missed_labeled_trace_ids": missed_expected,
+        "unlabeled_detected_trace_ids": sorted(detected_trace_ids - expected_trace_ids),
+        "candidates": candidate_rows,
+        "negative_example_selection": result.get("negative_example_selection", {}),
+        "uncertainty": (
+            "Benchmark measures whether passive novelty surfaces fixture-labeled "
+            "behavior traces; unlabeled error candidates are review workload, not "
+            "automatic false positives."
         ),
     }
 
