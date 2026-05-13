@@ -106,6 +106,50 @@ def _included_classifications(sections: dict[str, Any]) -> list[str]:
     return sorted(classifications or {"unspecified"})
 
 
+def _jsonl(items: Iterable[dict[str, Any]]) -> str:
+    return "\n".join(encode_json(item) for item in items)
+
+
+def _section_count(value: Any) -> int:
+    if isinstance(value, list):
+        return len(value)
+    if isinstance(value, str):
+        return len([line for line in value.splitlines() if line.strip()])
+    return 1
+
+
+def _remove_values(values: list[Any], removals: set[str]) -> tuple[list[Any], bool]:
+    next_values = [value for value in values if str(value) not in removals]
+    return next_values, len(next_values) != len(values)
+
+
+def _scrub_json_references(value: Any, removals: set[str]) -> tuple[Any, bool]:
+    if isinstance(value, list):
+        changed = False
+        next_values = []
+        for item in value:
+            if isinstance(item, str) and item in removals:
+                changed = True
+                continue
+            scrubbed, item_changed = _scrub_json_references(item, removals)
+            changed = changed or item_changed
+            next_values.append(scrubbed)
+        return next_values, changed
+    if isinstance(value, dict):
+        changed = False
+        next_dict = {}
+        for key, item in value.items():
+            if isinstance(item, str) and item in removals:
+                next_dict[key] = None
+                changed = True
+                continue
+            scrubbed, item_changed = _scrub_json_references(item, removals)
+            next_dict[key] = scrubbed
+            changed = changed or item_changed
+        return next_dict, changed
+    return value, False
+
+
 def _agent_config_commit_id(
     *,
     content: dict[str, Any],
@@ -3799,24 +3843,33 @@ class SQLiteStore:
         trace_ids = [trace["trace_id"] for trace in traces]
         spans = [span for trace_id in trace_ids for span in self.list_spans(project_id, trace_id)]
         payloads = self._list_payload_objects(project_id)
+        audit_summary = self._audit_summary(project_id)
         sections: dict[str, Any] = {
+            "metadata": {"project_id": project_id},
             "traces": traces,
+            "trace_jsonl": _jsonl(traces),
             "spans": spans,
+            "span_jsonl": _jsonl(spans),
             "payloads": payloads if include_payloads else _payload_metadata_only(payloads),
             "scores": self.list_scores(project_id),
             "behavior_matches": self.list_behavior_matches(project_id),
             "judges": self.list_judges(project_id),
             "eval_runs": self.list_eval_runs(project_id),
+            "eval_results": self._list_eval_results(project_id),
             "behaviors": self.list_behaviors(project_id),
             "datasets": self.list_datasets(project_id),
+            "dataset_examples": self._list_dataset_examples(project_id),
+            "prompts": self.list_prompts(project_id),
             "issues": self.list_issues(project_id),
             "investigations": self.list_investigation_runs(project_id),
             "impact_reports": self.list_impact_reports(project_id),
+            "affected_entities": self._list_affected_entities(project_id),
             "context_packs": self.list_agent_context_packs(project_id),
             "review_tasks": self.list_review_tasks(project_id),
             "grounding_checks": self.list_grounding_checks(project_id),
             "novelty_runs": self.list_novelty_runs(project_id),
             "secret_refs": self.list_secret_refs(project_id),
+            "audit_summary": audit_summary,
         }
         manifest = {
             "export_id": new_id("export"),
@@ -3826,13 +3879,13 @@ class SQLiteStore:
             "included_classifications": _included_classifications(sections),
             "sections": {
                 name: {
-                    "count": len(value) if isinstance(value, list) else 1,
+                    "count": _section_count(value),
                     "sha256": hashlib.sha256(encode_json(value).encode()).hexdigest(),
                 }
                 for name, value in sections.items()
             },
         }
-        return {"metadata": {"project_id": project_id}, "manifest": manifest, **sections}
+        return {"manifest": manifest, **sections}
 
     def tombstone_trace(self, project_id: str, trace_id: str) -> dict[str, Any]:
         trace = self.get_trace(project_id, trace_id)
@@ -3841,7 +3894,44 @@ class SQLiteStore:
         now = utc_now()
         effects: dict[str, int] = {}
         with self.connect() as conn:
+            span_ids = [
+                row["span_id"]
+                for row in conn.execute(
+                    """
+                    SELECT span_id FROM trace_spans
+                    WHERE project_id = ? AND trace_id = ?
+                    """,
+                    (project_id, trace_id),
+                ).fetchall()
+            ]
+            removal_ids = {trace_id, *span_ids}
+            dataset_example_ids = [
+                row["dataset_example_id"]
+                for row in conn.execute(
+                    """
+                    SELECT dataset_example_id FROM dataset_examples
+                    WHERE project_id = ? AND source_trace_id = ?
+                    """,
+                    (project_id, trace_id),
+                ).fetchall()
+            ]
+            if dataset_example_ids:
+                placeholders = ",".join("?" for _ in dataset_example_ids)
+                cursor = conn.execute(
+                    f"""
+                    DELETE FROM eval_results
+                    WHERE project_id = ? AND dataset_example_id IN ({placeholders})
+                    """,
+                    (project_id, *dataset_example_ids),
+                )
+                effects["eval_results"] = cursor.rowcount
+            else:
+                effects["eval_results"] = 0
             for table, column in [
+                ("trace_dimensions", "trace_id"),
+                ("code_contexts", "trace_id"),
+                ("grounding_checks", "trace_id"),
+                ("dataset_examples", "source_trace_id"),
                 ("trace_spans", "trace_id"),
                 ("scores", "trace_id"),
                 ("behavior_matches", "trace_id"),
@@ -3860,6 +3950,61 @@ class SQLiteStore:
                 (now, project_id, trace_id),
             )
             effects["payload_objects"] = cursor.rowcount
+            cursor = conn.execute(
+                """
+                UPDATE issues
+                SET seed_trace_id_nullable = NULL, updated_at = ?
+                WHERE project_id = ? AND seed_trace_id_nullable = ?
+                """,
+                (now, project_id, trace_id),
+            )
+            effects["issues_seed_trace_scrubbed"] = cursor.rowcount
+            cursor = conn.execute(
+                """
+                UPDATE investigation_runs
+                SET seed_trace_id_nullable = NULL, updated_at = ?
+                WHERE project_id = ? AND seed_trace_id_nullable = ?
+                """,
+                (now, project_id, trace_id),
+            )
+            effects["investigation_seed_trace_scrubbed"] = cursor.rowcount
+            effects["investigation_results_scrubbed"] = self._scrub_json_column_references(
+                conn,
+                project_id,
+                table="investigation_runs",
+                id_column="investigation_run_id",
+                json_column="result_json",
+                removals=removal_ids,
+                updated_at=now,
+            )
+            effects["review_task_evidence_scrubbed"] = self._scrub_json_column_references(
+                conn,
+                project_id,
+                table="review_tasks",
+                id_column="review_task_id",
+                json_column="evidence_ids_json",
+                removals=removal_ids,
+                updated_at=now,
+            )
+            effects["context_packs_scrubbed"] = self._scrub_context_packs(
+                conn,
+                project_id,
+                trace_id,
+                removals=removal_ids,
+                updated_at=now,
+            )
+            effects["impact_reports_scrubbed"] = self._scrub_impact_reports(
+                conn,
+                project_id,
+                trace_id,
+                updated_at=now,
+            )
+            effects["affected_entities_scrubbed"] = self._scrub_affected_entities(
+                conn,
+                project_id,
+                trace_id,
+                updated_at=now,
+            )
             cursor = conn.execute(
                 """
                 UPDATE trace_metadata
@@ -3885,6 +4030,13 @@ class SQLiteStore:
                 (project_id, trace_id),
             )
             effects["trace_search_fts"] = cursor.rowcount
+            effects["similarity_vectors"] = 0
+            effects["prompt_links"] = 0
+            effects["derived_views"] = (
+                effects["impact_reports_scrubbed"]
+                + effects["affected_entities_scrubbed"]
+                + effects["context_packs_scrubbed"]
+            )
         return {
             "status": "tombstoned",
             "project_id": project_id,
@@ -3892,6 +4044,189 @@ class SQLiteStore:
             "deleted_at": now,
             "effects": effects,
         }
+
+    @staticmethod
+    def _scrub_json_column_references(
+        conn: sqlite3.Connection,
+        project_id: str,
+        *,
+        table: str,
+        id_column: str,
+        json_column: str,
+        removals: set[str],
+        updated_at: str,
+    ) -> int:
+        changed_count = 0
+        rows = conn.execute(
+            f"SELECT {id_column}, {json_column} FROM {table} WHERE project_id = ?",
+            (project_id,),
+        ).fetchall()
+        for row in rows:
+            value = decode_json(row[json_column], [])
+            scrubbed, changed = _scrub_json_references(value, removals)
+            if not changed:
+                continue
+            assignments = f"{json_column} = ?"
+            params: tuple[Any, ...]
+            if table in {"review_tasks", "investigation_runs"}:
+                assignments = f"{assignments}, updated_at = ?"
+                params = (encode_json(scrubbed), updated_at, project_id, row[id_column])
+            else:
+                params = (encode_json(scrubbed), project_id, row[id_column])
+            conn.execute(
+                f"""
+                UPDATE {table}
+                SET {assignments}
+                WHERE project_id = ? AND {id_column} = ?
+                """,
+                params,
+            )
+            changed_count += 1
+        return changed_count
+
+    @staticmethod
+    def _scrub_context_packs(
+        conn: sqlite3.Connection,
+        project_id: str,
+        trace_id: str,
+        *,
+        removals: set[str],
+        updated_at: str,
+    ) -> int:
+        del updated_at
+        changed_count = 0
+        rows = conn.execute(
+            """
+            SELECT context_pack_id, source_trace_ids_json, content_json
+            FROM agent_context_packs
+            WHERE project_id = ?
+            """,
+            (project_id,),
+        ).fetchall()
+        for row in rows:
+            source_ids = decode_json(row["source_trace_ids_json"], [])
+            next_source_ids, source_changed = _remove_values(source_ids, {trace_id})
+            content = decode_json(row["content_json"], {})
+            scrubbed_content, content_changed = _scrub_json_references(content, removals)
+            if not source_changed and not content_changed:
+                continue
+            if not next_source_ids:
+                scrubbed_content = {
+                    "status": "redacted_due_to_trace_delete",
+                    "redacted_trace_count": 1,
+                }
+            conn.execute(
+                """
+                UPDATE agent_context_packs
+                SET source_trace_ids_json = ?, content_json = ?
+                WHERE project_id = ? AND context_pack_id = ?
+                """,
+                (
+                    encode_json(next_source_ids),
+                    encode_json(scrubbed_content),
+                    project_id,
+                    row["context_pack_id"],
+                ),
+            )
+            changed_count += 1
+        return changed_count
+
+    @staticmethod
+    def _scrub_impact_reports(
+        conn: sqlite3.Connection,
+        project_id: str,
+        trace_id: str,
+        *,
+        updated_at: str,
+    ) -> int:
+        del updated_at
+        changed_count = 0
+        rows = conn.execute(
+            """
+            SELECT report_id, representative_trace_ids_json, affected_entities_json
+            FROM impact_reports
+            WHERE project_id = ?
+            """,
+            (project_id,),
+        ).fetchall()
+        for row in rows:
+            reps = decode_json(row["representative_trace_ids_json"], [])
+            next_reps, reps_changed = _remove_values(reps, {trace_id})
+            entities = decode_json(row["affected_entities_json"], [])
+            next_entities = []
+            entities_changed = False
+            for entity in entities:
+                trace_ids = entity.get("trace_ids", []) if isinstance(entity, dict) else []
+                next_trace_ids, changed = _remove_values(trace_ids, {trace_id})
+                entities_changed = entities_changed or changed
+                if isinstance(entity, dict):
+                    next_entities.append({**entity, "trace_ids": next_trace_ids})
+                else:
+                    next_entities.append(entity)
+            if not reps_changed and not entities_changed:
+                continue
+            conn.execute(
+                """
+                UPDATE impact_reports
+                SET representative_trace_ids_json = ?,
+                    affected_entities_json = ?,
+                    affected_entity_count = ?
+                WHERE project_id = ? AND report_id = ?
+                """,
+                (
+                    encode_json(next_reps),
+                    encode_json(next_entities),
+                    sum(
+                        1
+                        for entity in next_entities
+                        if isinstance(entity, dict) and entity.get("trace_ids")
+                    ),
+                    project_id,
+                    row["report_id"],
+                ),
+            )
+            changed_count += 1
+        return changed_count
+
+    @staticmethod
+    def _scrub_affected_entities(
+        conn: sqlite3.Connection,
+        project_id: str,
+        trace_id: str,
+        *,
+        updated_at: str,
+    ) -> int:
+        changed_count = 0
+        rows = conn.execute(
+            """
+            SELECT affected_entity_id, trace_ids_json
+            FROM affected_entities
+            WHERE project_id = ?
+            """,
+            (project_id,),
+        ).fetchall()
+        for row in rows:
+            trace_ids = decode_json(row["trace_ids_json"], [])
+            next_trace_ids, changed = _remove_values(trace_ids, {trace_id})
+            if not changed:
+                continue
+            status = "deleted" if not next_trace_ids else "needs_review"
+            conn.execute(
+                """
+                UPDATE affected_entities
+                SET trace_ids_json = ?, status = ?, updated_at = ?
+                WHERE project_id = ? AND affected_entity_id = ?
+                """,
+                (
+                    encode_json(next_trace_ids),
+                    status,
+                    updated_at,
+                    project_id,
+                    row["affected_entity_id"],
+                ),
+            )
+            changed_count += 1
+        return changed_count
 
     def _list_payload_objects(self, project_id: str) -> list[dict[str, Any]]:
         with self.connect() as conn:
@@ -3904,6 +4239,60 @@ class SQLiteStore:
                 (project_id,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def _list_dataset_examples(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM dataset_examples
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._dataset_example_from_row(row) for row in rows]
+
+    def _list_eval_results(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM eval_results
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._eval_result_from_row(row) for row in rows]
+
+    def _list_affected_entities(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM affected_entities
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [dict(row) | {"trace_ids": decode_json(row["trace_ids_json"], [])} for row in rows]
+
+    def _audit_summary(self, project_id: str) -> dict[str, Any]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT action, target_type, COUNT(*) AS count, MAX(created_at) AS latest_at
+                FROM audit_log
+                WHERE project_id = ? OR project_id IS NULL
+                GROUP BY action, target_type
+                ORDER BY count DESC, action ASC
+                """,
+                (project_id,),
+            ).fetchall()
+        return {
+            "project_id": project_id,
+            "groups": [dict(row) for row in rows],
+            "total_count": sum(int(row["count"]) for row in rows),
+        }
 
     def _build_impact_report(
         self,

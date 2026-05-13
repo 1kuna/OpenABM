@@ -2465,7 +2465,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 or ["read", "draft_behavior", "draft_judge", "create_dataset"],
                 classification=request.get("classification", "internal"),
             )
-        except ModelConfigurationError:
+        except (ModelCallsDisabled, ModelConfigurationError):
             content = _deterministic_context_pack_content(
                 issue,
                 traces,

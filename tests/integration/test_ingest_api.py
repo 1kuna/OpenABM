@@ -667,11 +667,52 @@ def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
     client = make_client(tmp_path)
     fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
     trace_id = fixture["trace"]["trace_id"]
+    span_id = fixture["spans"][0]["span_id"]
     client.post(
         "/v1/ingest/batch",
         headers=auth_headers(),
         json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
     )
+    dataset = client.post(
+        "/v1/datasets",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "name": "Delete flow dataset"},
+    )
+    example = client.post(
+        f"/v1/datasets/{dataset.json()['dataset_id']}/examples/from-trace",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "trace_id": trace_id, "labels": ["delete-flow"]},
+    )
+    assert example.status_code == 201
+    dimension = client.post(
+        "/v1/trace-dimensions",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": trace_id,
+            "key": "account_id",
+            "value": "acct_delete",
+        },
+    )
+    assert dimension.status_code == 201
+    context_pack = client.post(
+        "/v1/context-packs",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "source_trace_ids": [trace_id]},
+    )
+    assert context_pack.status_code == 201
+    review = client.post(
+        "/v1/review-tasks",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "task_type": "delete_flow",
+            "source_entity_type": "trace",
+            "source_entity_id": trace_id,
+            "evidence_ids": [trace_id, span_id],
+        },
+    )
+    assert review.status_code == 201
     policy = client.post(
         "/v1/retention-policies",
         headers=auth_headers(),
@@ -700,6 +741,10 @@ def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
     assert export.status_code == 200
     manifest = export.json()["manifest"]
     assert manifest["sections"]["traces"]["count"] == 1
+    assert manifest["sections"]["trace_jsonl"]["count"] == 1
+    assert manifest["sections"]["span_jsonl"]["count"] == len(fixture["spans"])
+    assert manifest["sections"]["dataset_examples"]["count"] == 1
+    assert export.json()["audit_summary"]["total_count"] >= 1
     assert manifest["sections"]["spans"]["sha256"]
 
     delete = client.post(
@@ -710,6 +755,20 @@ def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
     assert delete.status_code == 200
     assert delete.json()["status"] == "applied"
     assert delete.json()["deleted_trace_ids"] == [trace_id]
+    effects = delete.json()["effects"][0]["effects"]
+    assert effects["trace_dimensions"] == 1
+    assert effects["dataset_examples"] == 1
+    assert effects["context_packs_scrubbed"] == 1
+    assert effects["review_task_evidence_scrubbed"] == 1
+    assert "eval_results" in effects
+    assert "similarity_vectors" in effects
+    scrubbed_context = client.get(
+        f"/v1/context-packs/{context_pack.json()['context_pack_id']}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert scrubbed_context.json()["source_trace_ids"] == []
+    assert trace_id not in json.dumps(scrubbed_context.json()["content"])
     detail = client.get(
         f"/v1/traces/{trace_id}",
         params={"project_id": "proj_demo"},

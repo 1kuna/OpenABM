@@ -454,6 +454,13 @@ Done:
   create/resolve/rotate access, rotation versions, an external secret-manager
   adapter boundary, and Operations workspace controls that create/rotate refs
   without rendering plaintext values.
+- Expanded privacy/export/delete coverage: project exports now include metadata,
+  trace/span JSONL, dataset examples, eval results, prompts, affected entities,
+  redacted secret refs, and an audit summary with per-section hashes; trace
+  tombstones now scrub or remove trace references from dimensions, dataset
+  examples, eval results, review evidence, investigations, context packs,
+  impact reports, affected entities, search documents, payload bodies, scores,
+  spans, and behavior matches.
 
 ## Phase 9: Real-World Pilot And Revisit Decisions
 
@@ -472,8 +479,8 @@ Blocked:
 
 Verified after the latest implementation slices:
 
-- `make lint && make test`: passed, 47 tests after the secret-management
-  workspace slice.
+- `make lint && make test`: passed, 47 tests after the privacy/export/delete
+  hardening slice.
 - `npm --prefix apps/web run build`: passed.
 - Browser QA captured desktop and mobile Trace Detail, Operations, Issues, and
   Automations workspace screenshots under `artifacts/ui-qa/`; trace detail mode
