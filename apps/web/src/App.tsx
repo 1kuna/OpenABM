@@ -2095,18 +2095,18 @@ function IssueInvestigationWorkspace(props: {
                         <strong>Deployment/code context</strong>
                         <span>{formatCounts(selectedImpact.deployment_distribution)}</span>
                       </div>
-                      <div>
-                        <strong>Affected entities</strong>
-                        <span>{formatAffectedEntities(selectedImpact.affected_entities)}</span>
-                      </div>
-                      <div>
-                        <strong>Known behavior labels</strong>
-                        <span>{formatBehaviorDistribution(selectedImpact.behavior_distribution)}</span>
-                      </div>
-                      <div>
-                        <strong>Suspected root causes</strong>
-                        <span>{selectedImpact.suspected_root_causes.map((cause) => String(cause.hypothesis ?? cause.candidate_id ?? "candidate")).join("; ") || "none"}</span>
-                      </div>
+                      <ImpactAffectedEntityRows
+                        entities={selectedImpact.affected_entities}
+                        onOpenTrace={props.onOpenTrace}
+                      />
+                      <ImpactBehaviorDistributionRows
+                        distribution={selectedImpact.behavior_distribution}
+                        onOpenTrace={props.onOpenTrace}
+                      />
+                      <ImpactRootCauseRows
+                        causes={selectedImpact.suspected_root_causes}
+                        onOpenTrace={props.onOpenTrace}
+                      />
                       <div>
                         <strong>Recommended next actions</strong>
                         <span>{stringsFromUnknown(selectedInvestigation?.result.recommended_next_actions).join("; ") || "none"}</span>
@@ -2220,6 +2220,135 @@ function IssueInvestigationWorkspace(props: {
         )}
       </section>
     </div>
+  );
+}
+
+function ImpactAffectedEntityRows(props: {
+  entities: Array<Record<string, unknown>>;
+  onOpenTrace: (traceId: string) => void;
+}) {
+  if (!props.entities.length) {
+    return (
+      <div>
+        <strong>Affected entities</strong>
+        <span>none</span>
+      </div>
+    );
+  }
+  return (
+    <>
+      <div>
+        <strong>Affected entities</strong>
+        <span>{props.entities.length} entity records</span>
+      </div>
+      {props.entities.slice(0, 8).map((entity, index) => {
+        const traceIds = stringsFromUnknown(entity.trace_ids);
+        const entityType = String(entity.entity_type ?? "entity");
+        const entityId = String(entity.entity_id ?? "unknown");
+        return (
+          <div key={`${entityType}-${entityId}-${index}`}>
+            <strong>{entityType}: {entityId}</strong>
+            <span>{String(entity.status ?? "needs_review")} · {traceIds.length} traces</span>
+            <TraceButtonRow traceIds={traceIds} onOpenTrace={props.onOpenTrace} />
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function ImpactBehaviorDistributionRows(props: {
+  distribution: Record<string, unknown>;
+  onOpenTrace: (traceId: string) => void;
+}) {
+  const entries = Object.values(props.distribution)
+    .map((entry) => asRecord(entry))
+    .filter((entry) => Object.keys(entry).length > 0);
+  if (!entries.length) {
+    return (
+      <div>
+        <strong>Known behavior labels</strong>
+        <span>none</span>
+      </div>
+    );
+  }
+  return (
+    <>
+      <div>
+        <strong>Known behavior labels</strong>
+        <span>{entries.length} behavior labels in the cohort</span>
+      </div>
+      {entries.slice(0, 6).map((entry, index) => {
+        const behaviorId = String(entry.behavior_id ?? `behavior-${index}`);
+        const traceIds = stringsFromUnknown(entry.trace_ids);
+        const evidenceSpanIds = stringsFromUnknown(entry.evidence_span_ids);
+        return (
+          <div key={`${behaviorId}-${index}`}>
+            <strong>{String(entry.name ?? behaviorId)}</strong>
+            <span>
+              {entry.severity ? `${String(entry.severity)} · ` : ""}
+              {String(entry.match_count ?? 0)} matches · {formatCounts(asRecord(entry.status_counts))}
+            </span>
+            <small>{evidenceSpanIds.length ? `spans ${evidenceSpanIds.join(", ")}` : "no cited spans"}</small>
+            <TraceButtonRow traceIds={traceIds} onOpenTrace={props.onOpenTrace} />
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function ImpactRootCauseRows(props: {
+  causes: Array<Record<string, unknown>>;
+  onOpenTrace: (traceId: string) => void;
+}) {
+  if (!props.causes.length) {
+    return (
+      <div>
+        <strong>Suspected root causes</strong>
+        <span>none</span>
+      </div>
+    );
+  }
+  return (
+    <>
+      <div>
+        <strong>Suspected root causes</strong>
+        <span>{props.causes.length} candidates</span>
+      </div>
+      {props.causes.slice(0, 6).map((cause, index) => {
+        const traceIds = stringsFromUnknown(cause.representative_trace_ids);
+        const spanIds = stringsFromUnknown(cause.representative_span_ids);
+        return (
+          <div key={`${String(cause.candidate_id ?? "root-cause")}-${index}`}>
+            <strong>{String(cause.hypothesis ?? cause.candidate_id ?? "candidate")}</strong>
+            <span>{formatRootCauseEvidence(cause)}</span>
+            <small>
+              {String(cause.confidence_or_uncertainty ?? "uncertainty not recorded")}
+              {spanIds.length ? ` · spans ${spanIds.join(", ")}` : ""}
+            </small>
+            <TraceButtonRow traceIds={traceIds} onOpenTrace={props.onOpenTrace} />
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function TraceButtonRow(props: {
+  traceIds: string[];
+  onOpenTrace: (traceId: string) => void;
+}) {
+  if (!props.traceIds.length) return null;
+  return (
+    <span className="traceButtonRow">
+      {props.traceIds.slice(0, 6).map((traceId) => (
+        <button key={traceId} onClick={() => props.onOpenTrace(traceId)}>
+          <FileSearch size={14} />
+          {shortIdentifier(traceId)}
+        </button>
+      ))}
+    </span>
   );
 }
 
@@ -6090,6 +6219,46 @@ function formatLinkedEvalSummary(summary: Record<string, unknown>) {
   return parts.join(" · ");
 }
 
+function formatRootCauseEvidence(cause: Record<string, unknown>) {
+  const evidence = asRecord(cause.evidence_summary);
+  const failingMetric = asRecord(cause.failing_cohort_metric);
+  const baselineMetric = asRecord(cause.baseline_cohort_metric);
+  const lift = asRecord(cause.lift_or_delta);
+  const parts = [
+    formatImpactEvidenceSummary(evidence),
+    Object.keys(failingMetric).length
+      ? `failing ${String(failingMetric.count ?? 0)} / ${formatRate(numberFromUnknown(failingMetric.rate))}`
+      : null,
+    Object.keys(baselineMetric).length
+      ? `baseline ${String(baselineMetric.count ?? 0)} / ${formatRate(numberFromUnknown(baselineMetric.rate))}`
+      : null,
+    Object.keys(lift).length
+      ? `delta ${formatSignedPercent(numberFromUnknown(lift.rate_delta))}${lift.lift == null ? "" : ` · lift ${String(lift.lift)}x`}`
+      : null
+  ].filter(Boolean);
+  return parts.join(" · ") || "no evidence summary";
+}
+
+function formatImpactEvidenceSummary(evidence: Record<string, unknown>) {
+  if (!Object.keys(evidence).length) return "no evidence summary";
+  if (evidence.behavior_distribution) {
+    const behaviorCount = Object.keys(asRecord(evidence.behavior_distribution)).length;
+    return `${behaviorCount} behavior labels`;
+  }
+  if (evidence.runtime_provenance_distribution) {
+    return `runtime ${formatNestedCounts(asRecord(evidence.runtime_provenance_distribution))}`;
+  }
+  return Object.entries(evidence)
+    .slice(0, 5)
+    .map(([key, value]) => {
+      const record = asRecord(value);
+      if (Object.keys(record).length) return `${key}: ${formatNestedCounts(record)}`;
+      const values = stringsFromUnknown(value);
+      return `${key}: ${values.length ? values.join(", ") : String(value)}`;
+    })
+    .join("; ");
+}
+
 function formatNestedCounts(counts: Record<string, unknown>) {
   const entries = Object.entries(counts);
   if (!entries.length) return "none";
@@ -6097,33 +6266,6 @@ function formatNestedCounts(counts: Record<string, unknown>) {
     .map(([key, value]) => {
       const nested = asRecord(value);
       return Object.keys(nested).length ? `${key}: ${formatCounts(nested)}` : `${key}: ${String(value)}`;
-    })
-    .join("; ");
-}
-
-function formatAffectedEntities(entities: Array<Record<string, unknown>>) {
-  if (!entities.length) return "none";
-  return entities
-    .slice(0, 8)
-    .map((entity) => `${String(entity.entity_type ?? "entity")}:${String(entity.entity_id ?? "unknown")} ${String(entity.status ?? "")}`.trim())
-    .join("; ");
-}
-
-function formatBehaviorDistribution(distribution: Record<string, unknown>) {
-  const entries = Object.values(distribution)
-    .map((entry) => asRecord(entry))
-    .filter((entry) => Object.keys(entry).length > 0);
-  if (!entries.length) return "none";
-  return entries
-    .slice(0, 6)
-    .map((entry) => {
-      const name = String(entry.name ?? entry.behavior_id ?? "behavior");
-      const severity = entry.severity ? ` ${String(entry.severity)}` : "";
-      const matchCount = Number(entry.match_count ?? 0);
-      const statusSummary = formatCounts(asRecord(entry.status_counts));
-      const traceIds = Array.isArray(entry.trace_ids) ? entry.trace_ids : [];
-      const traceSummary = traceIds.length ? `${traceIds.length} trace${traceIds.length === 1 ? "" : "s"}` : "no traces";
-      return `${name}${severity}: ${matchCount} match${matchCount === 1 ? "" : "es"}, ${statusSummary}, ${traceSummary}`;
     })
     .join("; ");
 }

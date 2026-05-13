@@ -969,6 +969,9 @@ Verified after the latest implementation slices:
 - Prompt and agent-config diff views now render structured change summaries,
   linked eval deltas, and tag-movement history as scannable rows instead of raw
   JSON dumps.
+- Impact reports now render affected entities, known behavior labels, and
+  suspected root-cause candidates as inspectable drilldown rows with direct
+  trace-open actions instead of compressed summary text.
 - Added eval runtime analytics over historical runs: `/v1/evals/analytics`
   groups pass/invalid-output trends by prompt version, agent config version, and
   deployment context, with a compact Datasets/Evals UI summary.
@@ -1016,9 +1019,9 @@ Known remaining gaps before calling the whole spec complete:
   while real OCR, binary/deep document parsing, and vendor-specific chat
   connectors are still future integration work.
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
-  behavior detail, deeper impact-report UI drilldowns, and deeper
-  prompt/configuration history; eval comparison behavior-shift drilldown and
-  prompt/config diff history summaries are now wired into their workspaces.
+  behavior detail and deeper prompt/configuration history; impact-report
+  drilldowns, eval comparison behavior-shift drilldown, and prompt/config diff
+  history summaries are now wired into their workspaces.
 - External IdP/OAuth login, vendor email/SMTP invite delivery, and production
   secret-manager provider adapters remain beyond the local reference scaffold.
 - Production-grade observability exporters, log aggregation, external
