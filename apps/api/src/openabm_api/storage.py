@@ -2523,6 +2523,115 @@ class SQLiteStore:
             ).fetchone()
         return self._deployment_context_from_row(row) if row else None
 
+    def upsert_code_context(self, context: dict[str, Any]) -> dict[str, Any]:
+        project_id = context["project_id"]
+        code_context_id = context["code_context_id"]
+        trace_id = context["trace_id"]
+        if self.get_trace(project_id, trace_id) is None:
+            raise KeyError(f"trace not found: {trace_id}")
+        span_id = context.get("span_id_nullable")
+        if span_id and self.get_span(project_id, span_id) is None:
+            raise KeyError(f"span not found: {span_id}")
+        with self.connect() as conn:
+            existing = conn.execute(
+                """
+                SELECT project_id FROM code_contexts
+                WHERE code_context_id = ?
+                """,
+                (code_context_id,),
+            ).fetchone()
+            if existing is not None and existing["project_id"] != project_id:
+                raise ValueError(f"code context belongs to another project: {code_context_id}")
+            conn.execute(
+                """
+                INSERT INTO code_contexts(
+                  code_context_id, project_id, trace_id, span_id_nullable,
+                  file_path_nullable, function_name_nullable, line_start_nullable,
+                  line_end_nullable, stack_frame_hash_nullable, source_url_nullable,
+                  source_revision_nullable, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(code_context_id) DO UPDATE SET
+                  trace_id = excluded.trace_id,
+                  span_id_nullable = excluded.span_id_nullable,
+                  file_path_nullable = excluded.file_path_nullable,
+                  function_name_nullable = excluded.function_name_nullable,
+                  line_start_nullable = excluded.line_start_nullable,
+                  line_end_nullable = excluded.line_end_nullable,
+                  stack_frame_hash_nullable = excluded.stack_frame_hash_nullable,
+                  source_url_nullable = excluded.source_url_nullable,
+                  source_revision_nullable = excluded.source_revision_nullable
+                """,
+                (
+                    code_context_id,
+                    project_id,
+                    trace_id,
+                    span_id,
+                    context.get("file_path_nullable"),
+                    context.get("function_name_nullable"),
+                    context.get("line_start_nullable"),
+                    context.get("line_end_nullable"),
+                    context.get("stack_frame_hash_nullable"),
+                    context.get("source_url_nullable"),
+                    context.get("source_revision_nullable"),
+                    context["created_at"],
+                ),
+            )
+        code_context = self.get_code_context(project_id, code_context_id)
+        if code_context is None:
+            raise KeyError(f"code context not found: {code_context_id}")
+        return code_context
+
+    def list_code_contexts(
+        self,
+        project_id: str,
+        *,
+        trace_id: str | None = None,
+        span_id: str | None = None,
+        source_revision: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        clauses = ["project_id = ?"]
+        params: list[Any] = [project_id]
+        if trace_id:
+            clauses.append("trace_id = ?")
+            params.append(trace_id)
+        if span_id:
+            clauses.append("span_id_nullable = ?")
+            params.append(span_id)
+        if source_revision:
+            clauses.append("source_revision_nullable = ?")
+            params.append(source_revision)
+        params.append(limit)
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM code_contexts
+                WHERE """
+                + " AND ".join(clauses)
+                + """
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        return [self._code_context_from_row(row) for row in rows]
+
+    def get_code_context(
+        self,
+        project_id: str,
+        code_context_id: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM code_contexts
+                WHERE project_id = ? AND code_context_id = ?
+                """,
+                (project_id, code_context_id),
+            ).fetchone()
+        return self._code_context_from_row(row) if row else None
+
     def get_trace(self, project_id: str, trace_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:
             row = conn.execute(
@@ -5981,6 +6090,7 @@ class SQLiteStore:
             "dataset_examples": self._list_dataset_examples(project_id),
             "prompts": self.list_prompts(project_id),
             "deployment_contexts": self.list_deployment_contexts(project_id, limit=10000),
+            "code_contexts": self.list_code_contexts(project_id, limit=10000),
             "issues": self.list_issues(project_id),
             "issue_links": self._list_issue_links(project_id),
             "investigations": self.list_investigation_runs(project_id),
@@ -7164,6 +7274,23 @@ class SQLiteStore:
             "deploy_id_nullable": row["deploy_id_nullable"],
             "runtime_nullable": row["runtime_nullable"],
             "environment": row["environment"],
+            "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _code_context_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "code_context_id": row["code_context_id"],
+            "project_id": row["project_id"],
+            "trace_id": row["trace_id"],
+            "span_id_nullable": row["span_id_nullable"],
+            "file_path_nullable": row["file_path_nullable"],
+            "function_name_nullable": row["function_name_nullable"],
+            "line_start_nullable": row["line_start_nullable"],
+            "line_end_nullable": row["line_end_nullable"],
+            "stack_frame_hash_nullable": row["stack_frame_hash_nullable"],
+            "source_url_nullable": row["source_url_nullable"],
+            "source_revision_nullable": row["source_revision_nullable"],
             "created_at": row["created_at"],
         }
 

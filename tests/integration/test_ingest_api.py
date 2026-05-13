@@ -1489,6 +1489,39 @@ def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
         },
     )
     assert deployment_context.status_code == 201
+    code_context = client.post(
+        "/v1/code-contexts",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "code_context_id": "code_delete_flow",
+            "trace_id": trace_id,
+            "span_id_nullable": span_id,
+            "file_path_nullable": "agents/support.py",
+            "function_name_nullable": "run_support_agent",
+            "line_start_nullable": 40,
+            "line_end_nullable": 88,
+            "stack_frame_hash_nullable": "stack-delete-flow",
+            "source_url_nullable": "https://example.invalid/support.py#L40-L88",
+            "source_revision_nullable": "delete-flow-rev",
+            "created_at": "2026-05-13T00:00:00Z",
+        },
+    )
+    assert code_context.status_code == 201
+    code_contexts = client.get(
+        "/v1/code-contexts",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo", "trace_id": trace_id},
+    )
+    assert code_contexts.status_code == 200
+    assert code_contexts.json()["data"][0]["code_context_id"] == "code_delete_flow"
+    fetched_code_context = client.get(
+        "/v1/code-contexts/code_delete_flow",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert fetched_code_context.status_code == 200
+    assert fetched_code_context.json()["function_name_nullable"] == "run_support_agent"
     policy = client.post(
         "/v1/retention-policies",
         headers=auth_headers(),
@@ -1524,6 +1557,8 @@ def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
     assert export.json()["deployment_contexts"][0]["deployment_context_id"] == (
         "deploy_delete_flow"
     )
+    assert manifest["sections"]["code_contexts"]["count"] == 1
+    assert export.json()["code_contexts"][0]["code_context_id"] == "code_delete_flow"
     assert export.json()["audit_summary"]["total_count"] >= 1
     assert manifest["sections"]["spans"]["sha256"]
 
@@ -1537,6 +1572,7 @@ def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
     assert delete.json()["deleted_trace_ids"] == [trace_id]
     effects = delete.json()["effects"][0]["effects"]
     assert effects["trace_dimensions"] == 1
+    assert effects["code_contexts"] == 1
     assert effects["dataset_examples"] == 1
     assert effects["context_packs_scrubbed"] == 1
     assert effects["review_task_evidence_scrubbed"] == 1

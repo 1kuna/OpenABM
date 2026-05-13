@@ -18,6 +18,7 @@ import type {
   BehaviorMatch,
   ChatOpsInvestigationResult,
   ClassificationResult,
+  CodeContext,
   DataClassificationPolicy,
   DeploymentContext,
   DatasetDefinition,
@@ -107,6 +108,30 @@ export class OpenAbmClient {
 
   async registerDeploymentContext(context: DeploymentContext): Promise<DeploymentContext> {
     return this.post<DeploymentContext>("/v1/deployment-contexts", context);
+  }
+
+  async listCodeContexts(
+    projectId: string,
+    options: { traceId?: string; spanId?: string; sourceRevision?: string; limit?: number } = {}
+  ): Promise<CodeContext[]> {
+    const params = new URLSearchParams({
+      project_id: projectId,
+      limit: String(options.limit ?? 100)
+    });
+    if (options.traceId) params.set("trace_id", options.traceId);
+    if (options.spanId) params.set("span_id", options.spanId);
+    if (options.sourceRevision) params.set("source_revision", options.sourceRevision);
+    const body = await this.get<{ data: CodeContext[] }>(`/v1/code-contexts?${params.toString()}`);
+    return body.data;
+  }
+
+  async getCodeContext(projectId: string, codeContextId: string): Promise<CodeContext> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<CodeContext>(`/v1/code-contexts/${codeContextId}?${params.toString()}`);
+  }
+
+  async registerCodeContext(context: CodeContext): Promise<CodeContext> {
+    return this.post<CodeContext>("/v1/code-contexts", context);
   }
 
   async getHealth(): Promise<HealthStatus> {

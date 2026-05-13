@@ -4049,6 +4049,151 @@
         }
       }
     },
+    "/v1/code-contexts": {
+      "get": {
+        "operationId": "listCodeContexts",
+        "summary": "List registered code contexts for a project.",
+        "x-required-scopes": [
+          "traces:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "trace_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "span_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_revision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Code context list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "../schemas/code-context.schema.json"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "registerCodeContext",
+        "summary": "Register or refresh source/code provenance for a trace or span.",
+        "x-required-scopes": [
+          "traces:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "../schemas/code-context.schema.json"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Code context registered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/code-context.schema.json"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/code-contexts/{code_context_id}": {
+      "get": {
+        "operationId": "getCodeContext",
+        "summary": "Fetch one code context.",
+        "x-required-scopes": [
+          "traces:read"
+        ],
+        "parameters": [
+          {
+            "name": "code_context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Code context.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/code-context.schema.json"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/saved-searches": {
       "get": {
         "operationId": "listSavedSearches",

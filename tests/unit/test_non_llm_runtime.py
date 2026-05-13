@@ -303,6 +303,32 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
         client=client,
     )
     assert registered_deployment["path"] == "/v1/deployment-contexts"
+    code_contexts = call_tool(
+        "list_code_contexts",
+        {"project_id": "proj_demo", "trace_id": "trace_1", "limit": 5},
+        client=client,
+    )
+    assert code_contexts["path"] == "/v1/code-contexts"
+    assert client.calls[-2]["params"]["trace_id"] == "trace_1"
+    code_context = call_tool(
+        "get_code_context",
+        {"project_id": "proj_demo", "code_context_id": "code_context_1"},
+        client=client,
+    )
+    assert code_context["path"] == "/v1/code-contexts/code_context_1"
+    registered_code_context = call_tool(
+        "register_code_context",
+        {
+            "project_id": "proj_demo",
+            "code_context_id": "code_context_1",
+            "trace_id": "trace_1",
+            "span_id_nullable": "span_1",
+            "file_path_nullable": "agents/support.py",
+            "created_at": "2026-05-13T00:00:00Z",
+        },
+        client=client,
+    )
+    assert registered_code_context["path"] == "/v1/code-contexts"
     prompt_result = call_tool("list_prompts", {"project_id": "proj_demo"}, client=client)
     assert prompt_result["path"] == "/v1/prompts"
     agent_config_result = call_tool(
@@ -398,6 +424,13 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
     deployment_payload = json.loads(deployment_resource["text"])
     assert deployment_payload["path"] == "/v1/deployment-contexts/deploy_1"
     assert client.calls[-1]["params"] == {"project_id": "proj_demo"}
+    code_resource = read_resource(
+        "code-context://code_context_1?project_id=proj_demo",
+        client=client,
+    )
+    code_payload = json.loads(code_resource["text"])
+    assert code_payload["path"] == "/v1/code-contexts/code_context_1"
+    assert client.calls[-1]["params"] == {"project_id": "proj_demo"}
     agent_config_resource = read_resource(
         "agent-config://agent_config_1?project_id=proj_demo",
         client=client,
@@ -421,6 +454,7 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
     assert "deployment-context://{deployment_context_id}" in tool_manifest()[
         "resource_templates"
     ]
+    assert "code-context://{code_context_id}" in tool_manifest()["resource_templates"]
     assert "agent-config://{agent_config_id}" in tool_manifest()["resource_templates"]
     assert "affected-entity://{affected_entity_id}" in tool_manifest()["resource_templates"]
 

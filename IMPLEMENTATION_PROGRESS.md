@@ -1035,7 +1035,8 @@ Known remaining gaps before calling the whole spec complete:
   prompt/config version usage histories are now wired into their workspaces,
   impact-report affected-entity remediation actions and direct affected-entity
   resource fetches are now available, deployment context registry/API/MCP/export
-  access is now available, and trace detail resolves captured
+  access and code context registry/API/MCP/export access are now available, and
+  trace detail resolves captured
   prompt/config/deployment/tool runtime context.
 - External IdP/OAuth login, vendor-specific invite providers, and production
   secret-manager provider adapters remain beyond the local reference scaffold;
@@ -1174,6 +1175,9 @@ Implemented in this pass:
 - Added deployment-context registry access through `/v1/deployment-contexts`,
   web client helpers, MCP tools/resources, and project exports, turning the
   existing provenance table/schema into a canonical fetchable artifact.
+- Added code-context registry access through `/v1/code-contexts`, web client
+  helpers, MCP tools/resources, project exports, and retention deletion coverage
+  so source/file/function provenance is also fetchable and scrubbed with traces.
 - Notification target creation now rejects plaintext config blobs and validates
   `config_secret_refs`; active targets require at least one secret ref, while
   paused placeholders can be created without mounting secrets.

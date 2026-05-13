@@ -70,6 +70,21 @@ export interface DeploymentContext {
   created_at: string;
 }
 
+export interface CodeContext {
+  code_context_id: string;
+  project_id: string;
+  trace_id: string;
+  span_id_nullable: string | null;
+  file_path_nullable: string | null;
+  function_name_nullable: string | null;
+  line_start_nullable: number | null;
+  line_end_nullable: number | null;
+  stack_frame_hash_nullable: string | null;
+  source_url_nullable: string | null;
+  source_revision_nullable: string | null;
+  created_at: string;
+}
+
 export interface SimilarTraceMatch {
   trace_id: string;
   similarity_score: number;

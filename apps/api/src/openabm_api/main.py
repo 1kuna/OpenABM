@@ -938,6 +938,70 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         return context
 
+    @app.post("/api/code-contexts", status_code=201)
+    def register_code_context(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["traces:write"])),
+    ) -> dict[str, object]:
+        del actor
+        validate_payload("code-context.schema.json", request)
+        try:
+            context = store.upsert_code_context(request)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
+        except ValueError as exc:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                str(exc),
+                "/code_context_id",
+            ) from exc
+        store.append_audit(
+            "register_code_context",
+            "code_context",
+            request["project_id"],
+            request["code_context_id"],
+            {"trace_id": request["trace_id"], "span_id": request.get("span_id_nullable")},
+        )
+        return context
+
+    @app.get("/api/code-contexts")
+    def list_code_contexts(
+        project_id: str,
+        trace_id: str | None = None,
+        span_id: str | None = None,
+        source_revision: str | None = None,
+        limit: int = 100,
+        actor: dict[str, object] = Depends(auth_dependency(["traces:read"])),
+    ) -> dict[str, object]:
+        del actor
+        bounded_limit = max(1, min(limit, 200))
+        data = store.list_code_contexts(
+            project_id,
+            trace_id=trace_id,
+            span_id=span_id,
+            source_revision=source_revision,
+            limit=bounded_limit,
+        )
+        return {
+            "data": data,
+            "page": {"limit": bounded_limit, "next_cursor": None, "has_more": False},
+        }
+
+    @app.get("/api/code-contexts/{code_context_id}")
+    def get_code_context(
+        code_context_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["traces:read"])),
+    ) -> dict[str, object]:
+        del actor
+        context = store.get_code_context(project_id, code_context_id)
+        if context is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Code context not found."),
+            )
+        return context
+
     @app.get("/api/traces")
     def list_traces(
         project_id: str,

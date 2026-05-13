@@ -31,6 +31,11 @@ RESOURCE_TEMPLATE_DEFINITIONS = [
         "description": "Fetch deployment provenance metadata.",
     },
     {
+        "uriTemplate": "code-context://{code_context_id}",
+        "name": "OpenABM code context",
+        "description": "Fetch source/code provenance metadata.",
+    },
+    {
         "uriTemplate": "session://{session_id}",
         "name": "OpenABM session",
         "description": "Fetch a session and its related trace context.",
@@ -269,6 +274,20 @@ def _call_tool_impl(
         )
     if name == "register_deployment_context":
         return client.request("POST", "/v1/deployment-contexts", json_body=arguments)
+    if name == "list_code_contexts":
+        params = {"project_id": arguments["project_id"]}
+        for key in ["trace_id", "span_id", "source_revision", "limit"]:
+            if arguments.get(key):
+                params[key] = arguments[key]
+        return client.request("GET", "/v1/code-contexts", params=params)
+    if name == "get_code_context":
+        return client.request(
+            "GET",
+            f"/v1/code-contexts/{arguments['code_context_id']}",
+            params={"project_id": arguments["project_id"]},
+        )
+    if name == "register_code_context":
+        return client.request("POST", "/v1/code-contexts", json_body=arguments)
     if name == "list_saved_searches":
         return client.request(
             "GET",
@@ -509,6 +528,7 @@ def _resource_tool_arguments(
         "trace": ("get_trace", "trace_id"),
         "span": ("get_span", "span_id"),
         "deployment-context": ("get_deployment_context", "deployment_context_id"),
+        "code-context": ("get_code_context", "code_context_id"),
         "session": ("get_session", "session_id"),
         "behavior": ("get_behavior", "behavior_id"),
         "judge": ("get_judge", "judge_id"),

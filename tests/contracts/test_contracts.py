@@ -119,6 +119,8 @@ REQUIRED_QUERY_PATHS = {
     "/v1/review-tasks",
     "/v1/review-tasks/{review_task_id}",
     "/v1/datasets/{dataset_id}",
+    "/v1/code-contexts",
+    "/v1/code-contexts/{code_context_id}",
     "/v1/deployment-contexts",
     "/v1/deployment-contexts/{deployment_context_id}",
     "/v1/issues/{issue_id}",
