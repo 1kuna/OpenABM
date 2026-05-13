@@ -23,6 +23,7 @@
     "input": {"$ref": "#/$defs/payload_ref_or_inline"},
     "output": {"$ref": "#/$defs/payload_ref_or_inline"},
     "attributes": {"type": "object", "default": {}},
+    "resource": {"type": "object", "default": {}},
     "events": {
       "type": "array",
       "items": {"$ref": "#/$defs/trace_event"},

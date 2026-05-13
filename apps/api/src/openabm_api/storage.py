@@ -568,6 +568,7 @@ class SQLiteStore:
             self._ensure_auth_api_key_columns(conn)
             self._ensure_automation_run_cooldown_columns(conn)
             self._ensure_mcp_tool_observation_payload_columns(conn)
+            self._ensure_trace_span_resource_column(conn)
             self.ensure_project("proj_demo", "Demo Project")
 
     @staticmethod
@@ -654,6 +655,17 @@ class SQLiteStore:
         for column, spec in column_specs.items():
             if column not in columns:
                 conn.execute(f"ALTER TABLE mcp_tool_observations ADD COLUMN {column} {spec}")
+
+    @staticmethod
+    def _ensure_trace_span_resource_column(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(trace_spans)").fetchall()
+        }
+        if "resource_json" not in columns:
+            conn.execute(
+                "ALTER TABLE trace_spans ADD COLUMN resource_json TEXT NOT NULL DEFAULT '{}'"
+            )
 
     def ensure_project(self, project_id: str, name: str | None = None) -> None:
         now = utc_now()
@@ -1970,9 +1982,9 @@ class SQLiteStore:
                 INSERT INTO trace_spans(
                   span_id, trace_id, project_id, parent_span_id, name, span_type, status,
                   started_at, ended_at, input_json, output_json, attributes_json,
-                  events_json, links_json, server_received_at, updated_at
+                  resource_json, events_json, links_json, server_received_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(span_id) DO UPDATE SET
                   trace_id = excluded.trace_id,
                   project_id = excluded.project_id,
@@ -1985,6 +1997,7 @@ class SQLiteStore:
                   input_json = excluded.input_json,
                   output_json = excluded.output_json,
                   attributes_json = excluded.attributes_json,
+                  resource_json = excluded.resource_json,
                   events_json = excluded.events_json,
                   links_json = excluded.links_json,
                   server_received_at = excluded.server_received_at,
@@ -2003,6 +2016,7 @@ class SQLiteStore:
                     encode_json(span.get("input")),
                     encode_json(span.get("output")),
                     encode_json(span.get("attributes", {})),
+                    encode_json(span.get("resource", {})),
                     encode_json(span.get("events", [])),
                     encode_json(span.get("links", [])),
                     span.get("server_received_at") or now,
@@ -6078,6 +6092,7 @@ class SQLiteStore:
             "input": decode_json(row["input_json"], None),
             "output": decode_json(row["output_json"], None),
             "attributes": decode_json(row["attributes_json"], {}),
+            "resource": decode_json(row["resource_json"], {}),
             "events": decode_json(row["events_json"], []),
             "links": decode_json(row["links_json"], []),
             "server_received_at": row["server_received_at"],

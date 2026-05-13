@@ -51,6 +51,7 @@ class Tracer:
         sampling: SamplingConfig | None = None,
         sdk_name: str = "openabm-python",
         sdk_version: str = "0.0.0",
+        resource: dict[str, Any] | None = None,
         prompt_version_id: str | None = None,
         agent_config_version_id: str | None = None,
         deployment_context_id: str | None = None,
@@ -64,6 +65,7 @@ class Tracer:
         self.sampling = sampling or SamplingConfig()
         self.sdk_name = sdk_name
         self.sdk_version = sdk_version
+        self.resource = resource or {}
         self.prompt_version_id = prompt_version_id
         self.agent_config_version_id = agent_config_version_id
         self.deployment_context_id = deployment_context_id
@@ -272,6 +274,7 @@ class Span:
                 sampled=self.sampled,
             ),
             "attributes": self.attributes,
+            "resource": self.tracer.resource,
             "events": events,
             "links": [],
         }

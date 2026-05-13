@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS trace_spans (
   input_json TEXT,
   output_json TEXT,
   attributes_json TEXT NOT NULL,
+  resource_json TEXT NOT NULL DEFAULT '{}',
   events_json TEXT NOT NULL,
   links_json TEXT NOT NULL,
   server_received_at TEXT NOT NULL,

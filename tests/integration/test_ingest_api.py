@@ -43,7 +43,11 @@ def test_cors_origins_are_configurable_for_deployment(tmp_path) -> None:
 
 def test_batch_ingest_and_trace_detail(tmp_path) -> None:
     client = make_client(tmp_path)
-    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][0]
+    fixture = copy.deepcopy(json.loads(FIXTURE_PATH.read_text())["fixtures"][0])
+    fixture["spans"][0]["resource"] = {
+        "service.name": "support-agent",
+        "telemetry.sdk.name": "fixture",
+    }
     response = client.post(
         "/v1/ingest/batch",
         headers=auth_headers(),
@@ -61,6 +65,9 @@ def test_batch_ingest_and_trace_detail(tmp_path) -> None:
     body = detail.json()
     assert body["trace"]["trace_id"] == fixture["trace"]["trace_id"]
     assert body["reconstruction"]["span_tree"][0]["span"]["span_id"] == "span_happy_root"
+    assert body["reconstruction"]["span_tree"][0]["span"]["resource"]["service.name"] == (
+        "support-agent"
+    )
 
     session = client.get(
         f"/v1/sessions/{fixture['trace']['session_id']}",

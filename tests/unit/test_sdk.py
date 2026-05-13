@@ -6,7 +6,12 @@ from openabm.exporters import HttpExporter, InMemoryExporter, OfflineJsonlExport
 
 def test_tracer_records_nested_spans_in_memory() -> None:
     exporter = InMemoryExporter()
-    tracer = Tracer("proj_demo", environment="test", exporter=exporter)
+    tracer = Tracer(
+        "proj_demo",
+        environment="test",
+        exporter=exporter,
+        resource={"service.name": "refund-api", "service.version": "test"},
+    )
 
     @observe(name="lookup_policy", span_type="tool")
     def lookup_policy() -> dict[str, int]:
@@ -28,6 +33,8 @@ def test_tracer_records_nested_spans_in_memory() -> None:
     assert root_span["attributes"]["openabm.project_id"] == "proj_demo"
     assert root_span["attributes"]["openabm.span_type"] == "agent"
     assert child_span["attributes"]["openabm.span_type"] == "tool"
+    assert root_span["resource"]["service.name"] == "refund-api"
+    assert child_span["resource"]["service.version"] == "test"
 
 
 def test_payload_capture_can_be_disabled(tmp_path) -> None:
