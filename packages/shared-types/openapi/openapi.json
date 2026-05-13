@@ -4497,7 +4497,53 @@
         ],
         "responses": {
           "200": {
-            "description": "Prompt diff."
+            "description": "Prompt diff.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "prompt_id",
+                    "old_commit_id",
+                    "new_commit_id",
+                    "text_diff",
+                    "variables_schema_changed",
+                    "tag_movement_history"
+                  ],
+                  "properties": {
+                    "prompt_id": {"type": "string"},
+                    "old_commit_id": {"type": "string"},
+                    "new_commit_id": {"type": "string"},
+                    "text_diff": {"type": "string"},
+                    "variables_schema_changed": {"type": "boolean"},
+                    "tag_movement_history": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "prompt_tag_event_id",
+                          "prompt_id",
+                          "project_id",
+                          "tag",
+                          "previous_commit_id",
+                          "new_commit_id",
+                          "created_at"
+                        ],
+                        "properties": {
+                          "prompt_tag_event_id": {"type": "string"},
+                          "prompt_id": {"type": "string"},
+                          "project_id": {"type": "string"},
+                          "tag": {"type": "string"},
+                          "previous_commit_id": {"type": ["string", "null"]},
+                          "new_commit_id": {"type": "string"},
+                          "created_at": {"type": "string", "format": "date-time"}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }

@@ -248,6 +248,15 @@ export interface PromptDiffResult {
   new_commit_id: string;
   text_diff: string;
   variables_schema_changed: boolean;
+  tag_movement_history: Array<{
+    prompt_tag_event_id: string;
+    prompt_id: string;
+    project_id: string;
+    tag: string;
+    previous_commit_id: string | null;
+    new_commit_id: string;
+    created_at: string;
+  }>;
 }
 
 export interface PromptRenderResult {

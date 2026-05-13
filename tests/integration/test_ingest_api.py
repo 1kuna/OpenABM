@@ -1479,7 +1479,16 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
             "new_commit_id": version_2.json()["commit_id"],
         },
     )
-    assert "-Hello {{name}}" in diff.json()["text_diff"]
+    diff_body = diff.json()
+    assert "-Hello {{name}}" in diff_body["text_diff"]
+    prod_tag_events = [
+        event for event in diff_body["tag_movement_history"] if event["tag"] == "prod"
+    ]
+    assert [event["new_commit_id"] for event in prod_tag_events] == [
+        version_1.json()["commit_id"],
+        version_2.json()["commit_id"],
+    ]
+    assert prod_tag_events[1]["previous_commit_id"] == version_1.json()["commit_id"]
     fetched_prompt = client.get(
         f"/v1/prompts/{prompt_id}",
         params={"project_id": "proj_demo"},

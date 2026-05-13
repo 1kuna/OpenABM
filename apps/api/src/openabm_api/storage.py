@@ -3492,7 +3492,41 @@ class SQLiteStore:
             "new_commit_id": new_commit_id,
             "text_diff": text_diff,
             "variables_schema_changed": old["variables_schema"] != new["variables_schema"],
+            "tag_movement_history": self._prompt_tag_history_for_commits(
+                project_id,
+                prompt_id,
+                {old_commit_id, new_commit_id},
+            ),
         }
+
+    def list_prompt_tag_events(
+        self,
+        project_id: str,
+        prompt_id: str,
+    ) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM prompt_tag_events
+                WHERE project_id = ? AND prompt_id = ?
+                ORDER BY created_at ASC
+                """,
+                (project_id, prompt_id),
+            ).fetchall()
+        return [self._prompt_tag_event_from_row(row) for row in rows]
+
+    def _prompt_tag_history_for_commits(
+        self,
+        project_id: str,
+        prompt_id: str,
+        commit_ids: set[str],
+    ) -> list[dict[str, Any]]:
+        return [
+            event
+            for event in self.list_prompt_tag_events(project_id, prompt_id)
+            if event["new_commit_id"] in commit_ids
+            or event.get("previous_commit_id") in commit_ids
+        ]
 
     def _move_prompt_tag(
         self,
@@ -6507,6 +6541,18 @@ class SQLiteStore:
             "template_text": row["template_text"],
             "variables_schema": decode_json(row["variables_schema_json"], {}),
             "metadata": decode_json(row["metadata_json"], {}),
+            "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _prompt_tag_event_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "prompt_tag_event_id": row["prompt_tag_event_id"],
+            "prompt_id": row["prompt_id"],
+            "project_id": row["project_id"],
+            "tag": row["tag"],
+            "previous_commit_id": row["previous_commit_id"],
+            "new_commit_id": row["new_commit_id"],
             "created_at": row["created_at"],
         }
 
