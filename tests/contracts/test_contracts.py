@@ -210,3 +210,21 @@ def test_live_openapi_exposes_only_public_v1_paths(tmp_path: Path) -> None:
     assert REQUIRED_INGEST_PATHS <= set(paths)
     assert REQUIRED_QUERY_PATHS <= set(paths)
     assert not [path for path in paths if path.startswith("/api/")]
+
+
+def test_committed_openapi_matches_live_public_path_methods(tmp_path: Path) -> None:
+    committed_paths = load_json(OPENAPI_PATH)["paths"]
+    app = create_app(Settings(database_url=f"sqlite:///{tmp_path / 'openabm.sqlite3'}"))
+    live_paths = app.openapi()["paths"]
+
+    assert _path_methods(committed_paths) == _path_methods(live_paths)
+
+
+def _path_methods(paths: dict[str, dict[str, object]]) -> set[tuple[str, str]]:
+    http_methods = {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
+    return {
+        (path, method)
+        for path, path_item in paths.items()
+        for method in path_item
+        if method in http_methods
+    }
