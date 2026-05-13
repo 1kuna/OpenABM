@@ -56,6 +56,20 @@ export interface TraceDetail {
   };
 }
 
+export interface DeploymentContext {
+  deployment_context_id: string;
+  project_id: string;
+  service_name: string;
+  service_version: string;
+  source_revision: string;
+  branch_nullable: string | null;
+  build_id_nullable: string | null;
+  deploy_id_nullable: string | null;
+  runtime_nullable: string | null;
+  environment: string;
+  created_at: string;
+}
+
 export interface SimilarTraceMatch {
   trace_id: string;
   similarity_score: number;

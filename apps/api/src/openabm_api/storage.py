@@ -2428,6 +2428,101 @@ class SQLiteStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def upsert_deployment_context(self, context: dict[str, Any]) -> dict[str, Any]:
+        project_id = context["project_id"]
+        deployment_context_id = context["deployment_context_id"]
+        self.ensure_project(project_id)
+        with self.connect() as conn:
+            existing = conn.execute(
+                """
+                SELECT project_id FROM deployment_contexts
+                WHERE deployment_context_id = ?
+                """,
+                (deployment_context_id,),
+            ).fetchone()
+            if existing is not None and existing["project_id"] != project_id:
+                raise ValueError(
+                    f"deployment context belongs to another project: {deployment_context_id}"
+                )
+            conn.execute(
+                """
+                INSERT INTO deployment_contexts(
+                  deployment_context_id, project_id, service_name, service_version,
+                  source_revision, branch_nullable, build_id_nullable, deploy_id_nullable,
+                  runtime_nullable, environment, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(deployment_context_id) DO UPDATE SET
+                  service_name = excluded.service_name,
+                  service_version = excluded.service_version,
+                  source_revision = excluded.source_revision,
+                  branch_nullable = excluded.branch_nullable,
+                  build_id_nullable = excluded.build_id_nullable,
+                  deploy_id_nullable = excluded.deploy_id_nullable,
+                  runtime_nullable = excluded.runtime_nullable,
+                  environment = excluded.environment
+                """,
+                (
+                    deployment_context_id,
+                    project_id,
+                    context["service_name"],
+                    context["service_version"],
+                    context["source_revision"],
+                    context.get("branch_nullable"),
+                    context.get("build_id_nullable"),
+                    context.get("deploy_id_nullable"),
+                    context.get("runtime_nullable"),
+                    context["environment"],
+                    context["created_at"],
+                ),
+            )
+        deployed = self.get_deployment_context(project_id, deployment_context_id)
+        if deployed is None:
+            raise KeyError(f"deployment context not found: {deployment_context_id}")
+        return deployed
+
+    def list_deployment_contexts(
+        self,
+        project_id: str,
+        *,
+        environment: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        clauses = ["project_id = ?"]
+        params: list[Any] = [project_id]
+        if environment:
+            clauses.append("environment = ?")
+            params.append(environment)
+        params.append(limit)
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM deployment_contexts
+                WHERE """
+                + " AND ".join(clauses)
+                + """
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        return [self._deployment_context_from_row(row) for row in rows]
+
+    def get_deployment_context(
+        self,
+        project_id: str,
+        deployment_context_id: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM deployment_contexts
+                WHERE project_id = ? AND deployment_context_id = ?
+                """,
+                (project_id, deployment_context_id),
+            ).fetchone()
+        return self._deployment_context_from_row(row) if row else None
+
     def get_trace(self, project_id: str, trace_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:
             row = conn.execute(
@@ -5885,6 +5980,7 @@ class SQLiteStore:
             "datasets": self.list_datasets(project_id),
             "dataset_examples": self._list_dataset_examples(project_id),
             "prompts": self.list_prompts(project_id),
+            "deployment_contexts": self.list_deployment_contexts(project_id, limit=10000),
             "issues": self.list_issues(project_id),
             "issue_links": self._list_issue_links(project_id),
             "investigations": self.list_investigation_runs(project_id),
@@ -7053,6 +7149,22 @@ class SQLiteStore:
             "summary": row["summary"],
             "server_received_at": row["server_received_at"],
             "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _deployment_context_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "deployment_context_id": row["deployment_context_id"],
+            "project_id": row["project_id"],
+            "service_name": row["service_name"],
+            "service_version": row["service_version"],
+            "source_revision": row["source_revision"],
+            "branch_nullable": row["branch_nullable"],
+            "build_id_nullable": row["build_id_nullable"],
+            "deploy_id_nullable": row["deploy_id_nullable"],
+            "runtime_nullable": row["runtime_nullable"],
+            "environment": row["environment"],
+            "created_at": row["created_at"],
         }
 
     @staticmethod

@@ -881,6 +881,63 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         data = store.list_projects()[:limit]
         return {"data": data, "page": {"limit": limit, "next_cursor": None, "has_more": False}}
 
+    @app.post("/api/deployment-contexts", status_code=201)
+    def register_deployment_context(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["traces:write"])),
+    ) -> dict[str, object]:
+        del actor
+        validate_payload("deployment-context.schema.json", request)
+        try:
+            context = store.upsert_deployment_context(request)
+        except ValueError as exc:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                str(exc),
+                "/deployment_context_id",
+            ) from exc
+        store.append_audit(
+            "register_deployment_context",
+            "deployment_context",
+            request["project_id"],
+            request["deployment_context_id"],
+        )
+        return context
+
+    @app.get("/api/deployment-contexts")
+    def list_deployment_contexts(
+        project_id: str,
+        environment: str | None = None,
+        limit: int = 100,
+        actor: dict[str, object] = Depends(auth_dependency(["traces:read"])),
+    ) -> dict[str, object]:
+        del actor
+        bounded_limit = max(1, min(limit, 200))
+        data = store.list_deployment_contexts(
+            project_id,
+            environment=environment,
+            limit=bounded_limit,
+        )
+        return {
+            "data": data,
+            "page": {"limit": bounded_limit, "next_cursor": None, "has_more": False},
+        }
+
+    @app.get("/api/deployment-contexts/{deployment_context_id}")
+    def get_deployment_context(
+        deployment_context_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["traces:read"])),
+    ) -> dict[str, object]:
+        del actor
+        context = store.get_deployment_context(project_id, deployment_context_id)
+        if context is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Deployment context not found."),
+            )
+        return context
+
     @app.get("/api/traces")
     def list_traces(
         project_id: str,

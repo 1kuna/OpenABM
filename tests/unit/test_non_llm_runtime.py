@@ -276,6 +276,33 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
         client=client,
     )
     assert span_search_result["path"] == "/v1/search/spans"
+    deployment_contexts = call_tool(
+        "list_deployment_contexts",
+        {"project_id": "proj_demo", "environment": "prod", "limit": 5},
+        client=client,
+    )
+    assert deployment_contexts["path"] == "/v1/deployment-contexts"
+    assert client.calls[-2]["params"]["environment"] == "prod"
+    deployment_context = call_tool(
+        "get_deployment_context",
+        {"project_id": "proj_demo", "deployment_context_id": "deploy_1"},
+        client=client,
+    )
+    assert deployment_context["path"] == "/v1/deployment-contexts/deploy_1"
+    registered_deployment = call_tool(
+        "register_deployment_context",
+        {
+            "project_id": "proj_demo",
+            "deployment_context_id": "deploy_1",
+            "service_name": "refund-agent",
+            "service_version": "2.0.0",
+            "source_revision": "abc123",
+            "environment": "prod",
+            "created_at": "2026-05-13T00:00:00Z",
+        },
+        client=client,
+    )
+    assert registered_deployment["path"] == "/v1/deployment-contexts"
     prompt_result = call_tool("list_prompts", {"project_id": "proj_demo"}, client=client)
     assert prompt_result["path"] == "/v1/prompts"
     agent_config_result = call_tool(
@@ -364,6 +391,13 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
     assert trace_resource["mimeType"] == "application/json"
     assert trace_payload["path"] == "/v1/traces/trace_1"
     assert client.calls[-1]["params"] == {"project_id": "proj_demo"}
+    deployment_resource = read_resource(
+        "deployment-context://deploy_1?project_id=proj_demo",
+        client=client,
+    )
+    deployment_payload = json.loads(deployment_resource["text"])
+    assert deployment_payload["path"] == "/v1/deployment-contexts/deploy_1"
+    assert client.calls[-1]["params"] == {"project_id": "proj_demo"}
     agent_config_resource = read_resource(
         "agent-config://agent_config_1?project_id=proj_demo",
         client=client,
@@ -384,6 +418,9 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
     assert templates[0]["mimeType"] == "application/json"
     assert all(template["name"] for template in templates)
     assert "trace://{trace_id}" in tool_manifest()["resource_templates"]
+    assert "deployment-context://{deployment_context_id}" in tool_manifest()[
+        "resource_templates"
+    ]
     assert "agent-config://{agent_config_id}" in tool_manifest()["resource_templates"]
     assert "affected-entity://{affected_entity_id}" in tool_manifest()["resource_templates"]
 

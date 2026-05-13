@@ -3920,6 +3920,135 @@
         }
       }
     },
+    "/v1/deployment-contexts": {
+      "get": {
+        "operationId": "listDeploymentContexts",
+        "summary": "List registered deployment contexts for a project.",
+        "x-required-scopes": [
+          "traces:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deployment context list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "../schemas/deployment-context.schema.json"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "registerDeploymentContext",
+        "summary": "Register or refresh deployment provenance metadata.",
+        "x-required-scopes": [
+          "traces:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "../schemas/deployment-context.schema.json"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Deployment context registered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/deployment-context.schema.json"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/deployment-contexts/{deployment_context_id}": {
+      "get": {
+        "operationId": "getDeploymentContext",
+        "summary": "Fetch one deployment context.",
+        "x-required-scopes": [
+          "traces:read"
+        ],
+        "parameters": [
+          {
+            "name": "deployment_context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deployment context.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/deployment-context.schema.json"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/saved-searches": {
       "get": {
         "operationId": "listSavedSearches",

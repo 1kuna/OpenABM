@@ -26,6 +26,11 @@ RESOURCE_TEMPLATE_DEFINITIONS = [
         "description": "Fetch one trace span for focused evidence inspection.",
     },
     {
+        "uriTemplate": "deployment-context://{deployment_context_id}",
+        "name": "OpenABM deployment context",
+        "description": "Fetch deployment provenance metadata.",
+    },
+    {
         "uriTemplate": "session://{session_id}",
         "name": "OpenABM session",
         "description": "Fetch a session and its related trace context.",
@@ -249,6 +254,21 @@ def _call_tool_impl(
             f"/v1/spans/{arguments['span_id']}",
             params={"project_id": arguments["project_id"]},
         )
+    if name == "list_deployment_contexts":
+        params = {"project_id": arguments["project_id"]}
+        if arguments.get("environment"):
+            params["environment"] = arguments["environment"]
+        if arguments.get("limit"):
+            params["limit"] = arguments["limit"]
+        return client.request("GET", "/v1/deployment-contexts", params=params)
+    if name == "get_deployment_context":
+        return client.request(
+            "GET",
+            f"/v1/deployment-contexts/{arguments['deployment_context_id']}",
+            params={"project_id": arguments["project_id"]},
+        )
+    if name == "register_deployment_context":
+        return client.request("POST", "/v1/deployment-contexts", json_body=arguments)
     if name == "list_saved_searches":
         return client.request(
             "GET",
@@ -488,6 +508,7 @@ def _resource_tool_arguments(
     tool_by_resource = {
         "trace": ("get_trace", "trace_id"),
         "span": ("get_span", "span_id"),
+        "deployment-context": ("get_deployment_context", "deployment_context_id"),
         "session": ("get_session", "session_id"),
         "behavior": ("get_behavior", "behavior_id"),
         "judge": ("get_judge", "judge_id"),

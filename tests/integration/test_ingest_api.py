@@ -1471,6 +1471,24 @@ def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
         },
     )
     assert review.status_code == 201
+    deployment_context = client.post(
+        "/v1/deployment-contexts",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "deployment_context_id": "deploy_delete_flow",
+            "service_name": "support-agent",
+            "service_version": "1.0.0",
+            "source_revision": "delete-flow-rev",
+            "branch_nullable": None,
+            "build_id_nullable": None,
+            "deploy_id_nullable": None,
+            "runtime_nullable": None,
+            "environment": "test",
+            "created_at": "2026-05-13T00:00:00Z",
+        },
+    )
+    assert deployment_context.status_code == 201
     policy = client.post(
         "/v1/retention-policies",
         headers=auth_headers(),
@@ -1502,6 +1520,10 @@ def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
     assert manifest["sections"]["trace_jsonl"]["count"] == 1
     assert manifest["sections"]["span_jsonl"]["count"] == len(fixture["spans"])
     assert manifest["sections"]["dataset_examples"]["count"] == 1
+    assert manifest["sections"]["deployment_contexts"]["count"] == 1
+    assert export.json()["deployment_contexts"][0]["deployment_context_id"] == (
+        "deploy_delete_flow"
+    )
     assert export.json()["audit_summary"]["total_count"] >= 1
     assert manifest["sections"]["spans"]["sha256"]
 
@@ -1800,6 +1822,42 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
         params={"project_id": "proj_demo"},
     )
     assert config_detail.json()["tags"]["prod"] == cfg_v2.json()["commit_id"]
+    deployment_context_payload = {
+        "project_id": "proj_demo",
+        "deployment_context_id": "deploy_refund_runtime_v2",
+        "service_name": "refund-agent",
+        "service_version": "2.0.0",
+        "source_revision": "abc123",
+        "branch_nullable": "main",
+        "build_id_nullable": "build-456",
+        "deploy_id_nullable": "deploy-789",
+        "runtime_nullable": "python3.12",
+        "environment": "prod",
+        "created_at": "2026-05-13T00:00:00Z",
+    }
+    deployment_context = client.post(
+        "/v1/deployment-contexts",
+        headers=auth_headers(),
+        json=deployment_context_payload,
+    )
+    assert deployment_context.status_code == 201
+    assert deployment_context.json()["service_name"] == "refund-agent"
+    deployment_contexts = client.get(
+        "/v1/deployment-contexts",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo", "environment": "prod"},
+    )
+    assert deployment_contexts.status_code == 200
+    assert deployment_contexts.json()["data"][0]["deployment_context_id"] == (
+        "deploy_refund_runtime_v2"
+    )
+    fetched_deployment_context = client.get(
+        "/v1/deployment-contexts/deploy_refund_runtime_v2",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert fetched_deployment_context.status_code == 200
+    assert fetched_deployment_context.json()["source_revision"] == "abc123"
     mcp_config_version = call_tool(
         "commit_agent_config",
         {

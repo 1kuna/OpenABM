@@ -19,6 +19,7 @@ import type {
   ChatOpsInvestigationResult,
   ClassificationResult,
   DataClassificationPolicy,
+  DeploymentContext,
   DatasetDefinition,
   DatasetExample,
   DocsSearchResult,
@@ -79,6 +80,33 @@ export class OpenAbmClient {
   async listProjects(): Promise<Project[]> {
     const body = await this.get<{ data: Project[] }>("/v1/projects");
     return body.data;
+  }
+
+  async listDeploymentContexts(
+    projectId: string,
+    environment?: string,
+    limit = 100
+  ): Promise<DeploymentContext[]> {
+    const params = new URLSearchParams({ project_id: projectId, limit: String(limit) });
+    if (environment) params.set("environment", environment);
+    const body = await this.get<{ data: DeploymentContext[] }>(
+      `/v1/deployment-contexts?${params.toString()}`
+    );
+    return body.data;
+  }
+
+  async getDeploymentContext(
+    projectId: string,
+    deploymentContextId: string
+  ): Promise<DeploymentContext> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<DeploymentContext>(
+      `/v1/deployment-contexts/${deploymentContextId}?${params.toString()}`
+    );
+  }
+
+  async registerDeploymentContext(context: DeploymentContext): Promise<DeploymentContext> {
+    return this.post<DeploymentContext>("/v1/deployment-contexts", context);
   }
 
   async getHealth(): Promise<HealthStatus> {
