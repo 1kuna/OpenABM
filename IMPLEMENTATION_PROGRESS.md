@@ -534,6 +534,11 @@ Done:
   expose `confirmed`, unconfirmed calls return `confirmation_required` before
   touching API routes, confirmed calls strip the execution guard from domain
   payloads, and observations record the gated status.
+- Upgraded the MCP stdio server resource surface from string-only template
+  discovery to protocol-shaped resource templates plus `resources/read` support
+  for trace, span, session, behavior, judge, dataset, prompt, eval-run,
+  automation, saved-search, issue, investigation-run, impact-report, and
+  agent-context-pack URIs.
 - Added deterministic `/v1/docs/search` over committed public docs and schemas;
   the ignored implementation spec is intentionally excluded from search results.
 - Added web UI sections for judge runtime, behavior monitoring, datasets/evals,

@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 import sys
 
-from openabm_mcp.handlers import call_tool, tool_manifest
+from openabm_mcp.handlers import (
+    call_tool,
+    read_resource,
+    resource_template_manifest,
+    tool_manifest,
+)
 
 
 def main() -> None:
@@ -31,7 +36,12 @@ def _handle_jsonrpc_message(message: dict[str, object]) -> dict[str, object]:
         elif method == "tools/list":
             result = {"tools": tool_manifest()["tools"]}
         elif method == "resources/templates/list":
-            result = {"resourceTemplates": tool_manifest()["resource_templates"]}
+            result = {"resourceTemplates": resource_template_manifest()}
+        elif method == "resources/read":
+            params = message.get("params") or {}
+            if not isinstance(params, dict) or not isinstance(params.get("uri"), str):
+                raise ValueError("resources/read requires a uri")
+            result = {"contents": [read_resource(params["uri"])]}
         elif method == "tools/call":
             params = message.get("params") or {}
             if not isinstance(params, dict):
@@ -44,7 +54,8 @@ def _handle_jsonrpc_message(message: dict[str, object]) -> dict[str, object]:
             result = {
                 "content": [{"type": "text", "text": json.dumps(structured, sort_keys=True)}],
                 "structuredContent": structured,
-                "isError": structured.get("status") == "unsupported",
+                "isError": structured.get("status")
+                in {"failed", "unsupported", "confirmation_required"},
             }
         else:
             raise ValueError(f"Unsupported method: {method}")

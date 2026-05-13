@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -12,22 +14,82 @@ from openabm_mcp.tools import all_tool_definitions
 UNSUPPORTED_TOOLS: dict[str, str] = {}
 
 
-RESOURCE_TEMPLATES = [
-    "trace://{trace_id}",
-    "span://{span_id}",
-    "session://{session_id}",
-    "behavior://{behavior_id}",
-    "judge://{judge_id}",
-    "dataset://{dataset_id}",
-    "prompt://{prompt_id}",
-    "eval-run://{eval_run_id}",
-    "automation://{automation_id}",
-    "saved-search://{saved_search_id}",
-    "issue://{issue_id}",
-    "investigation-run://{investigation_run_id}",
-    "impact-report://{report_id}",
-    "agent-context-pack://{context_pack_id}",
+RESOURCE_TEMPLATE_DEFINITIONS = [
+    {
+        "uriTemplate": "trace://{trace_id}",
+        "name": "OpenABM trace",
+        "description": "Fetch reconstructed trace detail with spans and payload metadata.",
+    },
+    {
+        "uriTemplate": "span://{span_id}",
+        "name": "OpenABM span",
+        "description": "Fetch one trace span for focused evidence inspection.",
+    },
+    {
+        "uriTemplate": "session://{session_id}",
+        "name": "OpenABM session",
+        "description": "Fetch a session and its related trace context.",
+    },
+    {
+        "uriTemplate": "behavior://{behavior_id}",
+        "name": "OpenABM behavior",
+        "description": "Fetch a behavior definition and monitoring metadata.",
+    },
+    {
+        "uriTemplate": "judge://{judge_id}",
+        "name": "OpenABM judge",
+        "description": "Fetch a judge definition and immutable versions.",
+    },
+    {
+        "uriTemplate": "dataset://{dataset_id}",
+        "name": "OpenABM dataset",
+        "description": "Fetch a dataset definition and version metadata.",
+    },
+    {
+        "uriTemplate": "prompt://{prompt_id}",
+        "name": "OpenABM prompt",
+        "description": "Fetch a prompt registry entry and version history.",
+    },
+    {
+        "uriTemplate": "eval-run://{eval_run_id}",
+        "name": "OpenABM eval run",
+        "description": "Fetch an eval run summary and linked results.",
+    },
+    {
+        "uriTemplate": "automation://{automation_id}",
+        "name": "OpenABM automation",
+        "description": "Fetch an automation definition and current status.",
+    },
+    {
+        "uriTemplate": "saved-search://{saved_search_id}",
+        "name": "OpenABM saved search",
+        "description": "Fetch a saved trace-search definition.",
+    },
+    {
+        "uriTemplate": "issue://{issue_id}",
+        "name": "OpenABM issue",
+        "description": "Fetch an issue with seed trace/session metadata.",
+    },
+    {
+        "uriTemplate": "investigation-run://{investigation_run_id}",
+        "name": "OpenABM investigation run",
+        "description": "Fetch an auditable investigation run record.",
+    },
+    {
+        "uriTemplate": "impact-report://{report_id}",
+        "name": "OpenABM impact report",
+        "description": "Fetch an investigation impact report.",
+    },
+    {
+        "uriTemplate": "agent-context-pack://{context_pack_id}",
+        "name": "OpenABM agent context pack",
+        "description": "Fetch a bounded cited context pack for agent review.",
+    },
 ]
+for template in RESOURCE_TEMPLATE_DEFINITIONS:
+    template["mimeType"] = "application/json"
+
+RESOURCE_TEMPLATES = [template["uriTemplate"] for template in RESOURCE_TEMPLATE_DEFINITIONS]
 
 MAX_OBSERVATION_STRING_LENGTH = 2000
 MAX_OBSERVATION_ITEMS = 25
@@ -63,6 +125,33 @@ class OpenABMApiClient:
 
 def tool_manifest() -> dict[str, Any]:
     return {"tools": all_tool_definitions(), "resource_templates": RESOURCE_TEMPLATES}
+
+
+def resource_template_manifest() -> list[dict[str, str]]:
+    return [dict(template) for template in RESOURCE_TEMPLATE_DEFINITIONS]
+
+
+def read_resource(
+    uri: str,
+    *,
+    client: OpenABMApiClient | None = None,
+) -> dict[str, str]:
+    api_client = client or OpenABMApiClient.from_env()
+    parsed = _parse_resource_uri(uri)
+    project_id = parsed["project_id"]
+    resource_type = parsed["resource_type"]
+    resource_id = parsed["resource_id"]
+    payload = _read_resource_payload(
+        api_client,
+        project_id=project_id,
+        resource_type=resource_type,
+        resource_id=resource_id,
+    )
+    return {
+        "uri": uri,
+        "mimeType": "application/json",
+        "text": _json_text(payload),
+    }
 
 
 def call_tool(
@@ -345,6 +434,73 @@ def _call_tool_impl(
         "tool": name,
         "reason": "Tool is declared but no handler is registered.",
     }
+
+
+def _read_resource_payload(
+    client: OpenABMApiClient,
+    *,
+    project_id: str,
+    resource_type: str,
+    resource_id: str,
+) -> dict[str, Any]:
+    tool_arguments = _resource_tool_arguments(project_id, resource_type, resource_id)
+    if tool_arguments is not None:
+        tool_name, arguments = tool_arguments
+        return _call_tool_impl(tool_name, arguments, client=client)
+    if resource_type == "eval-run":
+        return client.request(
+            "GET",
+            f"/v1/evals/{resource_id}",
+            params={"project_id": project_id},
+        )
+    raise ValueError(f"Unsupported resource type: {resource_type}")
+
+
+def _resource_tool_arguments(
+    project_id: str,
+    resource_type: str,
+    resource_id: str,
+) -> tuple[str, dict[str, Any]] | None:
+    tool_by_resource = {
+        "trace": ("get_trace", "trace_id"),
+        "span": ("get_span", "span_id"),
+        "session": ("get_session", "session_id"),
+        "behavior": ("get_behavior", "behavior_id"),
+        "judge": ("get_judge", "judge_id"),
+        "dataset": ("get_dataset", "dataset_id"),
+        "prompt": ("get_prompt", "prompt_id"),
+        "automation": ("get_automation", "automation_id"),
+        "saved-search": ("get_saved_search", "saved_search_id"),
+        "issue": ("get_issue", "issue_id"),
+        "investigation-run": ("get_investigation_run", "investigation_run_id"),
+        "impact-report": ("get_impact_report", "report_id"),
+        "agent-context-pack": ("get_agent_context_pack", "context_pack_id"),
+    }
+    if resource_type not in tool_by_resource:
+        return None
+    tool_name, id_field = tool_by_resource[resource_type]
+    return tool_name, {"project_id": project_id, id_field: resource_id}
+
+
+def _parse_resource_uri(uri: str) -> dict[str, str]:
+    parsed = urlparse(uri)
+    resource_type = parsed.scheme
+    resource_id = parsed.netloc or parsed.path.lstrip("/")
+    if not resource_type or not resource_id:
+        raise ValueError("Resource URI must include a scheme and resource id.")
+    query = parse_qs(parsed.query)
+    project_id = query.get("project_id", [os.getenv("OPENABM_PROJECT_ID", "proj_demo")])[0]
+    if not project_id:
+        raise ValueError("Resource URI requires project_id or OPENABM_PROJECT_ID.")
+    return {
+        "resource_type": resource_type,
+        "resource_id": resource_id,
+        "project_id": project_id,
+    }
+
+
+def _json_text(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, sort_keys=True)
 
 
 def _record_tool_observation(

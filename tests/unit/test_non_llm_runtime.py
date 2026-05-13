@@ -1,11 +1,13 @@
 import asyncio
+import json
 import textwrap
 
 import pytest
 from jsonschema import Draft202012Validator
 from openabm_api.classification import classify_payload, redact_if_needed
 from openabm_api.prompts import diff_prompt_text, prompt_commit_id, render_prompt
-from openabm_mcp.handlers import call_tool, tool_manifest
+from openabm_mcp.handlers import call_tool, read_resource, resource_template_manifest, tool_manifest
+from openabm_mcp.server import _handle_jsonrpc_message
 from openabm_mcp.tools import REQUIRED_TOOL_NAMES, all_tool_definitions
 from openabm_worker.code_sandbox import run_code_judge_dev_sandbox
 from openabm_worker.conditions import evaluate_condition_group
@@ -281,7 +283,48 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
     assert client.calls[-1]["path"] == "/v1/ops/mcp-tool-observations"
     assert client.calls[-1]["json_body"]["request"]["confirmed"] is True
     assert client.calls[-1]["json_body"]["status"] == "succeeded"
+    trace_resource = read_resource(
+        "trace://trace_1?project_id=proj_demo",
+        client=client,
+    )
+    trace_payload = json.loads(trace_resource["text"])
+    assert trace_resource["mimeType"] == "application/json"
+    assert trace_payload["path"] == "/v1/traces/trace_1"
+    assert client.calls[-1]["params"] == {"project_id": "proj_demo"}
+
+    templates = resource_template_manifest()
+    assert templates[0]["uriTemplate"] == "trace://{trace_id}"
+    assert templates[0]["mimeType"] == "application/json"
+    assert all(template["name"] for template in templates)
     assert "trace://{trace_id}" in tool_manifest()["resource_templates"]
+
+
+def test_mcp_jsonrpc_exposes_readable_resources(monkeypatch) -> None:
+    def fake_read_resource(uri: str) -> dict[str, str]:
+        return {"uri": uri, "mimeType": "application/json", "text": '{"ok": true}'}
+
+    monkeypatch.setattr("openabm_mcp.server.read_resource", fake_read_resource)
+    templates = _handle_jsonrpc_message(
+        {"jsonrpc": "2.0", "id": 1, "method": "resources/templates/list"}
+    )
+    assert templates["result"]["resourceTemplates"][0]["uriTemplate"] == "trace://{trace_id}"
+    assert templates["result"]["resourceTemplates"][0]["mimeType"] == "application/json"
+
+    resource = _handle_jsonrpc_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "resources/read",
+            "params": {"uri": "trace://trace_1?project_id=proj_demo"},
+        }
+    )
+    assert resource["result"]["contents"] == [
+        {
+            "uri": "trace://trace_1?project_id=proj_demo",
+            "mimeType": "application/json",
+            "text": '{"ok": true}',
+        }
+    ]
 
 
 def test_trajectory_assertions_cite_failing_tool_spans() -> None:
