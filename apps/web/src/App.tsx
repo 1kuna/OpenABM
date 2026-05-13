@@ -2087,6 +2087,10 @@ function IssueInvestigationWorkspace(props: {
                         <span>{formatAffectedEntities(selectedImpact.affected_entities)}</span>
                       </div>
                       <div>
+                        <strong>Known behavior labels</strong>
+                        <span>{formatBehaviorDistribution(selectedImpact.behavior_distribution)}</span>
+                      </div>
+                      <div>
                         <strong>Suspected root causes</strong>
                         <span>{selectedImpact.suspected_root_causes.map((cause) => String(cause.hypothesis ?? cause.candidate_id ?? "candidate")).join("; ") || "none"}</span>
                       </div>
@@ -5948,6 +5952,25 @@ function formatAffectedEntities(entities: Array<Record<string, unknown>>) {
   return entities
     .slice(0, 8)
     .map((entity) => `${String(entity.entity_type ?? "entity")}:${String(entity.entity_id ?? "unknown")} ${String(entity.status ?? "")}`.trim())
+    .join("; ");
+}
+
+function formatBehaviorDistribution(distribution: Record<string, unknown>) {
+  const entries = Object.values(distribution)
+    .map((entry) => asRecord(entry))
+    .filter((entry) => Object.keys(entry).length > 0);
+  if (!entries.length) return "none";
+  return entries
+    .slice(0, 6)
+    .map((entry) => {
+      const name = String(entry.name ?? entry.behavior_id ?? "behavior");
+      const severity = entry.severity ? ` ${String(entry.severity)}` : "";
+      const matchCount = Number(entry.match_count ?? 0);
+      const statusSummary = formatCounts(asRecord(entry.status_counts));
+      const traceIds = Array.isArray(entry.trace_ids) ? entry.trace_ids : [];
+      const traceSummary = traceIds.length ? `${traceIds.length} trace${traceIds.length === 1 ? "" : "s"}` : "no traces";
+      return `${name}${severity}: ${matchCount} match${matchCount === 1 ? "" : "es"}, ${statusSummary}, ${traceSummary}`;
+    })
     .join("; ");
 }
 

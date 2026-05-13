@@ -932,6 +932,9 @@ Verified after the latest implementation slices:
   trace cohort: matched behavior names, severities, match counts, status counts,
   trace IDs, and evidence span IDs are persisted as deterministic report
   evidence and surfaced as a root-cause candidate when present.
+- The impact-report UI now renders known behavior-label distribution alongside
+  recurrence, affected entities, dimensions, deployment context, and suspected
+  root causes.
 - Code-sandbox conformance regression passed: the dev sandbox scrubs secrets,
   denies blocked network imports, restricts file reads/writes to the input/output
   bundle and temporary artifact directory, maps timeouts and invalid results to
