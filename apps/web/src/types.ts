@@ -612,6 +612,17 @@ export interface OpsStatus {
   automation_action_failures: number;
   dead_letter_count: number;
   worker_heartbeats: WorkerHeartbeat[];
+  worker_health: Array<{
+    worker_id: string;
+    worker_type: string;
+    status: string;
+    reported_status: string;
+    queue_depth: number;
+    last_seen_at: string;
+    last_seen_age_seconds: number | null;
+    stale_after_seconds: number;
+  }>;
+  stale_worker_count: number;
   mcp_tool_observability: {
     total_calls: number;
     error_count: number;

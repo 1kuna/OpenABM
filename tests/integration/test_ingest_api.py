@@ -254,9 +254,23 @@ def test_observability_status_metrics_dead_letters_and_heartbeats(tmp_path) -> N
     assert body["storage_growth"]["trace_spans"] == len(fixture["spans"])
     assert body["queue_depth"]["worker_jobs"] == 3
     assert body["worker_heartbeats"][0]["worker_id"] == "pytest-worker"
+    assert body["worker_health"][0]["status"] == "healthy"
+    assert body["stale_worker_count"] == 0
     assert body["mcp_tool_observability"]["total_calls"] == 1
     assert body["mcp_tool_observability"]["tools"][0]["tool_name"] == "get_trace"
     assert "metrics" in body
+    with client.app.state.store.connect() as conn:
+        conn.execute(
+            "UPDATE worker_heartbeats SET last_seen_at = ? WHERE worker_id = ?",
+            ("2000-01-01T00:00:00+00:00", "pytest-worker"),
+        )
+    stale_status = client.get(
+        "/v1/ops/status",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert stale_status.json()["worker_health"][0]["status"] == "stale"
+    assert stale_status.json()["stale_worker_count"] == 1
     observations = client.get(
         "/v1/ops/mcp-tool-observations",
         headers=auth_headers(),

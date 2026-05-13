@@ -275,6 +275,42 @@ def _retention_trace_candidates(
     return sorted(candidate_ids)
 
 
+def _worker_heartbeat_health(
+    heartbeats: list[dict[str, Any]],
+    *,
+    now: str,
+    stale_after_seconds: int = 900,
+) -> list[dict[str, Any]]:
+    now_dt = _parse_utc_datetime(now)
+    health = []
+    for heartbeat in heartbeats:
+        last_seen = _parse_utc_datetime(heartbeat.get("last_seen_at"))
+        age_seconds = (
+            int((now_dt - last_seen).total_seconds())
+            if now_dt is not None and last_seen is not None
+            else None
+        )
+        if heartbeat.get("status") in {"error", "failed"}:
+            status = "unhealthy"
+        elif age_seconds is not None and age_seconds > stale_after_seconds:
+            status = "stale"
+        else:
+            status = "healthy"
+        health.append(
+            {
+                "worker_id": heartbeat["worker_id"],
+                "worker_type": heartbeat["worker_type"],
+                "status": status,
+                "reported_status": heartbeat["status"],
+                "queue_depth": heartbeat["queue_depth"],
+                "last_seen_at": heartbeat["last_seen_at"],
+                "last_seen_age_seconds": age_seconds,
+                "stale_after_seconds": stale_after_seconds,
+            }
+        )
+    return health
+
+
 def _non_negative_int(value: Any) -> int:
     try:
         return max(0, int(value))
@@ -1633,12 +1669,14 @@ class SQLiteStore:
                 """,
                 (project_id,),
             ).fetchone()
+        generated_at = utc_now()
         worker_heartbeats = self.list_worker_heartbeats(project_id)
+        worker_health = _worker_heartbeat_health(worker_heartbeats, now=generated_at)
         worker_queue_depth = sum(int(item["queue_depth"]) for item in worker_heartbeats)
         mcp_tool_observability = self.mcp_tool_observability_summary(project_id)
         return {
             "project_id": project_id,
-            "generated_at": utc_now(),
+            "generated_at": generated_at,
             "storage_growth": storage_counts,
             "payload_store_growth": {
                 "object_count": int(payload_growth["count"]),
@@ -1652,6 +1690,10 @@ class SQLiteStore:
             "automation_action_failures": int(automation_failures["count"]),
             "dead_letter_count": int(automation_failures["count"]),
             "worker_heartbeats": worker_heartbeats,
+            "worker_health": worker_health,
+            "stale_worker_count": sum(
+                1 for item in worker_health if item["status"] in {"stale", "unhealthy"}
+            ),
             "mcp_tool_observability": mcp_tool_observability,
         }
 

@@ -546,6 +546,9 @@ Done:
   over the same deterministic runner, and each run records heartbeats plus
   `apply_retention_policy` audit entries so `/v1/ops/status` reflects retention
   job status.
+- Added worker deployment supervision signals: ops status now classifies worker
+  heartbeats as healthy, stale, or unhealthy, counts stale/unhealthy workers, and
+  the Operations workspace shows worker risk next to heartbeat rows.
 - Added MCP tool observability: the MCP handler records best-effort tool
   latency/status observations through `/v1/ops/mcp-tool-observations`, ops
   status summarizes MCP call and error counts by tool, metrics expose MCP tool
@@ -682,6 +685,10 @@ Verified after the latest implementation slices:
 - Eval provenance UI build passed: the Datasets/Evals workspace now hydrates
   prompt/config version options, sends selected provenance with eval runs, and
   renders selected-run runtime context plus comparison provenance changes.
+- Worker supervision regression passed: ops status reports healthy worker
+  heartbeats, marks stale heartbeats after the local freshness threshold, counts
+  worker risk, and the Operations workspace renders that risk next to heartbeat
+  rows.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:
@@ -712,9 +719,10 @@ Known remaining gaps before calling the whole spec complete:
   prompt/configuration history.
 - External IdP/OAuth login, real invite delivery, and production secret-manager
   provider adapters remain beyond the local reference scaffold.
-- Production-grade observability exporters, log aggregation, retention-worker
+- Production-grade observability exporters, log aggregation, external
   deployment supervision, and non-webhook notification adapters are still future
-  hardening beyond the local reference surfaces.
+  hardening beyond the local reference surfaces; local worker stale/unhealthy
+  heartbeat detection is now implemented.
 
 ## Spec V2 Delta Incorporated
 

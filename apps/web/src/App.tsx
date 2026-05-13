@@ -647,6 +647,8 @@ function OpsWorkspace(props: {
     secretRefs[0] ??
     null;
   const workerHeartbeats = opsStatus?.worker_heartbeats ?? [];
+  const workerHealth = opsStatus?.worker_health ?? [];
+  const workerHealthById = new Map(workerHealth.map((item) => [item.worker_id, item]));
   const storageRows = Object.values(opsStatus?.storage_growth ?? {}).reduce((sum, count) => sum + count, 0);
   const queueDepth = opsStatus?.queue_depth.worker_jobs ?? 0;
 
@@ -755,7 +757,23 @@ function OpsWorkspace(props: {
         worker_heartbeats: [
           heartbeat,
           ...current.worker_heartbeats.filter((item) => item.worker_id !== heartbeat.worker_id)
-        ]
+        ],
+        worker_health: [
+          {
+            worker_id: heartbeat.worker_id,
+            worker_type: heartbeat.worker_type,
+            status: "healthy",
+            reported_status: heartbeat.status,
+            queue_depth: heartbeat.queue_depth,
+            last_seen_at: heartbeat.last_seen_at,
+            last_seen_age_seconds: 0,
+            stale_after_seconds: 900
+          },
+          ...current.worker_health.filter((item) => item.worker_id !== heartbeat.worker_id)
+        ],
+        stale_worker_count: current.worker_health.filter(
+          (item) => item.worker_id !== heartbeat.worker_id && item.status !== "healthy"
+        ).length
       } : current);
       setStateText(`heartbeat ${heartbeat.worker_id}`);
     } catch (error) {
@@ -987,6 +1005,7 @@ function OpsWorkspace(props: {
           <Metric icon={<CheckCircle2 />} label="Ready" value={ready?.status ?? "unknown"} />
           <Metric icon={<Database />} label="Counters" value={String(countMetricLines(metricsText))} />
           <Metric icon={<AlertTriangle />} label="Dead letters" value={String(opsStatus?.dead_letter_count ?? 0)} />
+          <Metric icon={<Shield />} label="Worker risk" value={String(opsStatus?.stale_worker_count ?? 0)} />
         </div>
         <p className="systemNote">{stateText}</p>
 
@@ -1047,7 +1066,9 @@ function OpsWorkspace(props: {
               {workerHeartbeats.slice(0, 4).map((heartbeat) => (
                 <div key={heartbeat.worker_id}>
                   <strong>{heartbeat.worker_id}</strong>
-                  <span>{heartbeat.worker_type} · {heartbeat.status} · queue {heartbeat.queue_depth}</span>
+                  <span>
+                    {heartbeat.worker_type} · {workerHealthById.get(heartbeat.worker_id)?.status ?? heartbeat.status} · queue {heartbeat.queue_depth}
+                  </span>
                   <small>{formatTime(heartbeat.last_seen_at)}</small>
                 </div>
               ))}
