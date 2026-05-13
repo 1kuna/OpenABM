@@ -196,6 +196,8 @@ def test_mcp_tool_contracts_cover_required_names() -> None:
         Draft202012Validator.check_schema(tool["output_schema"])
     assert by_name["commit_prompt"]["confirmation_required"] is True
     assert by_name["run_eval"]["confirmation_required"] is True
+    assert "confirmed" in by_name["commit_prompt"]["input_schema"]["properties"]
+    assert "confirmed" in by_name["run_eval"]["input_schema"]["properties"]
     assert by_name["search_traces"]["side_effects"] is False
     assert by_name["create_issue"]["side_effects"] is True
 
@@ -243,6 +245,42 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
         client=client,
     )
     assert docs_result["path"] == "/v1/docs/search"
+    call_count_before_gate = len(client.calls)
+    gated = call_tool(
+        "commit_prompt",
+        {
+            "project_id": "proj_demo",
+            "prompt_id": "prompt_1",
+            "template_text": "Hi {{name}}",
+            "variables_schema": {"type": "object"},
+        },
+        client=client,
+    )
+    assert gated["status"] == "confirmation_required"
+    assert len(client.calls) == call_count_before_gate + 1
+    assert all(call["path"] != "/v1/prompts/prompt_1/versions" for call in client.calls)
+    assert client.calls[-1]["path"] == "/v1/ops/mcp-tool-observations"
+    assert client.calls[-1]["json_body"]["tool_name"] == "commit_prompt"
+    assert client.calls[-1]["json_body"]["status"] == "confirmation_required"
+    assert client.calls[-1]["json_body"]["confirmation_required"] is True
+
+    confirmed = call_tool(
+        "commit_prompt",
+        {
+            "project_id": "proj_demo",
+            "prompt_id": "prompt_1",
+            "template_text": "Hi {{name}}",
+            "variables_schema": {"type": "object"},
+            "confirmed": True,
+        },
+        client=client,
+    )
+    assert confirmed["path"] == "/v1/prompts/prompt_1/versions"
+    assert client.calls[-2]["json_body"]["template_text"] == "Hi {{name}}"
+    assert "confirmed" not in client.calls[-2]["json_body"]
+    assert client.calls[-1]["path"] == "/v1/ops/mcp-tool-observations"
+    assert client.calls[-1]["json_body"]["request"]["confirmed"] is True
+    assert client.calls[-1]["json_body"]["status"] == "succeeded"
     assert "trace://{trace_id}" in tool_manifest()["resource_templates"]
 
 

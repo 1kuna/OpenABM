@@ -530,6 +530,10 @@ Done:
 - Expanded MCP tool observability from latency/status rows to bounded
   request/response capture, citation IDs, and confirmation metadata so deep
   agent tool use is replayable enough for audit without changing tool results.
+- Enforced MCP confirmation gates for high-impact write tools: schemas now
+  expose `confirmed`, unconfirmed calls return `confirmation_required` before
+  touching API routes, confirmed calls strip the execution guard from domain
+  payloads, and observations record the gated status.
 - Added deterministic `/v1/docs/search` over committed public docs and schemas;
   the ignored implementation spec is intentionally excluded from search results.
 - Added web UI sections for judge runtime, behavior monitoring, datasets/evals,

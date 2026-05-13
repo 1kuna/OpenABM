@@ -1342,6 +1342,7 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
             "variables_schema": {"type": "object", "required": ["name"]},
             "parent_commit_id": version_2.json()["commit_id"],
             "tag": "mcp",
+            "confirmed": True,
         },
         client=_TestClientMcpAdapter(client),
     )
@@ -2706,6 +2707,7 @@ def test_v1_investigation_adds_model_assistance_with_citations(tmp_path, monkeyp
             "status": "needs_more_evidence",
             "decision": "needs_more_evidence",
             "notes": "Need one more trace before acting.",
+            "confirmed": True,
         },
         client=_TestClientMcpAdapter(client),
     )
@@ -3119,6 +3121,7 @@ def test_reported_incident_investigation_acceptance_links_artifacts(
             "status": "contacted",
             "owner_nullable": "support-ops",
             "notes_nullable": "MCP remediation update.",
+            "confirmed": True,
         },
         client=_TestClientMcpAdapter(client),
     )

@@ -58,10 +58,19 @@ def _tool(
     example_request: dict[str, Any] | None = None,
     example_response: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    effective_input_schema = input_schema
+    if confirmation_required:
+        effective_input_schema = {
+            **input_schema,
+            "properties": {
+                **input_schema.get("properties", {}),
+                "confirmed": {"type": "boolean"},
+            },
+        }
     return {
         "name": name,
         "description": description,
-        "input_schema": input_schema,
+        "input_schema": effective_input_schema,
         "output_schema": {"type": "object"},
         "required_scopes": scopes,
         "side_effects": side_effects,

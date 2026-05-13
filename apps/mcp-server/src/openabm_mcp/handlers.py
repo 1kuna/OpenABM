@@ -78,10 +78,25 @@ def call_tool(
     error_message = None
     response_payload: dict[str, Any] | None = None
     try:
-        result = _call_tool_impl(name, arguments, client=api_client)
+        if _tool_requires_confirmation(name):
+            if arguments.get("confirmed") is not True:
+                result = {
+                    "status": "confirmation_required",
+                    "tool": name,
+                    "message": "Set confirmed=true to execute this side-effecting tool.",
+                }
+            else:
+                result = _call_tool_impl(
+                    name,
+                    _strip_execution_controls(arguments),
+                    client=api_client,
+                )
+        else:
+            result = _call_tool_impl(name, arguments, client=api_client)
         response_payload = result
-        if result.get("status") == "unsupported":
-            status = "unsupported"
+        result_status = result.get("status")
+        if result_status in {"unsupported", "confirmation_required"}:
+            status = result_status
         return result
     except Exception as exc:
         status = "failed"
@@ -373,6 +388,10 @@ def _tool_requires_confirmation(tool_name: str) -> bool:
         if tool["name"] == tool_name:
             return bool(tool.get("confirmation_required"))
     return False
+
+
+def _strip_execution_controls(arguments: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in arguments.items() if key != "confirmed"}
 
 
 def _bounded_observation_payload(value: Any, *, depth: int = 0) -> Any:
