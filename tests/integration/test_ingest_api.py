@@ -2049,6 +2049,30 @@ def test_reported_incident_investigation_acceptance_links_artifacts(
     assert impact["dimension_distribution"]["workflow"] == {"refund_commitment": 2}
     assert impact["affected_entity_count"] == 1
     assert impact["affected_entities"][0]["entity_id"] == "acct_enterprise_1"
+    affected_entities = client.get(
+        "/v1/affected-entities",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo", "issue_id": issue_id},
+    )
+    assert affected_entities.status_code == 200
+    affected_entity = affected_entities.json()["data"][0]
+    assert affected_entity["entity_id"] == "acct_enterprise_1"
+    assert set(affected_entity["trace_ids"]) == {
+        "trace_wrong_tool",
+        "trace_fabricated_commitment",
+    }
+    remediated = client.patch(
+        f"/v1/affected-entities/{affected_entity['affected_entity_id']}",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "status": "fixed",
+            "owner_nullable": "support-ops",
+            "notes_nullable": "Customer commitment corrected.",
+        },
+    )
+    assert remediated.status_code == 200
+    assert remediated.json()["status"] == "fixed"
     assert set(impact["representative_trace_ids"]) == {
         "trace_wrong_tool",
         "trace_fabricated_commitment",
@@ -2210,6 +2234,7 @@ def test_reported_incident_investigation_acceptance_links_artifacts(
     assert {
         ("investigation_run", investigation.json()["investigation_run_id"]),
         ("impact_report", impact["report_id"]),
+        ("affected_entity", affected_entity["affected_entity_id"]),
         ("behavior", behavior.json()["behavior_id"]),
         ("judge", judge.json()["judge_id"]),
         ("dataset", dataset.json()["dataset_id"]),

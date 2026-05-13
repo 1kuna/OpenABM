@@ -349,6 +349,10 @@ Done:
   dimensions, task/workflow distribution, deployment/code context, suspected
   root causes, recommended next actions, remediation status, representative
   trace navigation, and JSON export.
+- Persisted impact-report affected entities into canonical remediation records,
+  linked them back to their source issue, and added `/v1/affected-entities`
+  list/update APIs so entity status can move through needs-review, contacted,
+  fixed, ignored, or false-positive states.
 - Added model-assisted investigation drafts for cited root-cause hypotheses,
   candidate behaviors, rubric drafts, uncertainty, and next actions, with
   citation filtering before model output becomes canonical.
@@ -596,6 +600,10 @@ Verified after the latest implementation slices:
   example plus source trace/spans, returned an offline trace/span bundle, OpenABM
   ingested that offline trace, and the deterministic judge scored the returned
   offline trace rather than the original source trace.
+- Affected-entity remediation regression passed inside the reported-incident
+  acceptance flow: impact scoping persisted the affected account, issue links
+  included the remediation record, and the API updated the entity status to
+  fixed with owner/notes.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:

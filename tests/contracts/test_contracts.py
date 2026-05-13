@@ -123,6 +123,8 @@ REQUIRED_QUERY_PATHS = {
     "/v1/context-packs/{context_pack_id}",
     "/v1/investigations/{investigation_run_id}",
     "/v1/impact-reports/{report_id}",
+    "/v1/affected-entities",
+    "/v1/affected-entities/{affected_entity_id}",
     "/v1/retention-policies",
     "/v1/exports/project",
     "/v1/prompts",

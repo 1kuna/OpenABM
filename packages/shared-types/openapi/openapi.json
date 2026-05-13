@@ -2509,6 +2509,120 @@
         }
       }
     },
+    "/v1/affected-entities": {
+      "get": {
+        "operationId": "listAffectedEntities",
+        "summary": "List affected entities and remediation status.",
+        "x-required-scopes": [
+          "investigations:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "issue_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Affected entities.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "../schemas/affected-entity.schema.json"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/affected-entities/{affected_entity_id}": {
+      "patch": {
+        "operationId": "updateAffectedEntity",
+        "summary": "Update affected entity remediation status.",
+        "x-required-scopes": [
+          "investigations:write"
+        ],
+        "parameters": [
+          {
+            "name": "affected_entity_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "owner_nullable": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "notes_nullable": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Affected entity updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/affected-entity.schema.json"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/ingest/batch": {
       "post": {
         "operationId": "ingestBatch",

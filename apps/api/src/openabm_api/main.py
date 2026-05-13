@@ -61,6 +61,7 @@ ISSUE_LINK_TARGET_TYPES = {
     "span",
     "investigation_run",
     "impact_report",
+    "affected_entity",
     "behavior",
     "judge",
     "dataset",
@@ -3047,6 +3048,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail=_error("not_found", "Impact report not found."),
             )
         return report
+
+    @app.get("/api/affected-entities")
+    def list_affected_entities(
+        project_id: str,
+        issue_id: str | None = None,
+        actor: dict[str, object] = Depends(auth_dependency(["investigations:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_affected_entities(project_id, issue_id=issue_id)}
+
+    @app.patch("/api/affected-entities/{affected_entity_id}")
+    def update_affected_entity(
+        affected_entity_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["investigations:write"])),
+    ) -> dict[str, object]:
+        del actor
+        project_id = request.get("project_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        try:
+            entity = store.update_affected_entity(project_id, affected_entity_id, request)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
+        except ValueError as exc:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                str(exc),
+                "/status",
+            ) from exc
+        store.append_audit(
+            "update_affected_entity",
+            "affected_entity",
+            project_id,
+            affected_entity_id,
+            {"status": entity["status"], "issue_id": entity["issue_id"]},
+        )
+        return entity
 
     _register_v1_aliases(app)
     return app

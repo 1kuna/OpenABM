@@ -4058,6 +4058,7 @@ class SQLiteStore:
                     report["created_at"],
                 ),
             )
+        self._upsert_affected_entities_from_report(report)
         return report
 
     def list_impact_reports(self, project_id: str) -> list[dict[str, Any]]:
@@ -4078,6 +4079,77 @@ class SQLiteStore:
                 (project_id, report_id),
             ).fetchone()
         return self._impact_report_from_row(row) if row else None
+
+    def list_affected_entities(
+        self,
+        project_id: str,
+        issue_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses = ["project_id = ?"]
+        params: list[Any] = [project_id]
+        if issue_id:
+            clauses.append("issue_id = ?")
+            params.append(issue_id)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM affected_entities
+                WHERE {' AND '.join(clauses)}
+                ORDER BY updated_at DESC
+                """,
+                tuple(params),
+            ).fetchall()
+        return [self._affected_entity_from_row(row) for row in rows]
+
+    def update_affected_entity(
+        self,
+        project_id: str,
+        affected_entity_id: str,
+        request: dict[str, Any],
+    ) -> dict[str, Any]:
+        allowed_status = {"needs_review", "contacted", "fixed", "ignored", "false_positive"}
+        status = request.get("status")
+        if status is not None and status not in allowed_status:
+            raise ValueError(f"Unsupported affected entity status: {status}")
+        now = utc_now()
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM affected_entities
+                WHERE project_id = ? AND affected_entity_id = ?
+                """,
+                (project_id, affected_entity_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"affected entity not found: {affected_entity_id}")
+            conn.execute(
+                """
+                UPDATE affected_entities
+                SET status = COALESCE(?, status),
+                    owner_nullable = COALESCE(?, owner_nullable),
+                    notes_nullable = COALESCE(?, notes_nullable),
+                    updated_at = ?
+                WHERE project_id = ? AND affected_entity_id = ?
+                """,
+                (
+                    status,
+                    request.get("owner_nullable"),
+                    request.get("notes_nullable"),
+                    now,
+                    project_id,
+                    affected_entity_id,
+                ),
+            )
+            updated = conn.execute(
+                """
+                SELECT * FROM affected_entities
+                WHERE project_id = ? AND affected_entity_id = ?
+                """,
+                (project_id, affected_entity_id),
+            ).fetchone()
+        if updated is None:
+            raise KeyError(f"affected entity not found: {affected_entity_id}")
+        return self._affected_entity_from_row(updated)
 
     def create_grounding_check(
         self,
@@ -4638,6 +4710,85 @@ class SQLiteStore:
             changed_count += 1
         return changed_count
 
+    def _upsert_affected_entities_from_report(self, report: dict[str, Any]) -> None:
+        issue_id = report.get("issue_id")
+        if not issue_id:
+            return
+        now = utc_now()
+        link_requests = []
+        with self.connect() as conn:
+            for entity in report.get("affected_entities", []):
+                if not isinstance(entity, dict):
+                    continue
+                entity_type = entity.get("entity_type")
+                entity_id = entity.get("entity_id")
+                if not isinstance(entity_type, str) or not isinstance(entity_id, str):
+                    continue
+                trace_ids = [str(value) for value in entity.get("trace_ids", [])]
+                existing = conn.execute(
+                    """
+                    SELECT * FROM affected_entities
+                    WHERE project_id = ? AND issue_id = ? AND entity_type = ? AND entity_id = ?
+                    """,
+                    (report["project_id"], issue_id, entity_type, entity_id),
+                ).fetchone()
+                if existing is None:
+                    affected_entity_id = new_id("affected_entity")
+                    conn.execute(
+                        """
+                        INSERT INTO affected_entities(
+                          affected_entity_id, project_id, issue_id, entity_type,
+                          entity_id, display_name_nullable, trace_ids_json, status,
+                          owner_nullable, notes_nullable, created_at, updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            affected_entity_id,
+                            report["project_id"],
+                            issue_id,
+                            entity_type,
+                            entity_id,
+                            entity.get("display_name_nullable"),
+                            encode_json(trace_ids),
+                            entity.get("status") or "needs_review",
+                            entity.get("owner_nullable"),
+                            entity.get("notes_nullable"),
+                            now,
+                            now,
+                        ),
+                    )
+                    link_requests.append(
+                        {
+                            "project_id": report["project_id"],
+                            "issue_id": issue_id,
+                            "target_type": "affected_entity",
+                            "target_id": affected_entity_id,
+                            "relation": "affected_entity",
+                            "source": "impact_report",
+                            "evidence_trace_ids": trace_ids,
+                        }
+                    )
+                    continue
+                merged_trace_ids = sorted(
+                    set(decode_json(existing["trace_ids_json"], []) + trace_ids)
+                )
+                conn.execute(
+                    """
+                    UPDATE affected_entities
+                    SET trace_ids_json = ?, updated_at = ?
+                    WHERE project_id = ? AND affected_entity_id = ?
+                    """,
+                    (
+                        encode_json(merged_trace_ids),
+                        now,
+                        report["project_id"],
+                        existing["affected_entity_id"],
+                    ),
+                )
+        for request in link_requests:
+            self.link_issue_artifact(**request)
+
     def _list_payload_objects(self, project_id: str) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(
@@ -4684,7 +4835,7 @@ class SQLiteStore:
                 """,
                 (project_id,),
             ).fetchall()
-        return [dict(row) | {"trace_ids": decode_json(row["trace_ids_json"], [])} for row in rows]
+        return [self._affected_entity_from_row(row) for row in rows]
 
     def _list_issue_links(self, project_id: str) -> list[dict[str, Any]]:
         with self.connect() as conn:
@@ -5446,6 +5597,23 @@ class SQLiteStore:
             "representative_trace_ids": decode_json(row["representative_trace_ids_json"], []),
             "generated_summary": row["generated_summary"],
             "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _affected_entity_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "affected_entity_id": row["affected_entity_id"],
+            "project_id": row["project_id"],
+            "issue_id": row["issue_id"],
+            "entity_type": row["entity_type"],
+            "entity_id": row["entity_id"],
+            "display_name_nullable": row["display_name_nullable"],
+            "trace_ids": decode_json(row["trace_ids_json"], []),
+            "status": row["status"],
+            "owner_nullable": row["owner_nullable"],
+            "notes_nullable": row["notes_nullable"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
         }
 
     @staticmethod

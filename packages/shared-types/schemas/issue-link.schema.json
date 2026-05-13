@@ -27,6 +27,7 @@
         "span",
         "investigation_run",
         "impact_report",
+        "affected_entity",
         "behavior",
         "judge",
         "dataset",
