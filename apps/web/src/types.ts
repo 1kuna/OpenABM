@@ -74,6 +74,32 @@ export interface Project {
   created_at: string;
 }
 
+export interface DatasetDefinition {
+  dataset_id: string;
+  project_id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  created_at: string;
+  latest_version_id: string;
+}
+
+export interface DatasetExample {
+  dataset_example_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
+  source_trace_id: string;
+  source_span_id: string | null;
+  input: unknown;
+  expected_output: unknown;
+  expected_scores: unknown[];
+  labels: string[];
+  metadata: Record<string, unknown>;
+  split: string;
+  created_from: string;
+  created_at: string;
+}
+
 export interface JudgeDefinition {
   judge_id: string;
   project_id: string;
@@ -123,10 +149,44 @@ export interface EvalRun {
   eval_run_id: string;
   project_id: string;
   dataset_version_id: string;
+  baseline_eval_run_id: string | null;
+  runner: Record<string, unknown>;
+  judges: Array<Record<string, unknown>>;
+  prompt_version_id: string | null;
   status: string;
   summary: Record<string, unknown>;
   created_at: string;
   completed_at: string | null;
+}
+
+export interface EvalResult {
+  eval_result_id: string;
+  project_id: string;
+  eval_run_id: string;
+  dataset_example_id: string;
+  offline_trace_id: string;
+  status: string;
+  scores: Array<Record<string, unknown>>;
+  cost: Record<string, unknown> | null;
+  latency_ms: number;
+  created_at: string;
+}
+
+export interface EvalComparison {
+  baseline_eval_run_id: string;
+  candidate_eval_run_id: string;
+  baseline_summary: Record<string, unknown>;
+  candidate_summary: Record<string, unknown>;
+  pass_rate_delta: number;
+  avg_score_delta: number | null;
+  new_failures: string[];
+  fixed_failures: string[];
+  unchanged_failures: string[];
+  invalid_judge_output_delta: number;
+  cost_delta: number | null;
+  latency_delta: number;
+  token_delta: number | null;
+  behavior_distribution_shift: Record<string, unknown>;
 }
 
 export interface DocsSearchResult {

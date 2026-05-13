@@ -218,6 +218,13 @@ button {
   gap: 18px;
 }
 
+.datasetGrid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(340px, 0.7fr) minmax(560px, 1.3fr);
+  gap: 18px;
+}
+
 .panel {
   min-width: 0;
   min-height: 0;
@@ -247,7 +254,13 @@ button {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-.judgeList .toolbar {
+.datasetList {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.judgeList .toolbar,
+.datasetList .toolbar {
   border-bottom: 1px solid #e5e7eb;
   justify-content: space-between;
   padding: 12px;
@@ -262,6 +275,14 @@ button {
 }
 
 .judgeRows {
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 10px;
+}
+
+.datasetRows {
   overflow: auto;
   display: grid;
   align-content: start;
@@ -295,10 +316,28 @@ button {
   text-align: left;
 }
 
+.datasetRows button,
+.evalRows button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #111827;
+  padding: 10px;
+  text-align: left;
+}
+
 .reviewRows button:hover,
 .reviewRows .selectedReview,
 .judgeRows button:hover,
-.judgeRows .selectedJudge {
+.judgeRows .selectedJudge,
+.datasetRows button:hover,
+.datasetRows .selectedDataset,
+.evalRows button:hover,
+.evalRows .selectedEval {
   border-color: #9ca3af;
   background: #f8fafc;
 }
@@ -306,13 +345,19 @@ button {
 .reviewRows strong,
 .reviewRows small,
 .judgeRows strong,
-.judgeRows small {
+.judgeRows small,
+.datasetRows strong,
+.datasetRows small,
+.evalRows strong,
+.evalRows small {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .reviewRows small,
-.judgeRows small {
+.judgeRows small,
+.datasetRows small,
+.evalRows small {
   grid-column: 2;
   color: #6b7280;
 }
@@ -329,6 +374,8 @@ button {
 }
 
 .judgeStatus.active,
+.judgeStatus.completed,
+.judgeStatus.succeeded,
 .reviewStatus.accepted,
 .reviewStatus.resolved {
   background: #ecfdf5;
@@ -336,7 +383,8 @@ button {
 }
 
 .judgeStatus.draft,
-.judgeStatus.inactive {
+.judgeStatus.inactive,
+.judgeStatus.running {
   background: #fffbeb;
   color: #a16207;
 }
@@ -467,6 +515,14 @@ td span {
   padding: 16px;
 }
 
+.datasetDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  padding: 16px;
+}
+
 .detailHeader {
   display: flex;
   align-items: flex-start;
@@ -492,6 +548,10 @@ td span {
 }
 
 .judgeMetrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.datasetMetrics {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -767,6 +827,111 @@ pre {
   overflow-wrap: anywhere;
 }
 
+.createStrip {
+  display: grid;
+  gap: 8px;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 12px;
+}
+
+.createStrip input,
+.exampleAdd input,
+.evalForm select,
+.evalForm input {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  color: #111827;
+  padding: 0 9px;
+}
+
+.createStrip button,
+.exampleAdd button,
+.evalForm button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  padding: 0 10px;
+}
+
+.datasetSections {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.9fr);
+  gap: 12px;
+}
+
+.datasetSection {
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  padding: 12px;
+}
+
+.datasetSection h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.datasetSection:first-child,
+.evalResults {
+  grid-row: span 2;
+}
+
+.exampleAdd,
+.evalForm {
+  display: grid;
+  gap: 8px;
+}
+
+.evalForm label {
+  display: grid;
+  gap: 5px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.exampleRows,
+.evalRows,
+.resultRows {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.exampleRows div,
+.resultRows div,
+.comparisonBox {
+  display: grid;
+  gap: 3px;
+  border: 1px solid #edf0f4;
+  border-radius: 7px;
+  min-width: 0;
+  padding: 9px;
+}
+
+.exampleRows strong,
+.resultRows strong,
+.evalRows strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.exampleRows span,
+.exampleRows small,
+.resultRows span,
+.comparisonBox span {
+  color: #6b7280;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .systemNote,
 .emptyState,
 .workRow p {
@@ -876,11 +1041,15 @@ pre {
   }
 
   .judgeGrid,
-  .judgeSections {
+  .judgeSections,
+  .datasetGrid,
+  .datasetSections {
     grid-template-columns: 1fr;
   }
 
-  .judgeSection:first-child {
+  .judgeSection:first-child,
+  .datasetSection:first-child,
+  .evalResults {
     grid-row: auto;
   }
 }
@@ -906,6 +1075,7 @@ pre {
   }
 
   .judgeMetrics,
+  .datasetMetrics,
   .policyGrid {
     grid-template-columns: 1fr;
   }

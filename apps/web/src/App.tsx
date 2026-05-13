@@ -20,6 +20,11 @@ import { useEffect, useMemo, useState } from "react";
 import { OpenAbmClient } from "./api";
 import { fixtureDetails, fixtureProjects, fixtureTraces } from "./fixtures";
 import type {
+  DatasetDefinition,
+  DatasetExample,
+  EvalComparison,
+  EvalResult,
+  EvalRun,
   JudgeCalibrationReport,
   JudgeDefinition,
   JudgePromotionResult,
@@ -213,6 +218,8 @@ export function App() {
           <ReviewQueue client={client} connection={connection} projectId={projectId} />
         ) : activeView === "judges" ? (
           <JudgeWorkspace client={client} connection={connection} projectId={projectId} />
+        ) : activeView === "datasets" ? (
+          <DatasetEvalWorkspace client={client} connection={connection} projectId={projectId} />
         ) : (
           <ScaffoldView
             activeView={activeView}
@@ -223,6 +230,366 @@ export function App() {
         )}
       </section>
     </main>
+  );
+}
+
+function DatasetEvalWorkspace(props: {
+  client: OpenAbmClient;
+  connection: ConnectionState;
+  projectId: string;
+}) {
+  const { client, connection, projectId } = props;
+  const [datasets, setDatasets] = useState<DatasetDefinition[]>([]);
+  const [examples, setExamples] = useState<DatasetExample[]>([]);
+  const [evalRuns, setEvalRuns] = useState<EvalRun[]>([]);
+  const [evalResults, setEvalResults] = useState<EvalResult[]>([]);
+  const [judges, setJudges] = useState<JudgeDefinition[]>([]);
+  const [selectedDatasetId, setSelectedDatasetId] = useState("");
+  const [selectedEvalRunId, setSelectedEvalRunId] = useState("");
+  const [selectedJudgeId, setSelectedJudgeId] = useState("");
+  const [newDatasetName, setNewDatasetName] = useState("");
+  const [newDatasetDescription, setNewDatasetDescription] = useState("");
+  const [traceId, setTraceId] = useState("");
+  const [labelsText, setLabelsText] = useState("");
+  const [baselineId, setBaselineId] = useState("");
+  const [candidateId, setCandidateId] = useState("");
+  const [comparison, setComparison] = useState<EvalComparison | null>(null);
+  const [stateText, setStateText] = useState("Datasets and evals need a live API");
+
+  const selectedDataset = datasets.find((dataset) => dataset.dataset_id === selectedDatasetId) ?? datasets[0] ?? null;
+  const selectedRun = evalRuns.find((run) => run.eval_run_id === selectedEvalRunId) ?? evalRuns[0] ?? null;
+  const datasetRuns = selectedDataset
+    ? evalRuns.filter((run) => run.dataset_version_id === selectedDataset.latest_version_id)
+    : evalRuns;
+
+  async function loadWorkspace() {
+    if (connection !== "live") {
+      setDatasets([]);
+      setExamples([]);
+      setEvalRuns([]);
+      setEvalResults([]);
+      setJudges([]);
+      setStateText("fixture mode");
+      return;
+    }
+    try {
+      const [loadedDatasets, loadedRuns, loadedJudges] = await Promise.all([
+        client.listDatasets(projectId),
+        client.listEvalRuns(projectId),
+        client.listJudges(projectId)
+      ]);
+      setDatasets(loadedDatasets);
+      setEvalRuns(loadedRuns);
+      setJudges(loadedJudges);
+      setSelectedDatasetId((current) =>
+        loadedDatasets.some((dataset) => dataset.dataset_id === current)
+          ? current
+          : loadedDatasets[0]?.dataset_id ?? ""
+      );
+      setSelectedEvalRunId((current) =>
+        loadedRuns.some((run) => run.eval_run_id === current)
+          ? current
+          : loadedRuns[0]?.eval_run_id ?? ""
+      );
+      setSelectedJudgeId((current) =>
+        loadedJudges.some((judge) => judge.judge_id === current)
+          ? current
+          : loadedJudges[0]?.judge_id ?? ""
+      );
+      setStateText(`${loadedDatasets.length} datasets · ${loadedRuns.length} evals`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "request failed");
+    }
+  }
+
+  useEffect(() => {
+    void loadWorkspace();
+  }, [client, connection, projectId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDatasetDetail() {
+      if (connection !== "live" || !selectedDataset) {
+        setExamples([]);
+        return;
+      }
+      try {
+        const loaded = await client.listDatasetExamples(projectId, selectedDataset.dataset_id);
+        if (!cancelled) setExamples(loaded);
+      } catch (error) {
+        if (!cancelled) setStateText(error instanceof Error ? error.message : "examples unavailable");
+      }
+    }
+    void loadDatasetDetail();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, connection, projectId, selectedDataset?.dataset_id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadResults() {
+      if (connection !== "live" || !selectedRun) {
+        setEvalResults([]);
+        return;
+      }
+      try {
+        const loaded = await client.listEvalResults(projectId, selectedRun.eval_run_id);
+        if (!cancelled) setEvalResults(loaded);
+      } catch (error) {
+        if (!cancelled) setStateText(error instanceof Error ? error.message : "eval results unavailable");
+      }
+    }
+    void loadResults();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, connection, projectId, selectedRun?.eval_run_id]);
+
+  async function createDataset() {
+    if (connection !== "live" || !newDatasetName.trim()) return;
+    try {
+      const created = await client.createDataset(projectId, newDatasetName.trim(), newDatasetDescription.trim());
+      setDatasets((current) => [created, ...current]);
+      setSelectedDatasetId(created.dataset_id);
+      setNewDatasetName("");
+      setNewDatasetDescription("");
+      setStateText(`created ${created.name}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "dataset creation failed");
+    }
+  }
+
+  async function addTraceExample() {
+    if (connection !== "live" || !selectedDataset || !traceId.trim()) return;
+    try {
+      const labels = labelsText.split(",").map((label) => label.trim()).filter(Boolean);
+      const example = await client.addTraceToDataset(projectId, selectedDataset.dataset_id, traceId.trim(), labels);
+      setExamples((current) => [example, ...current]);
+      setTraceId("");
+      setLabelsText("");
+      setStateText(`added trace ${example.source_trace_id}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "add trace failed");
+    }
+  }
+
+  async function runSelectedEval() {
+    if (connection !== "live" || !selectedDataset || !selectedJudgeId) return;
+    try {
+      const run = await client.runEval(
+        projectId,
+        selectedDataset.latest_version_id,
+        [selectedJudgeId],
+        baselineId || undefined
+      );
+      setEvalRuns((current) => [run, ...current]);
+      setSelectedEvalRunId(run.eval_run_id);
+      setStateText(`eval completed: ${run.eval_run_id}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "eval run failed");
+    }
+  }
+
+  async function compareRuns() {
+    if (connection !== "live" || !baselineId || !candidateId) return;
+    try {
+      const result = await client.compareEvalRuns(projectId, baselineId, candidateId);
+      setComparison(result);
+      setStateText("comparison ready");
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "compare failed");
+    }
+  }
+
+  return (
+    <div className="datasetGrid">
+      <section className="panel datasetList">
+        <div className="toolbar">
+          <button className="iconButton" onClick={() => void loadWorkspace()} aria-label="Refresh datasets and evals">
+            <TimerReset size={16} />
+          </button>
+          <span className="systemNote">{stateText}</span>
+        </div>
+        <div className="createStrip">
+          <input value={newDatasetName} onChange={(event) => setNewDatasetName(event.target.value)} placeholder="Dataset name" />
+          <input value={newDatasetDescription} onChange={(event) => setNewDatasetDescription(event.target.value)} placeholder="Description" />
+          <button onClick={() => void createDataset()}>
+            <Database size={15} />
+            Create
+          </button>
+        </div>
+        <div className="datasetRows">
+          {datasets.map((dataset) => (
+            <button
+              className={dataset.dataset_id === selectedDataset?.dataset_id ? "selectedDataset" : ""}
+              key={dataset.dataset_id}
+              onClick={() => setSelectedDatasetId(dataset.dataset_id)}
+            >
+              <span className={`judgeStatus ${dataset.status}`}>{dataset.status}</span>
+              <strong>{dataset.name}</strong>
+              <small>{dataset.latest_version_id}</small>
+            </button>
+          ))}
+          {!datasets.length ? <div className="emptyState">No datasets</div> : null}
+        </div>
+      </section>
+
+      <section className="panel datasetDetail">
+        {selectedDataset ? (
+          <>
+            <div className="detailHeader">
+              <div>
+                <p className="sectionLabel">dataset</p>
+                <h3>{selectedDataset.name}</h3>
+              </div>
+              <span className={`judgeStatus ${selectedDataset.status}`}>{selectedDataset.status}</span>
+            </div>
+            <p className="entityDescription">{selectedDataset.description ?? selectedDataset.dataset_id}</p>
+            <div className="metricsRow datasetMetrics">
+              <Metric icon={<Database />} label="Examples" value={String(examples.length)} />
+              <Metric icon={<Play />} label="Eval runs" value={String(datasetRuns.length)} />
+              <Metric icon={<GitBranch />} label="Version" value={selectedDataset.latest_version_id} />
+            </div>
+            <div className="datasetSections">
+              <section className="datasetSection">
+                <h4>Examples</h4>
+                <div className="exampleAdd">
+                  <input value={traceId} onChange={(event) => setTraceId(event.target.value)} placeholder="trace_id" />
+                  <input value={labelsText} onChange={(event) => setLabelsText(event.target.value)} placeholder="labels, comma separated" />
+                  <button onClick={() => void addTraceExample()}>
+                    <FileSearch size={15} />
+                    Add trace
+                  </button>
+                </div>
+                <div className="exampleRows">
+                  {examples.map((example) => (
+                    <div key={example.dataset_example_id}>
+                      <strong>{example.source_trace_id}</strong>
+                      <span>{example.labels.join(", ") || "no labels"}</span>
+                      <small>{example.dataset_example_id}</small>
+                    </div>
+                  ))}
+                  {!examples.length ? <p className="systemNote">No examples yet</p> : null}
+                </div>
+              </section>
+
+              <section className="datasetSection">
+                <h4>Run eval</h4>
+                <div className="evalForm">
+                  <label>
+                    Judge
+                    <select value={selectedJudgeId} onChange={(event) => setSelectedJudgeId(event.target.value)}>
+                      {judges.map((judge) => (
+                        <option key={judge.judge_id} value={judge.judge_id}>{judge.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Baseline
+                    <select value={baselineId} onChange={(event) => setBaselineId(event.target.value)}>
+                      <option value="">None</option>
+                      {datasetRuns.map((run) => (
+                        <option key={run.eval_run_id} value={run.eval_run_id}>{run.eval_run_id}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button className="primaryButton" onClick={() => void runSelectedEval()}>
+                    <Play size={15} />
+                    Run
+                  </button>
+                </div>
+              </section>
+
+              <section className="datasetSection evalHistory">
+                <h4>Eval history</h4>
+                <div className="evalRows">
+                  {datasetRuns.map((run) => (
+                    <button
+                      className={run.eval_run_id === selectedRun?.eval_run_id ? "selectedEval" : ""}
+                      key={run.eval_run_id}
+                      onClick={() => {
+                        setSelectedEvalRunId(run.eval_run_id);
+                        setCandidateId(run.eval_run_id);
+                      }}
+                    >
+                      <span className={`judgeStatus ${run.status}`}>{run.status}</span>
+                      <strong>{run.eval_run_id}</strong>
+                      <small>{formatEvalSummary(run.summary)}</small>
+                    </button>
+                  ))}
+                  {!datasetRuns.length ? <p className="systemNote">No eval runs for this dataset</p> : null}
+                </div>
+              </section>
+
+              <section className="datasetSection evalResults">
+                <h4>Selected run</h4>
+                {selectedRun ? (
+                  <>
+                    <dl className="reviewFacts">
+                      <div>
+                        <dt>Summary</dt>
+                        <dd>{formatEvalSummary(selectedRun.summary)}</dd>
+                      </div>
+                      <div>
+                        <dt>Judges</dt>
+                        <dd>{selectedRun.judges.map((judge) => String(judge.name ?? judge.judge_id ?? judge.judge_type)).join(", ")}</dd>
+                      </div>
+                    </dl>
+                    <div className="resultRows">
+                      {evalResults.map((result) => (
+                        <div key={result.eval_result_id}>
+                          <strong>{result.dataset_example_id}</strong>
+                          <span>{result.status} · {result.scores.map(formatScore).join(", ") || "no scores"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="systemNote">No eval selected</p>
+                )}
+              </section>
+
+              <section className="datasetSection">
+                <h4>Compare</h4>
+                <div className="evalForm">
+                  <label>
+                    Baseline
+                    <select value={baselineId} onChange={(event) => setBaselineId(event.target.value)}>
+                      <option value="">Select baseline</option>
+                      {datasetRuns.map((run) => (
+                        <option key={run.eval_run_id} value={run.eval_run_id}>{run.eval_run_id}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Candidate
+                    <select value={candidateId} onChange={(event) => setCandidateId(event.target.value)}>
+                      <option value="">Select candidate</option>
+                      {datasetRuns.map((run) => (
+                        <option key={run.eval_run_id} value={run.eval_run_id}>{run.eval_run_id}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button onClick={() => void compareRuns()}>
+                    <Split size={15} />
+                    Compare
+                  </button>
+                </div>
+                {comparison ? (
+                  <div className="comparisonBox">
+                    <strong>Pass delta {formatSigned(comparison.pass_rate_delta)}</strong>
+                    <span>Fixed {comparison.fixed_failures.length} · new {comparison.new_failures.length} · unchanged {comparison.unchanged_failures.length}</span>
+                  </div>
+                ) : null}
+              </section>
+            </div>
+          </>
+        ) : (
+          <div className="emptyState">{stateText}</div>
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -990,6 +1357,38 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function formatEvalSummary(summary: Record<string, unknown>) {
+  const total = summary.total_examples ?? summary.count ?? summary.example_count;
+  const passRate = summary.pass_rate;
+  const invalid = summary.invalid_output_count ?? summary.invalid_judge_outputs;
+  const verdictCounts = formatCounts(asRecord(summary.score_verdict_counts));
+  const resultCounts = formatCounts(asRecord(summary.result_status_counts));
+  const parts = [
+    total == null ? null : `${String(total)} examples`,
+    typeof passRate === "number" ? `${Math.round(passRate * 1000) / 10}% pass` : null,
+    verdictCounts === "none" ? null : verdictCounts,
+    resultCounts === "none" ? null : resultCounts,
+    invalid == null ? null : `${String(invalid)} invalid`
+  ].filter(Boolean);
+  return parts.join(" · ") || "summary pending";
+}
+
+function formatScore(score: Record<string, unknown>) {
+  const nestedValue = asRecord(score.value);
+  const verdict = nestedValue.verdict ?? score.verdict ?? score.status ?? "score";
+  const value = nestedValue.score ?? score.score;
+  const failureMode = score.failure_mode ? ` · ${String(score.failure_mode)}` : "";
+  return value == null
+    ? `${String(verdict)}${failureMode}`
+    : `${String(verdict)} ${String(value)}${failureMode}`;
+}
+
+function formatSigned(value: number | null | undefined) {
+  if (value == null) return "none";
+  const rounded = Math.round(value * 1000) / 10;
+  return `${rounded > 0 ? "+" : ""}${rounded}%`;
 }
 
 function connectionLabel(connection: ConnectionState) {

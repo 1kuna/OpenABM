@@ -316,6 +316,9 @@ Done:
 - Added a live Judge workspace in the web app with judge listing, immutable
   version inspection, calibration summaries, configurable promotion gates, and
   promotion results wired to `/v1/judges`.
+- Added a live Datasets/Evals workspace in the web app with dataset creation,
+  trace-to-dataset examples, registered-judge eval launch, result inspection,
+  and eval comparison wired to `/v1/datasets` and `/v1/evals`.
 - Expanded the MCP tool contract registry to match the v2 required tool list,
   added resource templates, and added API-backed deterministic handlers for the
   implemented read/draft paths with explicit unsupported responses for gaps.
@@ -402,8 +405,8 @@ Known remaining gaps before calling the whole spec complete:
   history, tag movement, and eval-linked comparison views.
 - Judge registry, model-backed judge drafting, local eval launch, eval
   comparison, judge calibration reporting, promotion gates, and the judge
-  lifecycle workspace now exist; richer eval-linked comparison screens are still
-  pending.
+  lifecycle workspace now exist; richer prompt/config-linked comparison screens
+  are still pending.
 - Automation definitions and local run execution include deterministic
   conditions, idempotency, preview notifications, review-task actions, and
   cooldown skips, bounded retries, and dead-letter action visibility; real

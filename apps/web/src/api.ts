@@ -1,5 +1,9 @@
 import type {
+  DatasetDefinition,
+  DatasetExample,
   DocsSearchResult,
+  EvalComparison,
+  EvalResult,
   EvalRun,
   JudgeCalibrationReport,
   JudgeDefinition,
@@ -90,6 +94,81 @@ export class OpenAbmClient {
     const params = new URLSearchParams({ project_id: projectId });
     const body = await this.get<{ data: EvalRun[] }>(`/v1/evals?${params.toString()}`);
     return body.data;
+  }
+
+  async getEvalRun(projectId: string, evalRunId: string): Promise<EvalRun> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<EvalRun>(`/v1/evals/${evalRunId}?${params.toString()}`);
+  }
+
+  async listEvalResults(projectId: string, evalRunId: string): Promise<EvalResult[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: EvalResult[] }>(`/v1/evals/${evalRunId}/results?${params.toString()}`);
+    return body.data;
+  }
+
+  async runEval(
+    projectId: string,
+    datasetVersionId: string,
+    judgeIds: string[],
+    baselineEvalRunId?: string
+  ): Promise<EvalRun> {
+    return this.post<EvalRun>("/v1/evals/run", {
+      project_id: projectId,
+      dataset_version_id: datasetVersionId,
+      judge_ids: judgeIds,
+      baseline_eval_run_id: baselineEvalRunId || null
+    });
+  }
+
+  async compareEvalRuns(
+    projectId: string,
+    baselineEvalRunId: string,
+    candidateEvalRunId: string
+  ): Promise<EvalComparison> {
+    return this.post<EvalComparison>("/v1/evals/compare", {
+      project_id: projectId,
+      baseline_eval_run_id: baselineEvalRunId,
+      candidate_eval_run_id: candidateEvalRunId
+    });
+  }
+
+  async listDatasets(projectId: string): Promise<DatasetDefinition[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: DatasetDefinition[] }>(`/v1/datasets?${params.toString()}`);
+    return body.data;
+  }
+
+  async getDataset(projectId: string, datasetId: string): Promise<DatasetDefinition> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<DatasetDefinition>(`/v1/datasets/${datasetId}?${params.toString()}`);
+  }
+
+  async createDataset(projectId: string, name: string, description?: string): Promise<DatasetDefinition> {
+    return this.post<DatasetDefinition>("/v1/datasets", {
+      project_id: projectId,
+      name,
+      description: description || null
+    });
+  }
+
+  async listDatasetExamples(projectId: string, datasetId: string): Promise<DatasetExample[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: DatasetExample[] }>(`/v1/datasets/${datasetId}/examples?${params.toString()}`);
+    return body.data;
+  }
+
+  async addTraceToDataset(
+    projectId: string,
+    datasetId: string,
+    traceId: string,
+    labels: string[]
+  ): Promise<DatasetExample> {
+    return this.post<DatasetExample>(`/v1/datasets/${datasetId}/examples/from-trace`, {
+      project_id: projectId,
+      trace_id: traceId,
+      labels
+    });
   }
 
   async searchDocs(query: string): Promise<DocsSearchResult[]> {
