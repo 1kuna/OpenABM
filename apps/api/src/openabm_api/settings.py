@@ -32,6 +32,7 @@ class Settings:
     ingest_inline_payload_max_bytes: int = 262144
     ingest_max_events_per_span: int = 500
     ingest_stream_event_sample_rate: int = 10
+    enable_external_notifications: bool = False
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -85,6 +86,11 @@ class Settings:
                 1,
                 int(os.getenv("OPENABM_INGEST_STREAM_EVENT_SAMPLE_RATE", "10")),
             ),
+            enable_external_notifications=os.getenv(
+                "OPENABM_ENABLE_EXTERNAL_NOTIFICATIONS",
+                "false",
+            ).lower()
+            == "true",
         )
 
     @property

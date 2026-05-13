@@ -5,6 +5,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -2732,7 +2733,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             action_results = []
             status = "skipped_cooldown"
         else:
-            action_results = _execute_automation_actions(store, project_id, planned, trace_id)
+            action_results = _execute_automation_actions(
+                store,
+                settings,
+                secret_cipher,
+                project_id,
+                planned,
+                trace_id,
+            )
             status = _automation_run_status(action_results)
         run = store.record_automation_run(
             {
@@ -3482,6 +3490,8 @@ def _create_investigation_review_tasks(
 
 def _execute_automation_actions(
     store: SQLiteStore,
+    settings: Settings,
+    secret_cipher: LocalSecretCipher,
     project_id: str,
     planned_actions: list[dict[str, Any]],
     trace_id: str | None,
@@ -3498,7 +3508,14 @@ def _execute_automation_actions(
                 }
             )
             continue
-        result = _execute_automation_action_with_retries(store, project_id, planned, trace_id)
+        result = _execute_automation_action_with_retries(
+            store,
+            settings,
+            secret_cipher,
+            project_id,
+            planned,
+            trace_id,
+        )
         results.append(result)
         if _is_action_failure(result):
             behavior = _failure_behavior(planned["action"].get("on_failure"))
@@ -3512,6 +3529,8 @@ def _execute_automation_actions(
 
 def _execute_automation_action_with_retries(
     store: SQLiteStore,
+    settings: Settings,
+    secret_cipher: LocalSecretCipher,
     project_id: str,
     planned: dict[str, Any],
     trace_id: str | None,
@@ -3520,7 +3539,14 @@ def _execute_automation_action_with_retries(
     attempt_results = []
     result = planned
     for attempt in range(1, attempts + 1):
-        result = _execute_automation_action_once(store, project_id, planned, trace_id)
+        result = _execute_automation_action_once(
+            store,
+            settings,
+            secret_cipher,
+            project_id,
+            planned,
+            trace_id,
+        )
         attempt_results.append(
             {
                 "attempt": attempt,
@@ -3543,6 +3569,8 @@ def _execute_automation_action_with_retries(
 
 def _execute_automation_action_once(
     store: SQLiteStore,
+    settings: Settings,
+    secret_cipher: LocalSecretCipher,
     project_id: str,
     planned: dict[str, Any],
     trace_id: str | None,
@@ -3578,30 +3606,134 @@ def _execute_automation_action_once(
             )
             return {**planned, "status": "succeeded", "result": task}
         if action_type == "send_notification":
-            target_id = action.get("target_id")
-            target = (
-                store.get_notification_target(project_id, target_id)
-                if isinstance(target_id, str)
-                else None
-            )
-            if target is None:
-                return {**planned, "status": "failed", "reason": "target not found"}
-            audit_id = store.append_audit(
-                "preview_notification",
-                "notification_target",
+            return _execute_notification_action(
+                store,
+                settings,
+                secret_cipher,
                 project_id,
-                target_id,
-                {"trace_id": trace_id, "message": action.get("message")},
+                planned,
+                trace_id,
             )
-            return {
-                **planned,
-                "status": "succeeded",
-                "delivery_status": "preview_only",
-                "audit_id": audit_id,
-            }
         return {**planned, "status": "unsupported", "reason": "unsupported action type"}
     except (KeyError, ValueError, RuntimeError) as exc:
         return {**planned, "status": "failed", "reason": str(exc)}
+
+
+def _execute_notification_action(
+    store: SQLiteStore,
+    settings: Settings,
+    secret_cipher: LocalSecretCipher,
+    project_id: str,
+    planned: dict[str, Any],
+    trace_id: str | None,
+) -> dict[str, Any]:
+    action = planned["action"]
+    target_id = action.get("target_id")
+    target = (
+        store.get_notification_target(project_id, target_id)
+        if isinstance(target_id, str)
+        else None
+    )
+    if target is None:
+        return {**planned, "status": "failed", "reason": "target not found"}
+    group_key = action.get("group_key") or f"{project_id}:{target_id}:{trace_id or 'none'}"
+    metadata = {
+        "trace_id": trace_id,
+        "message": action.get("message"),
+        "group_key": group_key,
+        "delivery_mode": action.get("delivery_mode", "preview"),
+    }
+    if action.get("delivery_mode") != "live":
+        audit_id = store.append_audit(
+            "preview_notification",
+            "notification_target",
+            project_id,
+            target_id,
+            metadata,
+        )
+        return {
+            **planned,
+            "status": "succeeded",
+            "delivery_status": "preview_only",
+            "group_key": group_key,
+            "audit_id": audit_id,
+        }
+    if not settings.enable_external_notifications:
+        return {
+            **planned,
+            "status": "failed",
+            "delivery_status": "blocked",
+            "reason": "external notifications are disabled",
+            "group_key": group_key,
+        }
+    if target["type"] != "webhook":
+        return {
+            **planned,
+            "status": "failed",
+            "delivery_status": "unsupported_target_type",
+            "reason": "live delivery currently supports webhook targets",
+            "group_key": group_key,
+        }
+    secret_ref = _notification_secret_ref(target)
+    if secret_ref is None:
+        return {
+            **planned,
+            "status": "failed",
+            "delivery_status": "missing_secret_ref",
+            "reason": "webhook target has no secret ref",
+            "group_key": group_key,
+        }
+    try:
+        webhook_url = _resolve_notification_secret(store, secret_cipher, project_id, secret_ref)
+    except (KeyError, SecretDecryptionError) as exc:
+        return {
+            **planned,
+            "status": "failed",
+            "delivery_status": "secret_unavailable",
+            "reason": str(exc),
+            "group_key": group_key,
+        }
+    payload = {
+        "project_id": project_id,
+        "target_id": target_id,
+        "trace_id": trace_id,
+        "message": action.get("message"),
+        "group_key": group_key,
+    }
+    try:
+        response = httpx.post(webhook_url, json=payload, timeout=10.0)
+    except httpx.HTTPError as exc:
+        return {
+            **planned,
+            "status": "failed",
+            "delivery_status": "transport_error",
+            "reason": str(exc),
+            "group_key": group_key,
+        }
+    audit_id = store.append_audit(
+        "deliver_notification",
+        "notification_target",
+        project_id,
+        target_id,
+        {**metadata, "http_status": response.status_code},
+    )
+    if response.status_code >= 400:
+        return {
+            **planned,
+            "status": "failed",
+            "delivery_status": "http_error",
+            "http_status": response.status_code,
+            "group_key": group_key,
+            "audit_id": audit_id,
+        }
+    return {
+        **planned,
+        "status": "succeeded",
+        "delivery_status": "delivered",
+        "http_status": response.status_code,
+        "group_key": group_key,
+        "audit_id": audit_id,
+    }
 
 
 def _automation_run_status(action_results: list[dict[str, Any]]) -> str:
@@ -3633,6 +3765,26 @@ def _failure_behavior(value: Any) -> str:
     if value in {"continue", "compensate"}:
         return str(value)
     return "stop"
+
+
+def _notification_secret_ref(target: dict[str, Any]) -> str | None:
+    refs = target.get("config_secret_refs") or []
+    if not refs:
+        return None
+    first = refs[0]
+    return first if isinstance(first, str) else None
+
+
+def _resolve_notification_secret(
+    store: SQLiteStore,
+    secret_cipher: LocalSecretCipher,
+    project_id: str,
+    secret_ref: str,
+) -> str:
+    secret = store.get_secret_ref(project_id, secret_ref, include_ciphertext=True)
+    if secret is None:
+        raise KeyError(f"secret ref not found: {secret_ref}")
+    return secret_cipher.decrypt(str(secret["ciphertext"]))
 
 
 def _validate_notification_target_request(request: dict[str, Any]) -> None:

@@ -326,6 +326,12 @@ Done:
   Builder with trigger selection, condition fields/operators, action-list
   preview, cooldown key/seconds controls, matching-trace preview, test runs, run
   history, and dead-lettered action inspection.
+- Added opt-in live webhook notification delivery for automations. Preview mode
+  remains the default; live delivery requires
+  `OPENABM_ENABLE_EXTERNAL_NOTIFICATIONS=true`, an active webhook target, and an
+  encrypted secret ref for the endpoint URL. Delivery records audit IDs,
+  grouping keys, HTTP status, transport failures, and retry/dead-letter state
+  without rendering plaintext secrets.
 
 ## Phase 7: Prompt Registry, MCP, And Investigation Agent
 
@@ -633,6 +639,11 @@ Verified after the latest implementation slices:
 - Contributor workflow regression passed locally: `make ci` covers lint, tests,
   OpenAPI JSON validation, docs link checks, and web build; GitHub Actions
   mirrors those gates and adds PR dependency review.
+- Live-notification regression passed with a monkeypatched webhook transport:
+  automation delivery resolves an encrypted secret ref, sends a grouped webhook
+  payload only when external notifications are explicitly enabled, records an
+  audit-backed delivery result, and keeps plaintext endpoint values out of the
+  action result.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:
@@ -645,10 +656,9 @@ Known remaining gaps before calling the whole spec complete:
   lifecycle workspace now exist; richer prompt/config-linked comparison screens
   are still pending.
 - Automation definitions and local run execution include deterministic
-  conditions, idempotency, preview notifications, review-task actions, and
-  cooldown skips, bounded retries, and dead-letter action visibility; real
-  external notification delivery and compensation handlers still need
-  implementation beyond preview/audit mode.
+  conditions, idempotency, preview notifications, opt-in live webhook delivery,
+  review-task actions, cooldown skips, bounded retries, and dead-letter action
+  visibility; richer compensation handlers remain future work.
 - Passive novelty detection has deterministic exact-signature grouping plus
   optional model semantic grouping/naming with validated membership; larger
   clustering and embedding-backed discovery remain future work.
@@ -664,7 +674,7 @@ Known remaining gaps before calling the whole spec complete:
 - External IdP/OAuth login, real invite delivery, and production secret-manager
   provider adapters remain beyond the local reference scaffold.
 - Production-grade observability exporters, log aggregation, retention-worker
-  deployment supervision, and external notification delivery are still future
+  deployment supervision, and non-webhook notification adapters are still future
   hardening beyond the local reference surfaces.
 
 ## Spec V2 Delta Incorporated
@@ -750,7 +760,10 @@ Implemented in this pass:
   version commits and diff/render/compare helpers.
 - Added `/v1/notification-targets` and `/v1/automations` lifecycle/run paths
   with deterministic condition evaluation, idempotency, review-task actions, and
-  preview-only notification action audits.
+  preview-by-default notification action audits.
+- Added opt-in live webhook notification delivery from encrypted secret refs;
+  live sends are disabled unless the local operator explicitly enables external
+  notifications.
 - Notification target creation now rejects plaintext config blobs and validates
   `config_secret_refs`; active targets require at least one secret ref, while
   paused placeholders can be created without mounting secrets.

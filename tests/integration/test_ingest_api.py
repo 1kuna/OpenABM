@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import httpx
 from fastapi.testclient import TestClient
 from openabm_api.main import create_app
 from openabm_api.settings import Settings
@@ -1258,6 +1259,91 @@ def test_v1_notification_targets_require_secret_refs(tmp_path) -> None:
         },
     )
     assert paused_without_secret.status_code == 201
+
+
+def test_v1_live_webhook_notification_is_secret_backed_and_audited(tmp_path, monkeypatch) -> None:
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'openabm.sqlite3'}",
+        enable_external_notifications=True,
+    )
+    client = TestClient(create_app(settings))
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    trace_id = fixture["trace"]["trace_id"]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    secret = client.post(
+        "/v1/secrets",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "secret_ref": "secret_live_webhook",
+            "purpose": "notification_webhook",
+            "value": "https://example.invalid/openabm-webhook",
+        },
+    )
+    assert secret.status_code == 201
+    target = client.post(
+        "/v1/notification-targets",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "type": "webhook",
+            "display_name": "Live webhook",
+            "config_secret_refs": ["secret_live_webhook"],
+        },
+    )
+    assert target.status_code == 201
+
+    observed: dict[str, object] = {}
+
+    def fake_post(url: str, *, json: dict[str, object], timeout: float) -> httpx.Response:
+        observed["url"] = url
+        observed["json"] = json
+        observed["timeout"] = timeout
+        return httpx.Response(202, json={"ok": True})
+
+    monkeypatch.setattr("openabm_api.main.httpx.post", fake_post)
+    automation = client.post(
+        "/v1/automations",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "name": "live notification",
+            "trigger": {"type": "trace_completed"},
+            "conditions": {
+                "combine": "all",
+                "items": [{"field": "trace.status", "op": "eq", "value": "error"}],
+            },
+            "actions": [
+                {
+                    "type": "send_notification",
+                    "target_id": target.json()["target_id"],
+                    "message": "Refund error needs review",
+                    "delivery_mode": "live",
+                    "group_key": "refund-errors",
+                }
+            ],
+        },
+    )
+    assert automation.status_code == 201
+    run = client.post(
+        f"/v1/automations/{automation.json()['automation_id']}/run",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "trace_id": trace_id},
+    )
+
+    assert run.status_code == 201
+    result = run.json()["action_results"][0]
+    assert result["status"] == "succeeded"
+    assert result["delivery_status"] == "delivered"
+    assert result["http_status"] == 202
+    assert result["group_key"] == "refund-errors"
+    assert observed["url"] == "https://example.invalid/openabm-webhook"
+    assert observed["json"]["trace_id"] == trace_id
+    assert "openabm-webhook" not in json.dumps(result)
 
 
 def test_v1_grounding_checks_and_novelty_runs_are_reviewable(tmp_path) -> None:
