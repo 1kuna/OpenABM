@@ -33,6 +33,7 @@ class Settings:
     ingest_max_events_per_span: int = 500
     ingest_stream_event_sample_rate: int = 10
     enable_external_notifications: bool = False
+    cors_origins: tuple[str, ...] = ("http://127.0.0.1:5173", "http://localhost:5173")
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -91,6 +92,10 @@ class Settings:
                 "false",
             ).lower()
             == "true",
+            cors_origins=_csv_env(
+                "OPENABM_CORS_ORIGINS",
+                cls.cors_origins,
+            ),
         )
 
     @property
@@ -103,3 +108,11 @@ class Settings:
     def model_endpoint_is_local(self) -> bool:
         parsed = urlparse(self.model_base_url)
         return parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+
+
+def _csv_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    values = tuple(value.strip() for value in raw.split(",") if value.strip())
+    return values or default

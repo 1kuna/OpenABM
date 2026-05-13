@@ -3,7 +3,7 @@ UV ?= uv
 PYTHONPATH_DIRS := apps/api/src:apps/worker/src:apps/mcp-server/src:packages/python-sdk/src:packages/cli/src
 PY := PYTHONPATH=$(PYTHONPATH_DIRS) $(UV) run --python $(PYTHON) --extra dev
 
-.PHONY: test contracts lint format api worker web mcp init-db seed-fixtures demo-eval reset-local openapi-check docs-link-check web-build ci
+.PHONY: test contracts lint format api worker web mcp init-db seed-fixtures demo-eval reset-local openapi-check docs-link-check web-build deploy-config-check ci
 
 test:
 	$(PY) pytest
@@ -22,6 +22,9 @@ openapi-check:
 
 docs-link-check:
 	$(PY) python scripts/check_docs_links.py
+
+deploy-config-check:
+	docker compose -f deploy/compose.yaml config --quiet
 
 web-build:
 	npm --prefix apps/web run build

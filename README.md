@@ -14,6 +14,7 @@ live in this repo as original OpenABM artifacts.
 - Local API, storage, worker, CLI, and MCP scaffolds.
 - Operational trace explorer UI scaffold.
 - Governance and decision-record workflow for implementation choices.
+- Docker Compose production-reference deployment contract.
 
 ## Non-Goals
 
@@ -29,3 +30,5 @@ or investigation chat are explicitly enabled later.
 
 See `IMPLEMENTATION_PROGRESS.md` for the current build status and deferred
 LLM-dependent work.
+
+For self-hosted reference deployment, see `docs/deployment.md`.

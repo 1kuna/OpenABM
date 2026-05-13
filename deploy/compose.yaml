@@ -1,0 +1,73 @@
+name: openabm
+
+x-openabm-env: &openabm-env
+  OPENABM_ENV: ${OPENABM_ENV:-production-reference}
+  OPENABM_AUTH_MODE: ${OPENABM_AUTH_MODE:-local}
+  OPENABM_DEV_API_KEY: ${OPENABM_DEV_API_KEY:-dev-openabm-key-change-me}
+  OPENABM_DATABASE_URL: sqlite:////data/openabm.sqlite3
+  OPENABM_PAYLOAD_DIR: /data/payloads
+  OPENABM_SECRET_KEY: ${OPENABM_SECRET_KEY:-openabm-reference-secret-change-me}
+  OPENABM_SECRET_MODE: ${OPENABM_SECRET_MODE:-local}
+  OPENABM_MODEL_MODE: ${OPENABM_MODEL_MODE:-disabled}
+  OPENABM_MODEL_BASE_URL: ${OPENABM_MODEL_BASE_URL:-http://host.docker.internal:1234/v1}
+  OPENABM_CHAT_MODEL: ${OPENABM_CHAT_MODEL:-qwen3.5-9b-mlx}
+  OPENABM_EMBEDDING_MODEL: ${OPENABM_EMBEDDING_MODEL:-}
+  OPENABM_ALLOW_EXTERNAL_MODEL_CALLS: ${OPENABM_ALLOW_EXTERNAL_MODEL_CALLS:-false}
+  OPENABM_JUDGE_CONCURRENCY: ${OPENABM_JUDGE_CONCURRENCY:-1}
+  OPENABM_EMBEDDING_CONCURRENCY: ${OPENABM_EMBEDDING_CONCURRENCY:-1}
+  OPENABM_MODEL_CONTEXT_LENGTH: ${OPENABM_MODEL_CONTEXT_LENGTH:-262144}
+  OPENABM_MAX_TRACE_TOKENS_FOR_JUDGE: ${OPENABM_MAX_TRACE_TOKENS_FOR_JUDGE:-262144}
+  OPENABM_ENABLE_EXTERNAL_NOTIFICATIONS: ${OPENABM_ENABLE_EXTERNAL_NOTIFICATIONS:-false}
+  OPENABM_CORS_ORIGINS: ${OPENABM_CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173}
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/python.Dockerfile
+    environment:
+      <<: *openabm-env
+    ports:
+      - "${OPENABM_API_PORT:-8787}:8787"
+    volumes:
+      - openabm-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/ready', timeout=3).read()"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/python.Dockerfile
+    command: ["python", "-m", "openabm_worker.main"]
+    environment:
+      <<: *openabm-env
+      OPENABM_WORKER_ID: ${OPENABM_WORKER_ID:-retention-worker-1}
+      OPENABM_WORKER_PROJECT_ID: ${OPENABM_WORKER_PROJECT_ID:-proj_demo}
+      OPENABM_WORKER_INTERVAL_SECONDS: ${OPENABM_WORKER_INTERVAL_SECONDS:-300}
+      OPENABM_RETENTION_DRY_RUN: ${OPENABM_RETENTION_DRY_RUN:-true}
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - openabm-data:/data
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${OPENABM_WEB_PORT:-8080}:80"
+
+volumes:
+  openabm-data:

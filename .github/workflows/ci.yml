@@ -51,6 +51,19 @@ jobs:
       - name: Build web app
         run: npm --prefix apps/web run build
 
+  deployment-contract:
+    name: Deployment Contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate compose contract
+        run: make deploy-config-check
+
+      - name: Build deployment images
+        run: docker compose -f deploy/compose.yaml build api web
+
   dependency-review:
     name: Dependency Review
     if: github.event_name == 'pull_request'

@@ -22,6 +22,25 @@ def make_client(tmp_path: Path) -> TestClient:
     return TestClient(create_app(settings))
 
 
+def test_cors_origins_are_configurable_for_deployment(tmp_path) -> None:
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'openabm.sqlite3'}",
+        cors_origins=("http://localhost:8080",),
+    )
+    client = TestClient(create_app(settings))
+
+    response = client.options(
+        "/v1/projects",
+        headers={
+            "Origin": "http://localhost:8080",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:8080"
+
+
 def test_batch_ingest_and_trace_detail(tmp_path) -> None:
     client = make_client(tmp_path)
     fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][0]

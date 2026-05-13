@@ -597,6 +597,9 @@ Done:
   `/v1/ops/dead-letter`, backed by a worker heartbeat migration and surfaced in
   the Operations workspace as an admin status panel with storage, payload,
   queue, retention, automation failure, heartbeat, and dead-letter visibility.
+- Added a Docker Compose production-reference deployment contract covering API,
+  web, retention worker, persistent SQLite/payload storage, configurable CORS
+  origins, health/readiness checks, and a smoke-check script.
 - Added a local retention worker path: `openabm worker retention-once` can
   dry-run or apply active trace-retention policies, the worker process now loops
   over the same deterministic runner, and each run records heartbeats plus
