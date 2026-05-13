@@ -1,4 +1,5 @@
 import type {
+  AffectedEntity,
   AgentConfigCompareResult,
   AgentConfigDefinition,
   AgentConfigVersion,
@@ -459,6 +460,30 @@ export class OpenAbmClient {
   async getImpactReport(projectId: string, reportId: string): Promise<ImpactReport> {
     const params = new URLSearchParams({ project_id: projectId });
     return this.get<ImpactReport>(`/v1/impact-reports/${reportId}?${params.toString()}`);
+  }
+
+  async listAffectedEntities(projectId: string, issueId?: string): Promise<AffectedEntity[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    if (issueId) params.set("issue_id", issueId);
+    const body = await this.get<{ data: AffectedEntity[] }>(`/v1/affected-entities?${params.toString()}`);
+    return body.data;
+  }
+
+  async updateAffectedEntity(
+    projectId: string,
+    affectedEntityId: string,
+    request: {
+      status?: AffectedEntity["status"];
+      ownerNullable?: string | null;
+      notesNullable?: string | null;
+    }
+  ): Promise<AffectedEntity> {
+    return this.patch<AffectedEntity>(`/v1/affected-entities/${affectedEntityId}`, {
+      project_id: projectId,
+      status: request.status ?? null,
+      owner_nullable: request.ownerNullable ?? null,
+      notes_nullable: request.notesNullable ?? null
+    });
   }
 
   async listJudges(projectId: string): Promise<JudgeDefinition[]> {

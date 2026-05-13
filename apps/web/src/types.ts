@@ -451,6 +451,21 @@ export interface ImpactReport {
   created_at: string;
 }
 
+export interface AffectedEntity {
+  affected_entity_id: string;
+  project_id: string;
+  issue_id: string;
+  entity_type: string;
+  entity_id: string;
+  display_name_nullable: string | null;
+  trace_ids: string[];
+  status: "needs_review" | "contacted" | "fixed" | "ignored" | "false_positive";
+  owner_nullable: string | null;
+  notes_nullable: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface InvestigationRun {
   investigation_run_id: string;
   project_id: string;

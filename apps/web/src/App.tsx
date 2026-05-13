@@ -21,6 +21,7 @@ import { useEffect, useMemo, useState } from "react";
 import { OpenAbmClient } from "./api";
 import { fixtureDetails, fixtureProjects, fixtureTraces } from "./fixtures";
 import type {
+  AffectedEntity,
   AgentConfigCompareResult,
   AgentConfigDefinition,
   AgentConfigVersion,
@@ -100,6 +101,8 @@ type ViewKey =
   | "configs"
   | "mcp"
   | "ops";
+const affectedEntityActionStatuses = ["contacted", "fixed", "ignored", "false_positive"] as const;
+const affectedEntityStatuses = ["needs_review", ...affectedEntityActionStatuses] as const;
 
 export function App() {
   const [baseUrl, setBaseUrl] = useState(localStorage.getItem("openabm.baseUrl") ?? DEFAULT_BASE_URL);
@@ -1581,6 +1584,7 @@ function IssueInvestigationWorkspace(props: {
   const [issues, setIssues] = useState<IssueDefinition[]>([]);
   const [investigations, setInvestigations] = useState<InvestigationRun[]>([]);
   const [impactReports, setImpactReports] = useState<ImpactReport[]>([]);
+  const [affectedEntities, setAffectedEntities] = useState<AffectedEntity[]>([]);
   const [contextPacks, setContextPacks] = useState<AgentContextPack[]>([]);
   const [issueLinks, setIssueLinks] = useState<IssueLink[]>([]);
   const [selectedIssueId, setSelectedIssueId] = useState("");
@@ -1634,6 +1638,7 @@ function IssueInvestigationWorkspace(props: {
       setIssues([]);
       setInvestigations([]);
       setImpactReports([]);
+      setAffectedEntities([]);
       setContextPacks([]);
       setIssueLinks([]);
       setStateText("fixture mode");
@@ -1682,6 +1687,22 @@ function IssueInvestigationWorkspace(props: {
 
   useEffect(() => {
     void loadIssueLinks();
+  }, [client, connection, projectId, selectedIssue?.issue_id]);
+
+  async function loadAffectedEntities(issue: IssueDefinition | null = selectedIssue) {
+    if (connection !== "live" || !issue) {
+      setAffectedEntities([]);
+      return;
+    }
+    try {
+      setAffectedEntities(await client.listAffectedEntities(projectId, issue.issue_id));
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "affected entities unavailable");
+    }
+  }
+
+  useEffect(() => {
+    void loadAffectedEntities();
   }, [client, connection, projectId, selectedIssue?.issue_id]);
 
   async function loadContextPacks(issue: IssueDefinition | null = selectedIssue) {
@@ -1786,6 +1807,7 @@ function IssueInvestigationWorkspace(props: {
       }
       setSelectedInvestigationId(run.investigation_run_id);
       await loadIssueLinks();
+      await loadAffectedEntities(selectedIssue);
       setStateText(`investigation ${run.status}`);
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "investigation failed");
@@ -1897,6 +1919,31 @@ function IssueInvestigationWorkspace(props: {
       setStateText(`created dataset ${dataset.dataset_id}`);
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "dataset draft action failed");
+    }
+  }
+
+  async function updateAffectedEntityStatus(
+    affectedEntityId: string,
+    status: AffectedEntity["status"]
+  ) {
+    if (!writeConfirmation) {
+      setStateText("enable Confirm writes before remediation updates");
+      return;
+    }
+    if (!window.confirm(`Mark affected entity ${status.replace("_", " ")}?`)) return;
+    try {
+      const updated = await client.updateAffectedEntity(projectId, affectedEntityId, {
+        status,
+        notesNullable: `Marked ${status.replace("_", " ")} from impact workspace.`
+      });
+      setAffectedEntities((current) =>
+        current.map((entity) =>
+          entity.affected_entity_id === updated.affected_entity_id ? updated : entity
+        )
+      );
+      setStateText(`affected entity ${shortIdentifier(updated.affected_entity_id)} marked ${updated.status}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "affected entity update failed");
     }
   }
 
@@ -2123,8 +2170,12 @@ function IssueInvestigationWorkspace(props: {
                         <span>{formatCounts(selectedImpact.deployment_distribution)}</span>
                       </div>
                       <ImpactAffectedEntityRows
-                        entities={selectedImpact.affected_entities}
+                        canWrite={writeConfirmation}
+                        entities={affectedEntities.length ? affectedEntities : selectedImpact.affected_entities}
                         onOpenTrace={props.onOpenTrace}
+                        onUpdateStatus={(affectedEntityId, status) =>
+                          void updateAffectedEntityStatus(affectedEntityId, status)
+                        }
                       />
                       <ImpactBehaviorDistributionRows
                         distribution={selectedImpact.behavior_distribution}
@@ -2251,8 +2302,10 @@ function IssueInvestigationWorkspace(props: {
 }
 
 function ImpactAffectedEntityRows(props: {
-  entities: Array<Record<string, unknown>>;
+  canWrite: boolean;
+  entities: Array<AffectedEntity | Record<string, unknown>>;
   onOpenTrace: (traceId: string) => void;
+  onUpdateStatus?: (affectedEntityId: string, status: AffectedEntity["status"]) => void;
 }) {
   if (!props.entities.length) {
     return (
@@ -2272,16 +2325,45 @@ function ImpactAffectedEntityRows(props: {
         const traceIds = stringsFromUnknown(entity.trace_ids);
         const entityType = String(entity.entity_type ?? "entity");
         const entityId = String(entity.entity_id ?? "unknown");
+        const affectedEntityId =
+          typeof entity.affected_entity_id === "string" ? entity.affected_entity_id : "";
+        const status = affectedEntityStatus(entity.status);
         return (
           <div key={`${entityType}-${entityId}-${index}`}>
             <strong>{entityType}: {entityId}</strong>
-            <span>{String(entity.status ?? "needs_review")} · {traceIds.length} traces</span>
+            <span>{status.replace("_", " ")} · {traceIds.length} traces</span>
             <TraceButtonRow traceIds={traceIds} onOpenTrace={props.onOpenTrace} />
+            {affectedEntityId && props.onUpdateStatus ? (
+              <span className="traceButtonRow">
+                {affectedEntityActionStatuses.map((nextStatus) => (
+                  <button
+                    disabled={!props.canWrite || status === nextStatus}
+                    key={`${affectedEntityId}-${nextStatus}`}
+                    onClick={() => props.onUpdateStatus?.(affectedEntityId, nextStatus)}
+                  >
+                    {affectedEntityStatusLabel(nextStatus)}
+                  </button>
+                ))}
+              </span>
+            ) : (
+              <small>Remediation actions load after the canonical affected-entity record is available.</small>
+            )}
           </div>
         );
       })}
     </>
   );
+}
+
+function affectedEntityStatus(value: unknown): AffectedEntity["status"] {
+  return affectedEntityStatuses.includes(value as AffectedEntity["status"])
+    ? (value as AffectedEntity["status"])
+    : "needs_review";
+}
+
+function affectedEntityStatusLabel(status: AffectedEntity["status"]) {
+  if (status === "false_positive") return "False positive";
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 function ImpactBehaviorDistributionRows(props: {

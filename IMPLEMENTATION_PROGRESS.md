@@ -1032,8 +1032,9 @@ Known remaining gaps before calling the whole spec complete:
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
   broader usability polish; behavior review actions, impact-report drilldowns,
   eval comparison behavior-shift drilldown, prompt/config diff summaries, and
-  prompt/config version usage histories are now wired into their workspaces, and
-  trace detail resolves captured prompt/config/deployment/tool runtime context.
+  prompt/config version usage histories are now wired into their workspaces,
+  impact-report affected-entity remediation actions are now available, and trace
+  detail resolves captured prompt/config/deployment/tool runtime context.
 - External IdP/OAuth login, vendor-specific invite providers, and production
   secret-manager provider adapters remain beyond the local reference scaffold;
   invite delivery now has a default-off SMTP adapter layered on the local
@@ -1158,6 +1159,9 @@ Implemented in this pass:
 - Added eval analytics trend rows with pass-rate and invalid-output deltas over
   the latest 30 runs, and surfaced the newest trend rows in the Datasets/Evals
   workspace.
+- Added affected-entity remediation controls to the Issues/Investigations
+  impact workspace, backed by the canonical `/v1/affected-entities/{id}` update
+  path and gated by the existing write-confirmation checkbox.
 - Notification target creation now rejects plaintext config blobs and validates
   `config_secret_refs`; active targets require at least one secret ref, while
   paused placeholders can be created without mounting secrets.
