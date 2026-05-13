@@ -37,6 +37,8 @@ In this pass:
 - Add an agent orchestration direction record that favors OpenABM-owned tool
   contracts first, then evaluating LangGraph/Deep Agents or Pi-style cores
   instead of reinventing a deep-agent runtime.
+- Source-check the current LangGraph, Deep Agents, and Pi/pi-agent-core project
+  surfaces before adding any orchestration dependency.
 - Leave final license choice pending owner review rather than silently committing
   legal terms.
 
@@ -523,6 +525,9 @@ Implemented in this pass:
   `docs/decisions/0006-agent-orchestration-framework.md`: evaluate LangGraph /
   Deep Agents or Pi-style cores after OpenABM's primitive local tool-call
   boundary is proven.
+- Updated that direction with source-checked current OSS positioning for
+  LangGraph, Deep Agents, and Pi/pi-agent-core, plus an adoption sequence that
+  keeps OpenABM's audit/provenance contracts authoritative.
 - Added `/v1/issues/from-screenshot` and `/v1/chatops/investigate` entrypoints
   for weak human reports and chat-originated investigations.
 - Added `/v1/judges`, `/v1/judges/drafts`, `/v1/evals/run`,

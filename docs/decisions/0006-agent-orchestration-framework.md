@@ -32,6 +32,27 @@ framework before implementing a custom runner:
 - Pi/pi-agent-core as a lighter-weight candidate for provider-agnostic tool
   loops and streaming if LangGraph is too heavy for the local reference stack.
 
+## Current OSS Read
+
+As of 2026-05-12, primary project sources support keeping these candidates in
+the evaluation lane:
+
+- LangGraph positions itself as the low-level orchestration runtime for
+  long-running, stateful agents with durable execution, persistence, streaming,
+  memory, and human-in-the-loop control:
+  <https://docs.langchain.com/oss/python/langgraph/overview>.
+- LangChain Deep Agents positions itself as an open-source agent harness built
+  on LangChain and LangGraph, with planning, subagents, filesystem-backed
+  context, skills, memory, and MCP support:
+  <https://docs.langchain.com/oss/python/deepagents/overview> and
+  <https://github.com/langchain-ai/deepagents>.
+- Pi has both a Python `pi-agent-core` package and the TypeScript Pi mono repo.
+  The Python package is a minimal, LLM-agnostic stateful loop with tool
+  execution, event streaming, steering/follow-up queues, cancellation, and proxy
+  transport: <https://pypi.org/project/pi-agent-core/>. The Pi mono repo
+  exposes the broader coding-agent, agent-core, unified-provider, TUI, and web
+  UI package family: <https://github.com/earendil-works/pi>.
+
 ## Near-Term Implementation Rule
 
 Do not add a framework dependency until the OpenABM primitive contracts are
@@ -46,6 +67,21 @@ extracts claim strings, while OpenABM code performs exact evidence validation
 and persists model metadata. Broader contradiction adjudication should be a
 separate tool only after a prompt/runtime contract is proven with local
 canaries.
+
+## Adoption Sequence
+
+1. Keep implementing OpenABM primitives as deterministic API/MCP/tool-call
+   contracts with durable audit storage.
+2. Add a small orchestration adapter layer that can call those contracts without
+   making a framework the source of truth for traces, review tasks, judges,
+   evals, or decisions.
+3. Prototype LangGraph first for durable issue/investigation workflows where
+   explicit state transitions and human interrupts matter.
+4. Prototype Deep Agents for multi-step investigation/coding-agent style flows
+   that need planning, subagents, file/context management, or skills.
+5. Prototype Pi/pi-agent-core only if the local reference stack needs a thinner
+   streaming/tool-loop harness than LangGraph/Deep Agents, or if Pi's provider
+   and UI packages become a better fit for local-first use.
 
 ## Acceptance Gate Before Adoption
 
