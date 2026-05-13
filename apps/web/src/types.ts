@@ -300,6 +300,7 @@ export interface AgentConfigCompareResult {
   metadata_changed: boolean;
   metadata_diff: Record<string, unknown>;
   structured_diff: Record<string, unknown>;
+  linked_eval_result_diff: Record<string, unknown>;
   tag_movement_history: Array<{
     agent_config_tag_event_id: string;
     agent_config_id: string;

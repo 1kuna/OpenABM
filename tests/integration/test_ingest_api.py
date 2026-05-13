@@ -1686,6 +1686,19 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
     assert candidate.json()["agent_config_version_id"] == cfg_v2.json()[
         "agent_config_version_id"
     ]
+    post_eval_config_compare = client.post(
+        f"/v1/agent-configs/{config_id}/compare",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "old_commit_id": cfg_v1.json()["commit_id"],
+            "new_commit_id": cfg_v2.json()["commit_id"],
+        },
+    )
+    config_eval_diff = post_eval_config_compare.json()["linked_eval_result_diff"]
+    assert config_eval_diff["old"]["eval_run_ids"] == [baseline.json()["eval_run_id"]]
+    assert config_eval_diff["new"]["eval_run_ids"] == [candidate.json()["eval_run_id"]]
+    assert config_eval_diff["run_count_delta"] == 0
     comparison = client.post(
         "/v1/evals/compare",
         headers=auth_headers(),

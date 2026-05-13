@@ -4779,6 +4779,7 @@
                     "metadata_changed",
                     "metadata_diff",
                     "structured_diff",
+                    "linked_eval_result_diff",
                     "tag_movement_history"
                   ],
                   "properties": {
@@ -4789,6 +4790,7 @@
                     "metadata_changed": {"type": "boolean"},
                     "metadata_diff": {"type": "object"},
                     "structured_diff": {"type": "object"},
+                    "linked_eval_result_diff": {"type": "object"},
                     "tag_movement_history": {
                       "type": "array",
                       "items": {"$ref": "#/components/schemas/AgentConfigTagEvent"}

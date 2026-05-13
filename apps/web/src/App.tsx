@@ -590,7 +590,8 @@ function AgentConfigWorkspace(props: {
                 {comparison ? (
                   <pre>{JSON.stringify({
                     metadata_diff: comparison.metadata_diff,
-                    structured_diff: comparison.structured_diff
+                    structured_diff: comparison.structured_diff,
+                    linked_eval_result_diff: comparison.linked_eval_result_diff
                   }, null, 2)}</pre>
                 ) : null}
                 {comparison?.tag_movement_history.length ? (

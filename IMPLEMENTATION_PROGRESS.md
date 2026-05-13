@@ -560,8 +560,9 @@ Done:
 - Added agent runtime configuration registry storage/API lifecycle: config
   records, immutable config versions, content-addressed commit IDs, mutable tag
   pointers with tag events, deterministic config diffs, structured JSON-path
-  changes, metadata diffs, tool-list deltas, config-section change buckets, and
-  tag-movement history surfaced through API, OpenAPI, tests, and UI.
+  changes, metadata diffs, tool-list deltas, config-section change buckets,
+  linked eval summaries, and tag-movement history surfaced through API, OpenAPI,
+  tests, and UI.
 - Added MCP tool contract registry covering all required tool names, including
   side-effect and confirmation metadata, prompt and agent-config commit tools,
   and readable resources for trace/span/session/behavior/judge/dataset/prompt/
@@ -974,9 +975,10 @@ Known remaining gaps before calling the whole spec complete:
   MCP-backed lifecycle flows, and live UI coverage for prompt version history,
   tag movement, render, diff, plus agent config history/comparison. Prompt and
   agent config diffs now return tag-movement history; agent config diff also
-  returns structured content and metadata diffs with tool/config-section deltas;
-  prompt diff also returns message-level diff when templates are JSON
-  chat-message arrays and linked eval summaries for the compared commits.
+  returns structured content and metadata diffs with tool/config-section deltas
+  plus linked eval summaries; prompt diff also returns message-level diff when
+  templates are JSON chat-message arrays and linked eval summaries for the
+  compared commits.
 - Judge registry, model-backed judge drafting, local eval launch, eval
   comparison, judge calibration reporting, promotion gates, and the judge
   lifecycle workspace now exist. Prompt/config-linked eval launch, comparison

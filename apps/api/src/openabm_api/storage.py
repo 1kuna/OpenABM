@@ -4010,6 +4010,11 @@ class SQLiteStore:
             "metadata_changed": old["metadata"] != new["metadata"],
             "metadata_diff": _json_structural_diff(old["metadata"], new["metadata"]),
             "structured_diff": _agent_config_structured_diff(old["content"], new["content"]),
+            "linked_eval_result_diff": self._agent_config_version_eval_diff(
+                project_id,
+                old,
+                new,
+            ),
             "tag_movement_history": self._agent_config_tag_history_for_commits(
                 project_id,
                 agent_config_id,
@@ -4045,6 +4050,53 @@ class SQLiteStore:
             if event["new_commit_id"] in commit_ids
             or event.get("previous_commit_id") in commit_ids
         ]
+
+    def _agent_config_version_eval_diff(
+        self,
+        project_id: str,
+        old_version: dict[str, Any],
+        new_version: dict[str, Any],
+    ) -> dict[str, Any]:
+        old_summary = self._agent_config_version_eval_summary(
+            project_id,
+            old_version["agent_config_version_id"],
+        )
+        new_summary = self._agent_config_version_eval_summary(
+            project_id,
+            new_version["agent_config_version_id"],
+        )
+        return {
+            "old_agent_config_version_id": old_version["agent_config_version_id"],
+            "new_agent_config_version_id": new_version["agent_config_version_id"],
+            "old": old_summary,
+            "new": new_summary,
+            "pass_rate_delta": _nullable_delta(
+                new_summary.get("avg_pass_rate"),
+                old_summary.get("avg_pass_rate"),
+            ),
+            "invalid_output_count_delta": int(new_summary["invalid_output_count"])
+            - int(old_summary["invalid_output_count"]),
+            "run_count_delta": int(new_summary["run_count"]) - int(old_summary["run_count"]),
+        }
+
+    def _agent_config_version_eval_summary(
+        self,
+        project_id: str,
+        agent_config_version_id: str,
+    ) -> dict[str, Any]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM eval_runs
+                WHERE project_id = ? AND agent_config_version_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id, agent_config_version_id),
+            ).fetchall()
+        runs = [self._eval_run_from_row(row) for row in rows]
+        summary = _eval_group_summary(agent_config_version_id, runs)
+        summary["eval_run_ids"] = [run["eval_run_id"] for run in runs]
+        return summary
 
     def _move_agent_config_tag(
         self,
