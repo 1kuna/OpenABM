@@ -327,6 +327,11 @@ Done:
 - Added a live Agent Configs workspace in the web app with config creation,
   immutable version commits, content/metadata inspection, and version comparison
   wired to `/v1/agent-configs`.
+- Added a live Issues/Investigations workspace in the web app with manual issue
+  intake, screenshot-origin issue intake, ChatOps-origin issue/investigation
+  creation, investigation run listing, and impact report inspection wired to
+  `/v1/issues`, `/v1/chatops/investigate`, `/v1/investigations`, and
+  `/v1/impact-reports`.
 - Expanded the MCP tool contract registry to match the v2 required tool list,
   added resource templates, and added API-backed deterministic handlers for the
   implemented read/draft paths with explicit unsupported responses for gaps.
@@ -400,8 +405,9 @@ Verified after the latest implementation slices:
 - `make lint && make test`: passed, 43 tests after the operations workspace
   slice.
 - `npm --prefix apps/web run build`: passed.
-- Browser QA captured desktop and mobile Operations workspace screenshots under
-  `artifacts/ui-qa/`; retention dry-run, export manifest, and classification
+- Browser QA captured desktop and mobile Operations and Issues workspace
+  screenshots under `artifacts/ui-qa/`; retention dry-run, export manifest,
+  classification, issue intake, screenshot intake, and ChatOps investigation
   flows completed against the live local API with no console errors or failing
   API responses.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
@@ -563,3 +569,6 @@ Implemented in this pass:
 - Added a live Operations workspace in the web app so retention/export/privacy
   operations can be exercised from the UI instead of only through integration
   tests.
+- Added a live Issues/Investigations workspace in the web app so issue intake,
+  screenshot intake, ChatOps artifact creation, investigation run selection,
+  and impact report inspection can be exercised from the UI.

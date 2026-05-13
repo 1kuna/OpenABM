@@ -24,6 +24,7 @@ import type {
   AgentConfigDefinition,
   BehaviorBacktestResult,
   BehaviorDefinition,
+  ChatOpsInvestigationResult,
   ClassificationResult,
   DataClassificationPolicy,
   DatasetDefinition,
@@ -32,6 +33,9 @@ import type {
   EvalResult,
   EvalRun,
   HealthStatus,
+  ImpactReport,
+  InvestigationRun,
+  IssueDefinition,
   JudgeCalibrationReport,
   JudgeDefinition,
   JudgePromotionResult,
@@ -42,6 +46,7 @@ import type {
   RetentionApplyResult,
   RetentionPolicy,
   ReviewTask,
+  ScreenshotIssueResult,
   SpanEnvelope,
   TimelineRow,
   TraceDetail,
@@ -234,6 +239,8 @@ export function App() {
             onSelectTrace={setSelectedTraceId}
             onCheckSimilarity={() => void checkSimilarity()}
           />
+        ) : activeView === "issues" ? (
+          <IssueInvestigationWorkspace client={client} connection={connection} projectId={projectId} traces={traces} />
         ) : activeView === "reviews" ? (
           <ReviewQueue client={client} connection={connection} projectId={projectId} />
         ) : activeView === "judges" ? (
@@ -863,6 +870,343 @@ function OpsWorkspace(props: {
             ) : null}
           </div>
         ) : null}
+      </section>
+    </div>
+  );
+}
+
+function IssueInvestigationWorkspace(props: {
+  client: OpenAbmClient;
+  connection: ConnectionState;
+  projectId: string;
+  traces: TraceEnvelope[];
+}) {
+  const { client, connection, projectId, traces } = props;
+  const [issues, setIssues] = useState<IssueDefinition[]>([]);
+  const [investigations, setInvestigations] = useState<InvestigationRun[]>([]);
+  const [impactReports, setImpactReports] = useState<ImpactReport[]>([]);
+  const [selectedIssueId, setSelectedIssueId] = useState("");
+  const [selectedInvestigationId, setSelectedInvestigationId] = useState("");
+  const [issueTitle, setIssueTitle] = useState("Refund workflow uses the wrong tool");
+  const [issueDescription, setIssueDescription] = useState("Customer refund path appears to route through order lookup.");
+  const [seedTraceId, setSeedTraceId] = useState("");
+  const [screenshotTitle, setScreenshotTitle] = useState("Screenshot shows refund failure");
+  const [screenshotPayloadId, setScreenshotPayloadId] = useState("payload_screenshot_1");
+  const [screenshotText, setScreenshotText] = useState("damaged order refund");
+  const [screenshotResult, setScreenshotResult] = useState<ScreenshotIssueResult | null>(null);
+  const [chatMessage, setChatMessage] = useState("Investigate damaged order refund failures");
+  const [chatopsResult, setChatopsResult] = useState<ChatOpsInvestigationResult | null>(null);
+  const [investigationProblem, setInvestigationProblem] = useState("refund failure");
+  const [filterStatus, setFilterStatus] = useState("error");
+  const [stateText, setStateText] = useState("Issues need a live API");
+
+  const selectedIssue = issues.find((issue) => issue.issue_id === selectedIssueId) ?? issues[0] ?? null;
+  const issueInvestigations = selectedIssue
+    ? investigations.filter((run) => run.issue_id_nullable === selectedIssue.issue_id)
+    : investigations;
+  const selectedInvestigation =
+    issueInvestigations.find((run) => run.investigation_run_id === selectedInvestigationId) ??
+    issueInvestigations[0] ??
+    (!selectedIssue ? investigations[0] ?? null : null);
+  const selectedImpact =
+    investigationImpact(selectedInvestigation) ??
+    (selectedIssue
+      ? impactReports.find((report) => report.issue_id === selectedIssue.issue_id) ?? null
+      : impactReports[0] ?? null);
+
+  async function loadIssues() {
+    if (connection !== "live") {
+      setIssues([]);
+      setInvestigations([]);
+      setImpactReports([]);
+      setStateText("fixture mode");
+      return;
+    }
+    try {
+      const [loadedIssues, loadedInvestigations, loadedReports] = await Promise.all([
+        client.listIssues(projectId),
+        client.listInvestigations(projectId),
+        client.listImpactReports(projectId)
+      ]);
+      setIssues(loadedIssues);
+      setInvestigations(loadedInvestigations);
+      setImpactReports(loadedReports);
+      setSelectedIssueId((current) =>
+        loadedIssues.some((issue) => issue.issue_id === current)
+          ? current
+          : loadedIssues[0]?.issue_id ?? ""
+      );
+      setSelectedInvestigationId((current) =>
+        loadedInvestigations.some((run) => run.investigation_run_id === current)
+          ? current
+          : loadedInvestigations[0]?.investigation_run_id ?? ""
+      );
+      setStateText(`${loadedIssues.length} issues · ${loadedInvestigations.length} investigations`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "issue refresh failed");
+    }
+  }
+
+  useEffect(() => {
+    void loadIssues();
+  }, [client, connection, projectId]);
+
+  async function createManualIssue() {
+    if (connection !== "live" || !issueTitle.trim()) return;
+    try {
+      const created = await client.createIssue(projectId, {
+        title: issueTitle.trim(),
+        description: issueDescription.trim(),
+        seedTraceId: seedTraceId || undefined
+      });
+      setIssues((current) => [created, ...current.filter((issue) => issue.issue_id !== created.issue_id)]);
+      setSelectedIssueId(created.issue_id);
+      setStateText(`created ${created.issue_id}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "issue creation failed");
+    }
+  }
+
+  async function createScreenshotIssue() {
+    if (connection !== "live" || !screenshotTitle.trim() || !screenshotPayloadId.trim()) return;
+    try {
+      const created = await client.createIssueFromScreenshot(projectId, {
+        title: screenshotTitle.trim(),
+        screenshotPayloadId: screenshotPayloadId.trim(),
+        extractedText: screenshotText.trim()
+      });
+      setScreenshotResult(created);
+      setIssues((current) => [created, ...current.filter((issue) => issue.issue_id !== created.issue_id)]);
+      setSelectedIssueId(created.issue_id);
+      setStateText(`screenshot issue created with ${created.candidate_seed_traces.length} seed candidates`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "screenshot issue failed");
+    }
+  }
+
+  async function runChatopsIntake() {
+    if (connection !== "live" || !chatMessage.trim()) return;
+    try {
+      const result = await client.chatopsInvestigate(projectId, chatMessage.trim(), seedTraceId || undefined);
+      setChatopsResult(result);
+      setIssues((current) => [result.issue, ...current.filter((issue) => issue.issue_id !== result.issue.issue_id)]);
+      setInvestigations((current) => [
+        result.investigation_run,
+        ...current.filter((run) => run.investigation_run_id !== result.investigation_run.investigation_run_id)
+      ]);
+      setSelectedIssueId(result.issue.issue_id);
+      setSelectedInvestigationId(result.investigation_run.investigation_run_id);
+      setStateText("ChatOps artifacts created");
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "ChatOps intake failed");
+    }
+  }
+
+  async function startSelectedInvestigation() {
+    if (connection !== "live") return;
+    const issueSeed = selectedIssue?.seed_trace_id_nullable || seedTraceId || undefined;
+    try {
+      const run = await client.startInvestigation(projectId, {
+        issueId: selectedIssue?.issue_id,
+        seedTraceId: issueSeed,
+        problem: investigationProblem.trim() || selectedIssue?.title,
+        filters: filterStatus ? { status: filterStatus } : {}
+      });
+      setInvestigations((current) => [run, ...current.filter((item) => item.investigation_run_id !== run.investigation_run_id)]);
+      const impact = investigationImpact(run);
+      if (impact) {
+        setImpactReports((current) => [impact, ...current.filter((report) => report.report_id !== impact.report_id)]);
+      }
+      setSelectedInvestigationId(run.investigation_run_id);
+      setStateText(`investigation ${run.status}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "investigation failed");
+    }
+  }
+
+  return (
+    <div className="issueGrid">
+      <section className="panel issueList">
+        <div className="toolbar">
+          <button className="iconButton" onClick={() => void loadIssues()} aria-label="Refresh issues">
+            <TimerReset size={16} />
+          </button>
+          <span className="systemNote">{stateText}</span>
+        </div>
+
+        <div className="issueCreate">
+          <input value={issueTitle} onChange={(event) => setIssueTitle(event.target.value)} placeholder="Issue title" />
+          <input value={issueDescription} onChange={(event) => setIssueDescription(event.target.value)} placeholder="Description" />
+          <select value={seedTraceId} onChange={(event) => setSeedTraceId(event.target.value)}>
+            <option value="">No seed trace</option>
+            {traces.map((trace) => (
+              <option key={trace.trace_id} value={trace.trace_id}>
+                {trace.trace_id} · {trace.status}
+              </option>
+            ))}
+          </select>
+          <button onClick={() => void createManualIssue()}>
+            <AlertTriangle size={15} />
+            Create issue
+          </button>
+        </div>
+
+        <div className="issueCreate secondaryCreate">
+          <input value={screenshotTitle} onChange={(event) => setScreenshotTitle(event.target.value)} placeholder="Screenshot issue title" />
+          <input value={screenshotPayloadId} onChange={(event) => setScreenshotPayloadId(event.target.value)} placeholder="Screenshot payload id" />
+          <input value={screenshotText} onChange={(event) => setScreenshotText(event.target.value)} placeholder="Extracted screenshot text" />
+          <button onClick={() => void createScreenshotIssue()}>
+            <FileSearch size={15} />
+            Screenshot intake
+          </button>
+          {screenshotResult ? (
+            <p className="systemNote">{screenshotResult.candidate_seed_traces.length} candidate seed traces</p>
+          ) : null}
+        </div>
+
+        <div className="issueCreate secondaryCreate">
+          <input value={chatMessage} onChange={(event) => setChatMessage(event.target.value)} placeholder="ChatOps message" />
+          <button onClick={() => void runChatopsIntake()}>
+            <Network size={15} />
+            ChatOps investigate
+          </button>
+          {chatopsResult ? <p className="systemNote">{chatopsResult.response}</p> : null}
+        </div>
+
+        <div className="issueRows">
+          {issues.map((issue) => (
+            <button
+              className={issue.issue_id === selectedIssue?.issue_id ? "selectedIssue" : ""}
+              key={issue.issue_id}
+              onClick={() => {
+                setSelectedIssueId(issue.issue_id);
+                const run = investigations.find((item) => item.issue_id_nullable === issue.issue_id);
+                setSelectedInvestigationId(run?.investigation_run_id ?? "");
+              }}
+            >
+              <span className={`reviewStatus ${issue.status}`}>{issue.status}</span>
+              <strong>{issue.title}</strong>
+              <small>{issue.source_type} · {issue.seed_trace_id_nullable ?? "no seed"} · {issue.issue_id}</small>
+            </button>
+          ))}
+          {!issues.length ? <div className="emptyState">No issues</div> : null}
+        </div>
+      </section>
+
+      <section className="panel issueDetail">
+        {selectedIssue ? (
+          <>
+            <div className="detailHeader">
+              <div>
+                <p className="sectionLabel">issue</p>
+                <h3>{selectedIssue.title}</h3>
+              </div>
+              <span className={`reviewStatus ${selectedIssue.status}`}>{selectedIssue.status}</span>
+            </div>
+            <p className="entityDescription">{selectedIssue.description || selectedIssue.issue_id}</p>
+            <div className="metricsRow issueMetrics">
+              <Metric icon={<AlertTriangle />} label="Source" value={selectedIssue.source_type} />
+              <Metric icon={<FileSearch />} label="Seed trace" value={selectedIssue.seed_trace_id_nullable ?? "none"} />
+              <Metric icon={<Activity />} label="Updated" value={formatTime(selectedIssue.updated_at)} />
+            </div>
+
+            <div className="issueSections">
+              <section className="issueSection">
+                <h4>Start investigation</h4>
+                <input
+                  value={investigationProblem}
+                  onChange={(event) => setInvestigationProblem(event.target.value)}
+                  placeholder="Problem statement"
+                />
+                <select value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)}>
+                  <option value="">Any status</option>
+                  <option value="error">error</option>
+                  <option value="ok">ok</option>
+                  <option value="timeout">timeout</option>
+                  <option value="incomplete">incomplete</option>
+                </select>
+                <button className="primaryButton" onClick={() => void startSelectedInvestigation()}>
+                  <Play size={15} />
+                  Run investigation
+                </button>
+                <p className="systemNote">Runs deterministic search first; local model assistance is attached when configured.</p>
+              </section>
+
+              <section className="issueSection">
+                <h4>Investigation runs</h4>
+                <div className="investigationRows">
+                  {issueInvestigations.map((run) => (
+                    <button
+                      className={run.investigation_run_id === selectedInvestigation?.investigation_run_id ? "selectedInvestigation" : ""}
+                      key={run.investigation_run_id}
+                      onClick={() => setSelectedInvestigationId(run.investigation_run_id)}
+                    >
+                      <span className={`judgeStatus ${run.status}`}>{run.status}</span>
+                      <strong>{run.natural_language_problem_nullable ?? run.investigation_run_id}</strong>
+                      <small>{run.result.evidence_trace_ids ? String((run.result.evidence_trace_ids as unknown[]).length) : 0} evidence traces · {run.investigation_run_id}</small>
+                    </button>
+                  ))}
+                  {!issueInvestigations.length ? <p className="systemNote">No investigations for this issue</p> : null}
+                </div>
+              </section>
+
+              <section className="issueSection impactSection">
+                <h4>Impact</h4>
+                {selectedImpact ? (
+                  <>
+                    <div className="metricsRow issueMetrics">
+                      <Metric icon={<FileSearch />} label="Traces" value={String(selectedImpact.matching_trace_count)} />
+                      <Metric icon={<Database />} label="Sessions" value={String(selectedImpact.affected_session_count)} />
+                      <Metric icon={<Shield />} label="Entities" value={String(selectedImpact.affected_entity_count)} />
+                    </div>
+                    <p className="entityDescription">{selectedImpact.generated_summary}</p>
+                    <div className="sectionRows">
+                      <div>
+                        <strong>Representative traces</strong>
+                        <span>{selectedImpact.representative_trace_ids.join(", ") || "none"}</span>
+                      </div>
+                      <div>
+                        <strong>Task types</strong>
+                        <span>{formatCounts(selectedImpact.task_type_distribution)}</span>
+                      </div>
+                      <div>
+                        <strong>Dimensions</strong>
+                        <span>{Object.keys(selectedImpact.dimension_distribution).join(", ") || "none"}</span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <p className="systemNote">No impact report selected</p>
+                )}
+              </section>
+
+              <section className="issueSection">
+                <h4>Root cause and next actions</h4>
+                {selectedInvestigation ? (
+                  <>
+                    <div className="sectionRows">
+                      {recordsFrom(selectedInvestigation.result.suspected_root_causes).map((cause, index) => (
+                        <div key={`${selectedInvestigation.investigation_run_id}-cause-${index}`}>
+                          <strong>{String(cause.hypothesis ?? cause.title ?? "Candidate")}</strong>
+                          <span>{JSON.stringify(cause.evidence_summary ?? cause)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <pre>{JSON.stringify({
+                      recommended_next_actions: selectedInvestigation.result.recommended_next_actions ?? [],
+                      review_task_ids: selectedInvestigation.result.review_task_ids ?? [],
+                      model_assistance: selectedInvestigation.result.model_assistance ?? null
+                    }, null, 2)}</pre>
+                  </>
+                ) : (
+                  <p className="systemNote">Select or create an investigation</p>
+                )}
+              </section>
+            </div>
+          </>
+        ) : (
+          <div className="emptyState">{stateText}</div>
+        )}
       </section>
     </div>
   );
@@ -2518,6 +2862,17 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function recordsFrom(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value)
+    ? value.map((item) => asRecord(item)).filter((item) => Object.keys(item).length > 0)
+    : [];
+}
+
+function investigationImpact(run: InvestigationRun | null): ImpactReport | null {
+  if (!run?.result?.impact_report) return null;
+  return run.result.impact_report;
 }
 
 function formatEvalSummary(summary: Record<string, unknown>) {

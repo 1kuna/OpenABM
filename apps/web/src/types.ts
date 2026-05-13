@@ -243,6 +243,70 @@ export interface ClassificationResult {
   payload?: unknown;
 }
 
+export interface IssueDefinition {
+  issue_id: string;
+  project_id: string;
+  source_type: "manual" | "chat" | "screenshot" | "support_ticket" | "trace_link" | "webhook" | "alert";
+  source_ref_nullable: string | null;
+  reporter_nullable: string | null;
+  title: string;
+  description: string;
+  screenshot_payload_id_nullable: string | null;
+  seed_trace_id_nullable: string | null;
+  seed_session_id_nullable: string | null;
+  status: "open" | "investigating" | "behavior_created" | "fixed" | "archived";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScreenshotIssueResult extends IssueDefinition {
+  candidate_seed_traces: Array<Record<string, unknown>>;
+}
+
+export interface ImpactReport {
+  report_id: string;
+  project_id: string;
+  issue_id: string | null;
+  investigation_run_id: string | null;
+  time_window: Record<string, unknown>;
+  matching_trace_count: number;
+  affected_session_count: number;
+  affected_entity_count: number;
+  affected_entities: Array<Record<string, unknown>>;
+  task_type_distribution: Record<string, unknown>;
+  dimension_distribution: Record<string, unknown>;
+  behavior_distribution: Record<string, unknown>;
+  deployment_distribution: Record<string, unknown>;
+  suspected_root_causes: Array<Record<string, unknown>>;
+  representative_trace_ids: string[];
+  generated_summary: string;
+  created_at: string;
+}
+
+export interface InvestigationRun {
+  investigation_run_id: string;
+  project_id: string;
+  issue_id_nullable: string | null;
+  seed_trace_id_nullable: string | null;
+  seed_session_id_nullable: string | null;
+  natural_language_problem_nullable: string | null;
+  time_window: Record<string, unknown>;
+  filters: Record<string, unknown>;
+  allowed_tools: string[];
+  status: "queued" | "running" | "completed" | "failed";
+  result: Record<string, unknown> & { impact_report?: ImpactReport };
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatOpsInvestigationResult {
+  status: string;
+  response: string;
+  issue: IssueDefinition;
+  investigation_run: InvestigationRun;
+  links: Record<string, string>;
+}
+
 export interface JudgeDefinition {
   judge_id: string;
   project_id: string;

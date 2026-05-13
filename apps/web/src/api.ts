@@ -4,6 +4,7 @@ import type {
   AgentConfigVersion,
   BehaviorBacktestResult,
   BehaviorDefinition,
+  ChatOpsInvestigationResult,
   ClassificationResult,
   DataClassificationPolicy,
   DatasetDefinition,
@@ -13,6 +14,9 @@ import type {
   EvalResult,
   EvalRun,
   HealthStatus,
+  ImpactReport,
+  InvestigationRun,
+  IssueDefinition,
   JudgeCalibrationReport,
   JudgeDefinition,
   JudgePromotionResult,
@@ -24,6 +28,7 @@ import type {
   RetentionApplyResult,
   RetentionPolicy,
   ReviewTask,
+  ScreenshotIssueResult,
   TraceDetail,
   TraceEnvelope
 } from "./types";
@@ -87,6 +92,106 @@ export class OpenAbmClient {
       source_id: sourceId,
       source_type: "trace"
     });
+  }
+
+  async listIssues(projectId: string): Promise<IssueDefinition[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: IssueDefinition[] }>(`/v1/issues?${params.toString()}`);
+    return body.data;
+  }
+
+  async getIssue(projectId: string, issueId: string): Promise<IssueDefinition> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<IssueDefinition>(`/v1/issues/${issueId}?${params.toString()}`);
+  }
+
+  async createIssue(
+    projectId: string,
+    request: {
+      title: string;
+      description?: string;
+      sourceType?: string;
+      seedTraceId?: string;
+    }
+  ): Promise<IssueDefinition> {
+    return this.post<IssueDefinition>("/v1/issues", {
+      project_id: projectId,
+      title: request.title,
+      description: request.description || "",
+      source_type: request.sourceType || "manual",
+      seed_trace_id_nullable: request.seedTraceId || null
+    });
+  }
+
+  async createIssueFromScreenshot(
+    projectId: string,
+    request: {
+      title: string;
+      screenshotPayloadId: string;
+      extractedText?: string;
+      description?: string;
+    }
+  ): Promise<ScreenshotIssueResult> {
+    return this.post<ScreenshotIssueResult>("/v1/issues/from-screenshot", {
+      project_id: projectId,
+      title: request.title,
+      description: request.description || null,
+      screenshot_payload_id_nullable: request.screenshotPayloadId,
+      extracted_text: request.extractedText || null
+    });
+  }
+
+  async chatopsInvestigate(
+    projectId: string,
+    message: string,
+    seedTraceId?: string
+  ): Promise<ChatOpsInvestigationResult> {
+    return this.post<ChatOpsInvestigationResult>("/v1/chatops/investigate", {
+      project_id: projectId,
+      message,
+      seed_trace_id_nullable: seedTraceId || null
+    });
+  }
+
+  async listInvestigations(projectId: string, issueId?: string): Promise<InvestigationRun[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    if (issueId) params.set("issue_id", issueId);
+    const body = await this.get<{ data: InvestigationRun[] }>(`/v1/investigations?${params.toString()}`);
+    return body.data;
+  }
+
+  async getInvestigation(projectId: string, investigationRunId: string): Promise<InvestigationRun> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<InvestigationRun>(`/v1/investigations/${investigationRunId}?${params.toString()}`);
+  }
+
+  async startInvestigation(
+    projectId: string,
+    request: {
+      issueId?: string;
+      seedTraceId?: string;
+      problem?: string;
+      filters?: Record<string, unknown>;
+    }
+  ): Promise<InvestigationRun> {
+    return this.post<InvestigationRun>("/v1/investigations", {
+      project_id: projectId,
+      issue_id_nullable: request.issueId || null,
+      seed_trace_id_nullable: request.seedTraceId || null,
+      natural_language_problem_nullable: request.problem || null,
+      filters: request.filters || {}
+    });
+  }
+
+  async listImpactReports(projectId: string): Promise<ImpactReport[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: ImpactReport[] }>(`/v1/impact-reports?${params.toString()}`);
+    return body.data;
+  }
+
+  async getImpactReport(projectId: string, reportId: string): Promise<ImpactReport> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<ImpactReport>(`/v1/impact-reports/${reportId}?${params.toString()}`);
   }
 
   async listJudges(projectId: string): Promise<JudgeDefinition[]> {

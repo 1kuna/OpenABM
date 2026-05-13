@@ -253,6 +253,13 @@ button {
   gap: 18px;
 }
 
+.issueGrid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(360px, 0.75fr) minmax(560px, 1.25fr);
+  gap: 18px;
+}
+
 .panel {
   min-width: 0;
   min-height: 0;
@@ -302,11 +309,17 @@ button {
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
+.issueList {
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+}
+
 .judgeList .toolbar,
 .datasetList .toolbar,
 .behaviorList .toolbar,
 .promptList .toolbar,
-.configList .toolbar {
+.configList .toolbar,
+.issueList .toolbar {
   border-bottom: 1px solid #e5e7eb;
   justify-content: space-between;
   padding: 12px;
@@ -360,6 +373,14 @@ button {
   padding: 10px;
 }
 
+.issueRows {
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 10px;
+}
+
 .retentionRows {
   display: grid;
   align-content: start;
@@ -398,7 +419,9 @@ button {
 .promptRows button,
 .configRows button,
 .versionRows button,
-.retentionRows button {
+.retentionRows button,
+.issueRows button,
+.investigationRows button {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 4px 10px;
@@ -427,23 +450,35 @@ button {
 .configRows .selectedConfig,
 .versionRows button:hover,
 .retentionRows button:hover,
-.retentionRows .selectedRetention {
+.retentionRows .selectedRetention,
+.issueRows button:hover,
+.issueRows .selectedIssue,
+.investigationRows button:hover,
+.investigationRows .selectedInvestigation {
   border-color: #9ca3af;
   background: #f8fafc;
 }
 
 .promptSection .versionRows button,
-.configSection .versionRows button {
+.configSection .versionRows button,
+.issueSection .investigationRows button {
   grid-template-columns: 1fr;
 }
 
 .promptSection .versionRows span,
 .promptSection .versionRows small,
 .configSection .versionRows span,
-.configSection .versionRows small {
+.configSection .versionRows small,
+.issueSection .investigationRows span,
+.issueSection .investigationRows small {
   grid-column: auto;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.issueSection .investigationRows .judgeStatus {
+  justify-self: start;
+  white-space: nowrap;
 }
 
 .reviewRows strong,
@@ -462,7 +497,11 @@ button {
 .configRows small,
 .versionRows strong,
 .retentionRows strong,
-.retentionRows small {
+.retentionRows small,
+.issueRows strong,
+.issueRows small,
+.investigationRows strong,
+.investigationRows small {
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -475,7 +514,9 @@ button {
 .promptRows small,
 .configRows small,
 .versionRows small,
-.retentionRows small {
+.retentionRows small,
+.issueRows small,
+.investigationRows small {
   grid-column: 2;
   color: #6b7280;
 }
@@ -673,6 +714,14 @@ td span {
   padding: 16px;
 }
 
+.issueDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  padding: 16px;
+}
+
 .detailHeader {
   display: flex;
   align-items: flex-start;
@@ -718,6 +767,10 @@ td span {
 }
 
 .opsMetrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.issueMetrics {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -1007,6 +1060,17 @@ pre {
   padding: 12px;
 }
 
+.issueCreate {
+  display: grid;
+  gap: 8px;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 12px;
+}
+
+.secondaryCreate {
+  background: #fafafa;
+}
+
 .createStrip input,
 .createStrip select,
 .exampleAdd input,
@@ -1014,6 +1078,8 @@ pre {
 .evalForm input,
 .behaviorCreate input,
 .behaviorCreate select,
+.issueCreate input,
+.issueCreate select,
 .promptSection input,
 .promptSection select,
 .configSection select {
@@ -1028,7 +1094,8 @@ pre {
 .createStrip button,
 .exampleAdd button,
 .evalForm button,
-.behaviorCreate button {
+.behaviorCreate button,
+.issueCreate button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1082,6 +1149,12 @@ pre {
   gap: 12px;
 }
 
+.issueSections {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+  gap: 12px;
+}
+
 .datasetSection {
   border: 1px solid #e5e7eb;
   border-radius: 7px;
@@ -1115,6 +1188,15 @@ pre {
   padding: 12px;
 }
 
+.issueSection {
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+}
+
 .datasetSection h4,
 .behaviorSection h4,
 .promptSection h4,
@@ -1124,6 +1206,11 @@ pre {
 }
 
 .opsSection h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.issueSection h4 {
   margin: 0;
   font-size: 14px;
 }
@@ -1143,6 +1230,10 @@ pre {
 }
 
 .classificationSection {
+  grid-row: span 2;
+}
+
+.impactSection {
   grid-row: span 2;
 }
 
@@ -1173,7 +1264,9 @@ pre {
 }
 
 .opsSection input:not([type="checkbox"]),
-.opsSection select {
+.opsSection select,
+.issueSection input,
+.issueSection select {
   min-width: 0;
   min-height: 34px;
   border: 1px solid #d1d5db;
@@ -1195,6 +1288,19 @@ pre {
   padding: 0 10px;
 }
 
+.issueSection button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  padding: 0 10px;
+}
+
 .toggleLabel {
   align-items: center;
   color: #374151;
@@ -1204,6 +1310,11 @@ pre {
 }
 
 .sectionRows {
+  display: grid;
+  gap: 8px;
+}
+
+.investigationRows {
   display: grid;
   gap: 8px;
 }
@@ -1428,7 +1539,9 @@ pre {
   .configGrid,
   .configSections,
   .opsGrid,
-  .opsSections {
+  .opsSections,
+  .issueGrid,
+  .issueSections {
     grid-template-columns: 1fr;
   }
 
@@ -1450,6 +1563,10 @@ pre {
   }
 
   .classificationSection {
+    grid-row: auto;
+  }
+
+  .impactSection {
     grid-row: auto;
   }
 }
@@ -1480,6 +1597,7 @@ pre {
   .promptMetrics,
   .configMetrics,
   .opsMetrics,
+  .issueMetrics,
   .policyGrid {
     grid-template-columns: 1fr;
   }
