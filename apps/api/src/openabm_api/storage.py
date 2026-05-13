@@ -965,6 +965,248 @@ class SQLiteStore:
             ).fetchall()
         return [self._auth_decision_from_row(row) for row in rows]
 
+    def list_secret_refs(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM secret_refs
+                WHERE project_id = ? AND deleted_at IS NULL
+                ORDER BY updated_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._secret_ref_from_row(row, include_ciphertext=False) for row in rows]
+
+    def get_secret_ref(
+        self,
+        project_id: str,
+        secret_ref: str,
+        *,
+        include_ciphertext: bool = False,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM secret_refs
+                WHERE project_id = ? AND secret_ref = ? AND deleted_at IS NULL
+                """,
+                (project_id, secret_ref),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._secret_ref_from_row(row, include_ciphertext=include_ciphertext)
+
+    def create_secret_ref(
+        self,
+        request: dict[str, Any],
+        *,
+        ciphertext: str,
+        ciphertext_sha256: str,
+        encryption_mode: str,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        project_id = request["project_id"]
+        self.ensure_project(project_id)
+        now = utc_now()
+        secret_ref = request.get("secret_ref") or f"secret_{secrets.token_urlsafe(18)}"
+        item = {
+            "secret_ref": secret_ref,
+            "org_id": request.get("org_id") or DEFAULT_ORG_ID,
+            "project_id": project_id,
+            "purpose": request["purpose"],
+            "provider": request.get("provider") or "local",
+            "status": request.get("status") or "active",
+            "current_version": 1,
+            "encryption_mode": encryption_mode,
+            "ciphertext": ciphertext,
+            "ciphertext_sha256": ciphertext_sha256,
+            "rotation_due_at": request.get("rotation_due_at"),
+            "rotated_at": None,
+            "created_at": now,
+            "updated_at": now,
+            "deleted_at": None,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO secret_refs(
+                  secret_ref, org_id, project_id, purpose, provider, status,
+                  current_version, encryption_mode, ciphertext, ciphertext_sha256,
+                  rotation_due_at, rotated_at, created_at, updated_at, deleted_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["secret_ref"],
+                    item["org_id"],
+                    item["project_id"],
+                    item["purpose"],
+                    item["provider"],
+                    item["status"],
+                    item["current_version"],
+                    item["encryption_mode"],
+                    item["ciphertext"],
+                    item["ciphertext_sha256"],
+                    item["rotation_due_at"],
+                    item["rotated_at"],
+                    item["created_at"],
+                    item["updated_at"],
+                    None,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO secret_versions(
+                  secret_version_id, secret_ref, project_id, version, encryption_mode,
+                  ciphertext, ciphertext_sha256, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    new_id("secret_version"),
+                    item["secret_ref"],
+                    project_id,
+                    1,
+                    encryption_mode,
+                    ciphertext,
+                    ciphertext_sha256,
+                    now,
+                ),
+            )
+        self.append_audit(
+            "create_secret_ref",
+            "secret_ref",
+            project_id,
+            item["secret_ref"],
+            {"purpose": item["purpose"], "provider": item["provider"]},
+            actor_id=actor_id,
+        )
+        self.append_secret_access(
+            project_id,
+            item["secret_ref"],
+            action="create",
+            purpose=item["purpose"],
+            actor_id=actor_id,
+        )
+        return {key: value for key, value in item.items() if key != "ciphertext"}
+
+    def rotate_secret_ref(
+        self,
+        project_id: str,
+        secret_ref: str,
+        *,
+        ciphertext: str,
+        ciphertext_sha256: str,
+        encryption_mode: str,
+        rotation_due_at: str | None = None,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM secret_refs
+                WHERE project_id = ? AND secret_ref = ? AND deleted_at IS NULL
+                """,
+                (project_id, secret_ref),
+            ).fetchone()
+            if row is None:
+                raise KeyError("Secret ref not found")
+            next_version = int(row["current_version"]) + 1
+            conn.execute(
+                """
+                UPDATE secret_refs
+                SET current_version = ?, encryption_mode = ?, ciphertext = ?,
+                    ciphertext_sha256 = ?, rotation_due_at = ?, rotated_at = ?,
+                    updated_at = ?
+                WHERE project_id = ? AND secret_ref = ?
+                """,
+                (
+                    next_version,
+                    encryption_mode,
+                    ciphertext,
+                    ciphertext_sha256,
+                    rotation_due_at,
+                    now,
+                    now,
+                    project_id,
+                    secret_ref,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO secret_versions(
+                  secret_version_id, secret_ref, project_id, version, encryption_mode,
+                  ciphertext, ciphertext_sha256, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    new_id("secret_version"),
+                    secret_ref,
+                    project_id,
+                    next_version,
+                    encryption_mode,
+                    ciphertext,
+                    ciphertext_sha256,
+                    now,
+                ),
+            )
+            updated = conn.execute(
+                "SELECT * FROM secret_refs WHERE project_id = ? AND secret_ref = ?",
+                (project_id, secret_ref),
+            ).fetchone()
+        self.append_audit(
+            "rotate_secret_ref",
+            "secret_ref",
+            project_id,
+            secret_ref,
+            {"current_version": next_version},
+            actor_id=actor_id,
+        )
+        self.append_secret_access(
+            project_id,
+            secret_ref,
+            action="rotate",
+            purpose=row["purpose"],
+            actor_id=actor_id,
+        )
+        return self._secret_ref_from_row(updated, include_ciphertext=False)
+
+    def append_secret_access(
+        self,
+        project_id: str,
+        secret_ref: str,
+        *,
+        action: str,
+        purpose: str | None = None,
+        actor_id: str | None = None,
+    ) -> str:
+        access_id = new_id("secret_access")
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO secret_access_log(
+                  secret_access_id, project_id, secret_ref, actor_id, action, purpose, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (access_id, project_id, secret_ref, actor_id, action, purpose, utc_now()),
+            )
+        return access_id
+
+    def list_secret_access_log(self, project_id: str, secret_ref: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM secret_access_log
+                WHERE project_id = ? AND secret_ref = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id, secret_ref),
+            ).fetchall()
+        return [self._secret_access_from_row(row) for row in rows]
+
     def upsert_trace(self, trace: dict[str, Any]) -> str:
         now = utc_now()
         self.ensure_project(trace["project_id"])
@@ -3574,6 +3816,7 @@ class SQLiteStore:
             "review_tasks": self.list_review_tasks(project_id),
             "grounding_checks": self.list_grounding_checks(project_id),
             "novelty_runs": self.list_novelty_runs(project_id),
+            "secret_refs": self.list_secret_refs(project_id),
         }
         manifest = {
             "export_id": new_id("export"),
@@ -3838,6 +4081,46 @@ class SQLiteStore:
             "INSERT INTO trace_search_fts(trace_id, project_id, body) VALUES (?, ?, ?)",
             (trace_id, project_id, body),
         )
+
+    @staticmethod
+    def _secret_ref_from_row(
+        row: sqlite3.Row,
+        *,
+        include_ciphertext: bool,
+    ) -> dict[str, Any]:
+        item = {
+            "secret_ref": row["secret_ref"],
+            "org_id": row["org_id"],
+            "project_id": row["project_id"],
+            "purpose": row["purpose"],
+            "provider": row["provider"],
+            "status": row["status"],
+            "current_version": row["current_version"],
+            "encryption_mode": row["encryption_mode"],
+            "ciphertext_sha256": row["ciphertext_sha256"],
+            "rotation_due_at": row["rotation_due_at"],
+            "rotated_at": row["rotated_at"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "deleted_at": row["deleted_at"],
+            "has_value": True,
+            "redacted_value": "secret://redacted",
+        }
+        if include_ciphertext:
+            item["ciphertext"] = row["ciphertext"]
+        return item
+
+    @staticmethod
+    def _secret_access_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "secret_access_id": row["secret_access_id"],
+            "project_id": row["project_id"],
+            "secret_ref": row["secret_ref"],
+            "actor_id": row["actor_id"],
+            "action": row["action"],
+            "purpose": row["purpose"],
+            "created_at": row["created_at"],
+        }
 
     @staticmethod
     def _api_key_from_row(row: sqlite3.Row, *, include_hash: bool) -> dict[str, Any]:

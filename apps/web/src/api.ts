@@ -44,6 +44,9 @@ import type {
   SavedSearch,
   ScoreResult,
   ScreenshotIssueResult,
+  SecretAccessLogEntry,
+  SecretBackendStatus,
+  SecretRef,
   SimilarTraceSearchResult,
   TraceDetail,
   TraceEnvelope,
@@ -156,6 +159,39 @@ export class OpenAbmClient {
     return this.post<AuthSession>(`/v1/auth/sessions/${sessionId}/revoke`, {
       project_id: projectId
     });
+  }
+
+  async getSecretBackend(): Promise<SecretBackendStatus> {
+    return this.get<SecretBackendStatus>("/v1/secrets/backend");
+  }
+
+  async listSecretRefs(projectId: string): Promise<SecretRef[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: SecretRef[] }>(`/v1/secrets?${params.toString()}`);
+    return body.data;
+  }
+
+  async createSecretRef(projectId: string, purpose: string, value: string): Promise<SecretRef> {
+    return this.post<SecretRef>("/v1/secrets", {
+      project_id: projectId,
+      purpose,
+      value
+    });
+  }
+
+  async rotateSecretRef(projectId: string, secretRef: string, value: string): Promise<SecretRef> {
+    return this.post<SecretRef>(`/v1/secrets/${encodeURIComponent(secretRef)}/rotate`, {
+      project_id: projectId,
+      value
+    });
+  }
+
+  async listSecretAccessLog(projectId: string, secretRef: string): Promise<SecretAccessLogEntry[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: SecretAccessLogEntry[] }>(
+      `/v1/secrets/${encodeURIComponent(secretRef)}/access-log?${params.toString()}`
+    );
+    return body.data;
   }
 
   async listTraces(projectId: string, status?: string, environment?: string): Promise<TraceEnvelope[]> {

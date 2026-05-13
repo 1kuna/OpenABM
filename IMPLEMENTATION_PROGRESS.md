@@ -449,6 +449,11 @@ Done:
   records, cookie/CSRF policy metadata, passwordless decision records, and an
   external IdP adapter boundary. Expanded the Operations workspace with auth
   mode/role visibility plus API-key, user, invite, and session controls.
+- Added local encrypted secret management using `cryptography` Fernet envelope
+  encryption, scoped secret refs, redacted list/get responses, audited
+  create/resolve/rotate access, rotation versions, an external secret-manager
+  adapter boundary, and Operations workspace controls that create/rotate refs
+  without rendering plaintext values.
 
 ## Phase 9: Real-World Pilot And Revisit Decisions
 
@@ -467,7 +472,7 @@ Blocked:
 
 Verified after the latest implementation slices:
 
-- `make lint && make test`: passed, 46 tests after the auth/role matrix
+- `make lint && make test`: passed, 47 tests after the secret-management
   workspace slice.
 - `npm --prefix apps/web run build`: passed.
 - Browser QA captured desktop and mobile Trace Detail, Operations, Issues, and
@@ -496,6 +501,9 @@ Verified after the latest implementation slices:
 - Auth/Ops QA covered auth contract rendering, local role matrix visibility,
   API-key creation with one-time secret reveal, user and invite creation,
   session creation, and zero console errors against the live API.
+- Secret/Ops QA covered local encryption status, external-provider boundary,
+  secret-ref creation, rotation to version 2, access-log rendering, and verified
+  plaintext secret values did not appear in rendered UI text.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
 - MCP stdio smoke: `tools/list` returned 35 tools and
@@ -530,9 +538,9 @@ Known remaining gaps before calling the whole spec complete:
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
   behavior detail, deeper impact-report analysis, and deeper
   prompt/configuration history.
-- External IdP/OAuth login, real invite delivery, production secret vault
-  integration, and scheduled retention workers remain beyond the local reference
-  scaffold.
+- External IdP/OAuth login, real invite delivery, production secret-manager
+  provider adapters, and scheduled retention workers remain beyond the local
+  reference scaffold.
 
 ## Spec V2 Delta Incorporated
 

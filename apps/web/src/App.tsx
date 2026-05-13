@@ -60,6 +60,9 @@ import type {
   SavedSearch,
   ScoreResult,
   ScreenshotIssueResult,
+  SecretAccessLogEntry,
+  SecretBackendStatus,
+  SecretRef,
   SimilarTraceSearchResult,
   SpanEnvelope,
   SpanNode,
@@ -592,6 +595,12 @@ function OpsWorkspace(props: {
   const [newApiKeySecret, setNewApiKeySecret] = useState("");
   const [authEmail, setAuthEmail] = useState("teammate@example.com");
   const [authRole, setAuthRole] = useState("viewer");
+  const [secretBackend, setSecretBackend] = useState<SecretBackendStatus | null>(null);
+  const [secretRefs, setSecretRefs] = useState<SecretRef[]>([]);
+  const [selectedSecretRef, setSelectedSecretRef] = useState("");
+  const [secretPurpose, setSecretPurpose] = useState("notification_webhook");
+  const [secretValue, setSecretValue] = useState("");
+  const [secretAccessLog, setSecretAccessLog] = useState<SecretAccessLogEntry[]>([]);
   const [retentionPolicies, setRetentionPolicies] = useState<RetentionPolicy[]>([]);
   const [selectedRetentionId, setSelectedRetentionId] = useState("");
   const [retentionName, setRetentionName] = useState("Short lived traces");
@@ -629,6 +638,10 @@ function OpsWorkspace(props: {
   });
   const activeApiKeyCount = authApiKeys.filter((key) => key.status === "active").length;
   const activeSessionCount = authSessions.filter((session) => session.status === "active").length;
+  const selectedSecret =
+    secretRefs.find((secret) => secret.secret_ref === selectedSecretRef) ??
+    secretRefs[0] ??
+    null;
 
   async function loadOps() {
     if (connection !== "live") {
@@ -640,6 +653,9 @@ function OpsWorkspace(props: {
       setAuthUsers([]);
       setAuthInvites([]);
       setAuthSessions([]);
+      setSecretBackend(null);
+      setSecretRefs([]);
+      setSecretAccessLog([]);
       setRetentionPolicies([]);
       setClassificationPolicies([]);
       setStateText("fixture mode");
@@ -655,6 +671,8 @@ function OpsWorkspace(props: {
         users,
         invites,
         sessions,
+        secretStatus,
+        secrets,
         retention,
         classifications
       ] = await Promise.all([
@@ -666,6 +684,8 @@ function OpsWorkspace(props: {
         client.listAuthUsers(projectId),
         client.listAuthInvites(projectId),
         client.listAuthSessions(projectId),
+        client.getSecretBackend(),
+        client.listSecretRefs(projectId),
         client.listRetentionPolicies(projectId),
         client.listDataClassificationPolicies(projectId)
       ]);
@@ -677,6 +697,13 @@ function OpsWorkspace(props: {
       setAuthUsers(users);
       setAuthInvites(invites);
       setAuthSessions(sessions);
+      setSecretBackend(secretStatus);
+      setSecretRefs(secrets);
+      setSelectedSecretRef((current) =>
+        secrets.some((secret) => secret.secret_ref === current)
+          ? current
+          : secrets[0]?.secret_ref ?? ""
+      );
       setRetentionPolicies(retention);
       setSelectedRetentionId((current) =>
         retention.some((policy) => policy.retention_policy_id === current)
@@ -698,6 +725,10 @@ function OpsWorkspace(props: {
   useEffect(() => {
     void loadOps();
   }, [client, connection, projectId]);
+
+  useEffect(() => {
+    void loadSecretAccessLog();
+  }, [selectedSecretRef]);
 
   async function createLocalApiKey() {
     if (connection !== "live" || !apiKeyName.trim()) return;
@@ -767,6 +798,48 @@ function OpsWorkspace(props: {
       setStateText(`revoked session ${revoked.auth_session_id}`);
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "auth session revoke failed");
+    }
+  }
+
+  async function loadSecretAccessLog(secretRef = selectedSecret?.secret_ref) {
+    if (connection !== "live" || !secretRef) {
+      setSecretAccessLog([]);
+      return;
+    }
+    try {
+      const log = await client.listSecretAccessLog(projectId, secretRef);
+      setSecretAccessLog(log);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "secret access log failed");
+    }
+  }
+
+  async function createLocalSecretRef() {
+    if (connection !== "live" || !secretPurpose.trim() || !secretValue) return;
+    try {
+      const created = await client.createSecretRef(projectId, secretPurpose.trim(), secretValue);
+      setSecretRefs([created, ...secretRefs.filter((secret) => secret.secret_ref !== created.secret_ref)]);
+      setSelectedSecretRef(created.secret_ref);
+      setSecretValue("");
+      setStateText(`created secret ref ${created.secret_ref}`);
+      void loadSecretAccessLog(created.secret_ref);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "secret creation failed");
+    }
+  }
+
+  async function rotateLocalSecretRef() {
+    if (connection !== "live" || !selectedSecret || !secretValue) return;
+    try {
+      const rotated = await client.rotateSecretRef(projectId, selectedSecret.secret_ref, secretValue);
+      setSecretRefs(secretRefs.map((secret) => (
+        secret.secret_ref === rotated.secret_ref ? rotated : secret
+      )));
+      setSecretValue("");
+      setStateText(`rotated ${rotated.secret_ref}`);
+      void loadSecretAccessLog(rotated.secret_ref);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "secret rotation failed");
     }
   }
 
@@ -1003,6 +1076,81 @@ function OpsWorkspace(props: {
           <section className="opsSection">
             <h4>Metrics</h4>
             <pre>{metricsText || "No metrics loaded"}</pre>
+          </section>
+
+          <section className="opsSection secretSection">
+            <h4>Secrets</h4>
+            <div className="metricsRow compactMetrics">
+              <Metric icon={<KeyRound />} label="Mode" value={secretBackend?.active_mode ?? "unknown"} />
+              <Metric icon={<Shield />} label="Plaintext storage" value={String(secretBackend?.plaintext_storage ?? "unknown")} />
+              <Metric icon={<Database />} label="Refs" value={String(secretRefs.length)} />
+            </div>
+            <dl className="reviewFacts">
+              <div>
+                <dt>Local encryption</dt>
+                <dd>{String(secretBackend?.local_development_secret_mode?.encryption ?? "unknown")}</dd>
+              </div>
+              <div>
+                <dt>External provider</dt>
+                <dd>{String(secretBackend?.production_external_secret_manager_integration_point?.status ?? "unknown")}</dd>
+              </div>
+              <div>
+                <dt>Sandbox mount</dt>
+                <dd>{secretBackend?.sandbox_mount_default ?? "unknown"}</dd>
+              </div>
+            </dl>
+            <div className="inlineControls">
+              <input
+                value={secretPurpose}
+                onChange={(event) => setSecretPurpose(event.target.value)}
+                placeholder="purpose"
+              />
+              <input
+                type="password"
+                value={secretValue}
+                onChange={(event) => setSecretValue(event.target.value)}
+                placeholder="secret value"
+              />
+              <button onClick={() => void createLocalSecretRef()}>
+                <KeyRound size={15} />
+                Create secret
+              </button>
+              <button onClick={() => void rotateLocalSecretRef()} disabled={!selectedSecret}>
+                <TimerReset size={15} />
+                Rotate
+              </button>
+            </div>
+            <div className="sectionRows">
+              {secretRefs.slice(0, 6).map((secret) => (
+                <button
+                  className={secret.secret_ref === selectedSecret?.secret_ref ? "selectedRetention" : ""}
+                  key={secret.secret_ref}
+                  onClick={() => setSelectedSecretRef(secret.secret_ref)}
+                >
+                  <strong>{secret.secret_ref}</strong>
+                  <span>
+                    {secret.purpose} · v{secret.current_version} · {secret.encryption_mode}
+                  </span>
+                  <small>{secret.redacted_value} · {secret.ciphertext_sha256.slice(0, 12)}</small>
+                </button>
+              ))}
+              {!secretRefs.length ? <div className="emptyState">No secret refs</div> : null}
+            </div>
+            {selectedSecret ? (
+              <div className="exportSummary">
+                <strong>{selectedSecret.secret_ref}</strong>
+                <span>{selectedSecret.status} · updated {formatTime(selectedSecret.updated_at)}</span>
+                <div className="sectionRows">
+                  {secretAccessLog.slice(0, 5).map((entry) => (
+                    <div key={entry.secret_access_id}>
+                      <strong>{entry.action}</strong>
+                      <span>{entry.actor_id ?? "unknown"} · {formatTime(entry.created_at)}</span>
+                    </div>
+                  ))}
+                  {!secretAccessLog.length ? <div className="emptyState">No access log</div> : null}
+                </div>
+              </div>
+            ) : null}
           </section>
 
           <section className="opsSection exportSection">

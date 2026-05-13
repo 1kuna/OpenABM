@@ -13,6 +13,9 @@ class Settings:
     environment: str = "local"
     auth_mode: str = "local"
     dev_api_key: str = "dev-openabm-key"
+    secret_mode: str = "local"
+    secret_key: str | None = None
+    external_secret_provider: str | None = None
     model_mode: str = "disabled"
     model_base_url: str = "http://127.0.0.1:1234/v1"
     model_api_key: str | None = None
@@ -33,6 +36,9 @@ class Settings:
             environment=os.getenv("OPENABM_ENV", cls.environment),
             auth_mode=os.getenv("OPENABM_AUTH_MODE", cls.auth_mode),
             dev_api_key=os.getenv("OPENABM_DEV_API_KEY", cls.dev_api_key),
+            secret_mode=os.getenv("OPENABM_SECRET_MODE", cls.secret_mode),
+            secret_key=os.getenv("OPENABM_SECRET_KEY") or None,
+            external_secret_provider=os.getenv("OPENABM_EXTERNAL_SECRET_PROVIDER") or None,
             model_mode=os.getenv("OPENABM_MODEL_MODE", cls.model_mode),
             model_base_url=os.getenv("OPENABM_MODEL_BASE_URL", cls.model_base_url),
             model_api_key=os.getenv("OPENABM_MODEL_API_KEY") or None,

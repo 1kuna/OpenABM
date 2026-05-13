@@ -520,6 +520,44 @@ export interface AuthSession {
   csrf_token?: string;
 }
 
+export interface SecretBackendStatus {
+  active_mode: string;
+  local_development_secret_mode: Record<string, unknown>;
+  production_external_secret_manager_integration_point: Record<string, unknown>;
+  secret_refs_only_in_configs: boolean;
+  plaintext_storage: boolean;
+  sandbox_mount_default: string;
+}
+
+export interface SecretRef {
+  secret_ref: string;
+  org_id: string;
+  project_id: string;
+  purpose: string;
+  provider: string | null;
+  status: string;
+  current_version: number;
+  encryption_mode: string;
+  ciphertext_sha256: string;
+  has_value: boolean;
+  redacted_value: string;
+  rotation_due_at: string | null;
+  rotated_at: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export interface SecretAccessLogEntry {
+  secret_access_id: string;
+  project_id: string;
+  secret_ref: string;
+  actor_id: string | null;
+  action: string;
+  purpose: string | null;
+  created_at: string;
+}
+
 export interface JudgeDefinition {
   judge_id: string;
   project_id: string;

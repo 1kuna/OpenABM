@@ -497,6 +497,208 @@
         }
       }
     },
+    "/v1/secrets": {
+      "get": {
+        "operationId": "listSecretRefs",
+        "summary": "List redacted secret refs for a project.",
+        "x-required-scopes": [
+          "secrets:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Redacted secret refs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createSecretRef",
+        "summary": "Create an encrypted local secret ref.",
+        "x-required-scopes": [
+          "secrets:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created redacted secret ref.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/secrets/backend": {
+      "get": {
+        "operationId": "getSecretBackend",
+        "summary": "Describe local secret encryption and production secret-manager boundary.",
+        "x-required-scopes": [
+          "secrets:read"
+        ],
+        "responses": {
+          "200": {
+            "description": "Secret backend status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/secrets/{secret_ref}/access-log": {
+      "get": {
+        "operationId": "listSecretAccessLog",
+        "summary": "List audit records for secret access.",
+        "x-required-scopes": [
+          "secrets:read"
+        ],
+        "parameters": [
+          {
+            "name": "secret_ref",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Secret access log.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/secrets/{secret_ref}/resolve": {
+      "post": {
+        "operationId": "resolveSecretRef",
+        "summary": "Resolve a secret ref and record an access audit event.",
+        "x-required-scopes": [
+          "secrets:read"
+        ],
+        "parameters": [
+          {
+            "name": "secret_ref",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resolved plaintext secret and access audit id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/secrets/{secret_ref}/rotate": {
+      "post": {
+        "operationId": "rotateSecretRef",
+        "summary": "Rotate an encrypted secret ref.",
+        "x-required-scopes": [
+          "secrets:write"
+        ],
+        "parameters": [
+          {
+            "name": "secret_ref",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rotated redacted secret ref.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/behaviors": {
       "get": {
         "operationId": "listBehaviors",

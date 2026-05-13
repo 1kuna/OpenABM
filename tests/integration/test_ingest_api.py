@@ -131,6 +131,80 @@ def test_auth_contract_api_keys_roles_sessions_and_revocation(tmp_path) -> None:
     assert rejected.status_code == 401
 
 
+def test_secret_refs_are_encrypted_redacted_rotatable_and_audited(tmp_path) -> None:
+    client = make_client(tmp_path)
+
+    backend = client.get("/v1/secrets/backend", headers=auth_headers())
+    assert backend.status_code == 200
+    assert backend.json()["local_development_secret_mode"]["status"] == "implemented"
+    assert backend.json()["plaintext_storage"] is False
+
+    created = client.post(
+        "/v1/secrets",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "secret_ref": "secret_test_webhook",
+            "purpose": "notification_webhook",
+            "value": "https://example.invalid/private-token",
+        },
+    )
+    assert created.status_code == 201
+    body = created.json()
+    assert body["secret_ref"] == "secret_test_webhook"
+    assert body["current_version"] == 1
+    assert "value" not in body
+    assert "ciphertext" not in body
+    assert "private-token" not in json.dumps(body)
+
+    listed = client.get(
+        "/v1/secrets",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert listed.status_code == 200
+    assert "private-token" not in json.dumps(listed.json())
+    assert listed.json()["data"][0]["redacted_value"] == "secret://redacted"
+
+    resolved = client.post(
+        "/v1/secrets/secret_test_webhook/resolve",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "purpose": "local qa"},
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["value"].endswith("private-token")
+    assert resolved.json()["access_audit_id"].startswith("secret_access_")
+
+    rotated = client.post(
+        "/v1/secrets/secret_test_webhook/rotate",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "value": "rotated-secret-value",
+        },
+    )
+    assert rotated.status_code == 200
+    assert rotated.json()["current_version"] == 2
+    assert "rotated-secret-value" not in json.dumps(rotated.json())
+
+    resolved_after_rotate = client.post(
+        "/v1/secrets/secret_test_webhook/resolve",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo"},
+    )
+    assert resolved_after_rotate.status_code == 200
+    assert resolved_after_rotate.json()["value"] == "rotated-secret-value"
+
+    access_log = client.get(
+        "/v1/secrets/secret_test_webhook/access-log",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert access_log.status_code == 200
+    actions = {item["action"] for item in access_log.json()["data"]}
+    assert {"create", "resolve", "rotate"} <= actions
+
+
 def test_invalid_span_gets_partial_success_rejection(tmp_path) -> None:
     client = make_client(tmp_path)
     response = client.post(

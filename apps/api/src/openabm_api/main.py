@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Callable
 from typing import Any
 
@@ -44,6 +45,11 @@ from openabm_api.metrics import Metrics
 from openabm_api.prompts import render_prompt
 from openabm_api.reconstruction import reconstruct_trace
 from openabm_api.schemas import SchemaValidationFailure, validate_payload
+from openabm_api.secret_management import (
+    LocalSecretCipher,
+    SecretDecryptionError,
+    secret_backend_status,
+)
 from openabm_api.settings import Settings
 from openabm_api.storage import SQLiteStore
 from openabm_api.time import utc_now
@@ -55,6 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     store.init_db()
     store.ensure_auth_bootstrap(settings.dev_api_key)
     metrics = Metrics()
+    secret_cipher = LocalSecretCipher(settings)
 
     app = FastAPI(title="OpenABM API", version="0.0.0")
     app.state.settings = settings
@@ -316,6 +323,135 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict[str, object]:
         del actor
         return {"data": store.list_auth_decision_records()}
+
+    @app.get("/api/secrets/backend")
+    def get_secret_backend(
+        actor: dict[str, object] = Depends(auth_dependency(["secrets:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return secret_backend_status(settings)
+
+    @app.get("/api/secrets")
+    def list_secret_refs(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["secrets:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_secret_refs(project_id)}
+
+    @app.post("/api/secrets", status_code=201)
+    def create_secret_ref(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["secrets:write"])),
+    ) -> dict[str, object]:
+        for key in ["project_id", "purpose", "value"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        if not isinstance(request["value"], str) or not request["value"]:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "value must be a non-empty string",
+                "/value",
+            )
+        encrypted = secret_cipher.encrypt(request["value"])
+        try:
+            return store.create_secret_ref(
+                request,
+                ciphertext=encrypted.ciphertext,
+                ciphertext_sha256=encrypted.ciphertext_sha256,
+                encryption_mode=encrypted.encryption_mode,
+                actor_id=str(actor.get("actor_id") or "unknown"),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "secret_ref already exists",
+                "/secret_ref",
+            ) from exc
+
+    @app.post("/api/secrets/{secret_ref}/resolve")
+    def resolve_secret_ref(
+        secret_ref: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["secrets:read"])),
+    ) -> dict[str, object]:
+        project_id = request.get("project_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        secret = store.get_secret_ref(project_id, secret_ref, include_ciphertext=True)
+        if secret is None:
+            raise HTTPException(status_code=404, detail=_error("not_found", "Secret not found."))
+        try:
+            plaintext = secret_cipher.decrypt(str(secret["ciphertext"]))
+        except SecretDecryptionError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=_error("secret_decryption_failed", str(exc)),
+            ) from exc
+        access_id = store.append_secret_access(
+            project_id,
+            secret_ref,
+            action="resolve",
+            purpose=request.get("purpose") or secret.get("purpose"),
+            actor_id=str(actor.get("actor_id") or "unknown"),
+        )
+        return {
+            "secret_ref": secret_ref,
+            "project_id": project_id,
+            "value": plaintext,
+            "access_audit_id": access_id,
+        }
+
+    @app.post("/api/secrets/{secret_ref}/rotate")
+    def rotate_secret_ref(
+        secret_ref: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["secrets:write"])),
+    ) -> dict[str, object]:
+        project_id = request.get("project_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        value = request.get("value")
+        if not isinstance(value, str) or not value:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "value must be a non-empty string",
+                "/value",
+            )
+        encrypted = secret_cipher.encrypt(value)
+        try:
+            return store.rotate_secret_ref(
+                project_id,
+                secret_ref,
+                ciphertext=encrypted.ciphertext,
+                ciphertext_sha256=encrypted.ciphertext_sha256,
+                encryption_mode=encrypted.encryption_mode,
+                rotation_due_at=request.get("rotation_due_at"),
+                actor_id=str(actor.get("actor_id") or "unknown"),
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
+
+    @app.get("/api/secrets/{secret_ref}/access-log")
+    def list_secret_access_log(
+        secret_ref: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["secrets:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_secret_access_log(project_id, secret_ref)}
 
     @app.post("/api/ingest/traces", status_code=202)
     def ingest_trace(

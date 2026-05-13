@@ -1743,6 +1743,10 @@ pre {
   grid-row: span 2;
 }
 
+.secretSection {
+  grid-row: span 2;
+}
+
 .impactSection {
   grid-row: span 2;
 }
