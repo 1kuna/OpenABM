@@ -828,11 +828,14 @@ Verified after the latest implementation slices:
   templates.
 - Live LM Studio canaries completed for structured rubric output, semantic trace
   similarity, and investigation drafting with `openabm-qwen35-9b`.
-- Live LM Studio model-runtime benchmark completed with `qwen3.5-9b-mlx` against
-  the current four-fixture golden set: structured-output validity 1.0, citation
-  validity 1.0, judge accuracy 1.0, invalid-output rate 0.0, unsure rate 0.5,
-  17,992 total tokens, and 318.4s total latency. The machine-readable result is
-  under `artifacts/model-benchmarks/qwen3.5-9b-golden.json`.
+- Live LM Studio model-runtime benchmark completed with `qwen3.5-9b-mlx` before
+  the section 38 corpus expansion, against the earlier four-fixture golden set:
+  structured-output validity 1.0, citation validity 1.0, judge accuracy 1.0,
+  invalid-output rate 0.0, unsure rate 0.5, 17,992 total tokens, and 318.4s
+  total latency. The machine-readable result is under
+  `artifacts/model-benchmarks/qwen3.5-9b-golden.json`; the expanded 22-fixture
+  corpus still needs a fresh live model benchmark when the local runtime budget
+  is acceptable.
 - LangGraph investigation adapter regression passed: investigation runs now
   persist framework, graph version, candidate search queries, trace candidates,
   and tool-call inputs/outputs before model assistance and review tasks are

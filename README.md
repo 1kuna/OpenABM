@@ -10,8 +10,8 @@ live in this repo as original OpenABM artifacts.
 ## Current Local Reference
 
 - Contract-first schemas and OpenAPI documents.
-- Python tracing SDK with offline JSONL, HTTP export, baggage propagation, and
-  integration wrapper contracts.
+- Python tracing SDK with offline JSONL, HTTP export, baggage propagation,
+  integration wrapper contracts, and a default generic method/callable wrapper.
 - Local API, SQLite/filesystem storage, retention worker, CLI, and MCP server.
 - Operational trace explorer and review UI for the local reference workflow.
 - Governance and decision-record workflow for implementation choices.
