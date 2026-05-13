@@ -3477,6 +3477,13 @@
                         "extracted_text": {"type": "string"},
                         "text": {"type": "string"},
                         "content_text": {"type": "string"},
+                        "content": {"type": "string"},
+                        "raw_content": {"type": "string"},
+                        "body": {"type": "string"},
+                        "content_base64": {"type": "string"},
+                        "base64_content": {"type": "string"},
+                        "data_base64": {"type": "string"},
+                        "content_encoding": {"type": "string"},
                         "summary": {"type": "string"}
                       },
                       "additionalProperties": true

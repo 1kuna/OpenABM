@@ -1,3 +1,4 @@
+import base64
 import copy
 import json
 from pathlib import Path
@@ -2358,14 +2359,22 @@ def test_v1_screenshot_issue_and_chatops_create_canonical_artifacts(tmp_path) ->
         headers=auth_headers(),
         json={
             "project_id": "proj_demo",
-            "title": "Screenshot shows damaged order refund failure",
+            "title": "Screenshot issue report",
             "screenshot_payload_id_nullable": "payload_screenshot_1",
-            "extracted_text": "damaged order refund",
             "attachments": [
                 {
                     "payload_id": "payload_log_1",
-                    "content_type": "text/plain",
-                    "extracted_text": "order lookup refund",
+                    "content_type": "application/json",
+                    "filename": "support-event.json",
+                    "content_base64": base64.b64encode(
+                        json.dumps(
+                            {
+                                "symptom": "damaged order refund",
+                                "tool": "order lookup",
+                                "status": "refund blocked",
+                            }
+                        ).encode("utf-8")
+                    ).decode("ascii"),
                 }
             ],
         },
@@ -2378,7 +2387,13 @@ def test_v1_screenshot_issue_and_chatops_create_canonical_artifacts(tmp_path) ->
         "payload_screenshot_1",
         "payload_log_1",
     ]
-    assert "order lookup refund" in screenshot_body["intake_evidence"]["query"]
+    assert "damaged order refund" in screenshot_body["intake_evidence"]["query"]
+    assert "order lookup" in screenshot_body["intake_evidence"]["query"]
+    assert screenshot_body["intake_evidence"]["source_counts"]["parsed_attachments"] == 1
+    assert screenshot_body["intake_evidence"]["attachment_parse_results"][0]["status"] == "parsed"
+    assert screenshot_body["intake_evidence"]["attachment_parse_results"][0][
+        "extracted_fields"
+    ][:2] == ["content_base64", "content_base64:parsed_json:0"]
     screenshot_links = client.get(
         f"/v1/issues/{screenshot_body['issue_id']}/links",
         headers=auth_headers(),

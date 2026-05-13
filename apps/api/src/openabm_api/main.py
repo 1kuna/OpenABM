@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import sqlite3
 import time
 from collections.abc import Callable
@@ -3857,6 +3860,191 @@ def _text_or_none(value: Any) -> str | None:
     return stripped or None
 
 
+ATTACHMENT_TEXT_FIELDS = (
+    "filename",
+    "name",
+    "extracted_text",
+    "text",
+    "content_text",
+    "summary",
+)
+ATTACHMENT_RAW_TEXT_FIELDS = ("content", "raw_content", "body")
+ATTACHMENT_BASE64_FIELDS = ("content_base64", "base64_content", "data_base64")
+TEXTUAL_ATTACHMENT_SUFFIXES = (
+    ".txt",
+    ".log",
+    ".md",
+    ".markdown",
+    ".json",
+    ".jsonl",
+    ".csv",
+    ".tsv",
+    ".yaml",
+    ".yml",
+    ".xml",
+)
+TEXTUAL_ATTACHMENT_TYPES = {
+    "application/json",
+    "application/ld+json",
+    "application/x-ndjson",
+    "application/xml",
+    "application/yaml",
+    "application/x-yaml",
+    "application/csv",
+}
+MAX_ATTACHMENT_TEXT_CHARS = 16_000
+MAX_JSON_ATTACHMENT_SEARCH_TOKENS = 80
+
+
+def _is_textual_attachment(content_type: str | None, filename: str | None) -> bool:
+    normalized_type = (content_type or "").split(";")[0].strip().lower()
+    if normalized_type.startswith("text/"):
+        return True
+    if normalized_type in TEXTUAL_ATTACHMENT_TYPES:
+        return True
+    if normalized_type.endswith("+json") or normalized_type.endswith("+xml"):
+        return True
+    normalized_name = (filename or "").lower()
+    return any(normalized_name.endswith(suffix) for suffix in TEXTUAL_ATTACHMENT_SUFFIXES)
+
+
+def _is_json_attachment(content_type: str | None, filename: str | None) -> bool:
+    normalized_type = (content_type or "").split(";")[0].strip().lower()
+    if normalized_type in {"application/json", "application/ld+json", "application/x-ndjson"}:
+        return True
+    if normalized_type.endswith("+json"):
+        return True
+    return (filename or "").lower().endswith((".json", ".jsonl"))
+
+
+def _trim_attachment_text(text: str) -> str:
+    if len(text) <= MAX_ATTACHMENT_TEXT_CHARS:
+        return text
+    return text[:MAX_ATTACHMENT_TEXT_CHARS].rstrip()
+
+
+def _decode_base64_text(value: str) -> tuple[str | None, str | None]:
+    try:
+        decoded = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        return None, f"invalid base64 content: {exc}"
+    try:
+        return decoded.decode("utf-8"), None
+    except UnicodeDecodeError as exc:
+        return None, f"base64 content is not UTF-8 text: {exc}"
+
+
+def _json_attachment_search_texts(value: Any) -> list[str]:
+    pieces: list[str] = []
+
+    def add_piece(piece: Any) -> None:
+        if len(pieces) >= MAX_JSON_ATTACHMENT_SEARCH_TOKENS:
+            return
+        text = str(piece).strip()
+        if text and text not in pieces:
+            pieces.append(text)
+
+    def walk(item: Any) -> None:
+        if len(pieces) >= MAX_JSON_ATTACHMENT_SEARCH_TOKENS:
+            return
+        if isinstance(item, dict):
+            for value in item.values():
+                walk(value)
+                if len(pieces) >= MAX_JSON_ATTACHMENT_SEARCH_TOKENS:
+                    break
+            return
+        if isinstance(item, list):
+            for value in item:
+                walk(value)
+                if len(pieces) >= MAX_JSON_ATTACHMENT_SEARCH_TOKENS:
+                    break
+            return
+        if item is not None:
+            add_piece(item)
+
+    walk(value)
+    return pieces
+
+
+def _parse_attachment_content_sources(
+    attachment: dict[str, Any],
+    *,
+    content_type: str | None,
+    filename: str | None,
+) -> tuple[list[dict[str, str]], dict[str, object]]:
+    extracted: list[dict[str, str]] = []
+    warnings: list[str] = []
+    text_like = _is_textual_attachment(content_type, filename)
+    json_like = _is_json_attachment(content_type, filename)
+    content_encoding = (_text_or_none(attachment.get("content_encoding")) or "").lower()
+
+    def add_extracted(field: str, text: str, parser: str) -> None:
+        trimmed = _trim_attachment_text(text)
+        if not trimmed:
+            return
+        extracted.append({"field": field, "text": trimmed, "parser": parser})
+
+    def add_json_flattened(field: str, text: str) -> None:
+        if not json_like:
+            return
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as exc:
+            warnings.append(f"{field} is not valid JSON: {exc.msg}")
+            return
+        for index, flattened in enumerate(_json_attachment_search_texts(parsed)):
+            add_extracted(f"{field}:parsed_json:{index}", flattened, "json")
+
+    for field in ATTACHMENT_RAW_TEXT_FIELDS:
+        text = _text_or_none(attachment.get(field))
+        if text is None:
+            continue
+        if content_encoding == "base64":
+            decoded, error = _decode_base64_text(text)
+            if error is not None:
+                warnings.append(f"{field} {error}")
+                continue
+            assert decoded is not None
+            decoded_field = f"{field}:base64_decoded"
+            add_extracted(decoded_field, decoded, "base64_text")
+            add_json_flattened(decoded_field, decoded)
+            continue
+        if not text_like:
+            warnings.append(f"{field} skipped because attachment is not text-like")
+            continue
+        add_extracted(field, text, "text")
+        add_json_flattened(field, text)
+
+    for field in ATTACHMENT_BASE64_FIELDS:
+        text = _text_or_none(attachment.get(field))
+        if text is None:
+            continue
+        if not text_like:
+            warnings.append(f"{field} skipped because attachment is not text-like")
+            continue
+        decoded, error = _decode_base64_text(text)
+        if error is not None:
+            warnings.append(f"{field} {error}")
+            continue
+        assert decoded is not None
+        add_extracted(field, decoded, "base64_text")
+        add_json_flattened(field, decoded)
+
+    if extracted:
+        status = "parsed_with_warnings" if warnings else "parsed"
+    elif warnings:
+        status = "failed"
+    else:
+        status = "skipped"
+    return extracted, {
+        "status": status,
+        "text_like": text_like,
+        "json_like": json_like,
+        "extracted_fields": [source["field"] for source in extracted],
+        "warnings": warnings,
+    }
+
+
 def _normalize_screenshot_intake_evidence(request: dict[str, Any]) -> dict[str, object]:
     attachments_raw = request.get("attachments") or []
     if not isinstance(attachments_raw, list):
@@ -3869,6 +4057,7 @@ def _normalize_screenshot_intake_evidence(request: dict[str, Any]) -> dict[str, 
     source_payloads: list[dict[str, object]] = []
     text_sources: list[dict[str, str]] = []
     payload_ids: list[str] = []
+    attachment_parse_results: list[dict[str, object]] = []
 
     def add_payload(
         *,
@@ -3922,14 +4111,31 @@ def _normalize_screenshot_intake_evidence(request: dict[str, Any]) -> dict[str, 
             )
         payload_id = _text_or_none(attachment_raw.get("payload_id") or attachment_raw.get("id"))
         content_type = _text_or_none(attachment_raw.get("content_type"))
+        filename = _text_or_none(attachment_raw.get("filename") or attachment_raw.get("name"))
         add_payload(
             payload_id=payload_id,
             source=_text_or_none(attachment_raw.get("source")) or "attachment",
             content_type=content_type,
             index=index,
         )
-        for field in ("filename", "name", "extracted_text", "text", "content_text", "summary"):
+        for field in ATTACHMENT_TEXT_FIELDS:
             add_text("attachment", field, attachment_raw.get(field), payload_id)
+        parsed_sources, parse_result = _parse_attachment_content_sources(
+            attachment_raw,
+            content_type=content_type,
+            filename=filename,
+        )
+        attachment_parse_results.append(
+            {
+                "index": index,
+                "payload_id": payload_id,
+                "content_type": content_type or "unknown",
+                "filename": filename,
+                **parse_result,
+            }
+        )
+        for source in parsed_sources:
+            add_text("attachment", source["field"], source["text"], payload_id)
 
     seen_text: set[str] = set()
     query_parts: list[str] = []
@@ -3945,11 +4151,17 @@ def _normalize_screenshot_intake_evidence(request: dict[str, Any]) -> dict[str, 
         "attachment_payload_ids": payload_ids,
         "source_payloads": source_payloads,
         "text_sources": text_sources,
+        "attachment_parse_results": attachment_parse_results,
         "query": " ".join(query_parts),
         "source_counts": {
             "payloads": len(source_payloads),
             "attachments": len(attachments_raw),
             "text_sources": len(text_sources),
+            "parsed_attachments": sum(
+                1
+                for result in attachment_parse_results
+                if str(result.get("status", "")).startswith("parsed")
+            ),
         },
     }
 

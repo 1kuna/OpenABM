@@ -55,8 +55,9 @@ Remaining blockers or explicit non-local-reference work:
   adapters, vendor-specific ChatOps connectors, production observability
   exporters, and external deployment supervision remain integration work beyond
   the local reference implementation.
-- Real OCR/deep attachment parsing, production vector-store/ANN choices, broader
-  clustering experiments, and deeper UI drilldowns remain future hardening.
+- Real OCR/binary attachment parsing, production vector-store/ANN choices,
+  broader clustering experiments, and deeper UI drilldowns remain future
+  hardening.
 - Any semantic task that the local 9B model cannot handle after prompt/runtime
   tuning should be deferred for a heavier model rather than replaced with
   brittle deterministic heuristics.
@@ -605,6 +606,13 @@ Done:
 - Added screenshot issue intake endpoint that stores screenshot-origin issues,
   normalizes screenshot plus attachment evidence, links source payload objects,
   and returns candidate seed traces with explicit match reasons.
+- Added local text-like attachment parsing for screenshot intake: raw text,
+  UTF-8 base64 text, and flattened JSON are normalized into auditable search
+  evidence, while non-text/binary payloads remain explicit skipped/failed parse
+  results rather than guessed OCR.
+- Hardened trace full-text search normalization so filenames, JSON snippets, and
+  other punctuation-heavy intake evidence cannot crash SQLite FTS candidate
+  lookup.
 - Added ChatOps-style investigation endpoint that creates canonical issue and
   investigation artifacts without binding the product to a chat vendor.
 - Added canonical issue artifact links so issues can stay connected to
@@ -963,8 +971,9 @@ Known remaining gaps before calling the whole spec complete:
   automatic contradiction decisions across arbitrary evidence types remain out
   of scope.
 - Screenshot issue intake and ChatOps-style issue/investigation creation exist;
-  screenshot/attachment metadata and extracted text are preserved as evidence,
-  while real OCR, deeper attachment parsing, and vendor-specific chat
+  screenshot/attachment metadata, extracted text, local text-like attachment
+  parsing, base64 text decoding, and JSON flattening are preserved as evidence,
+  while real OCR, binary/deep document parsing, and vendor-specific chat
   connectors are still future integration work.
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
   behavior detail, deeper impact-report analysis, and deeper
@@ -1098,8 +1107,8 @@ Implemented in this pass:
   keeps OpenABM's audit/provenance contracts authoritative.
 - Added `/v1/issues/from-screenshot` and `/v1/chatops/investigate` entrypoints
   for weak human reports and chat-originated investigations; screenshot intake
-  now preserves screenshot and attachment payload links plus extracted text
-  evidence for seed trace search.
+  now preserves screenshot and attachment payload links plus extracted text,
+  decoded text attachments, and flattened JSON evidence for seed trace search.
 - Added review-gated model contradiction adjudication for grounding checks:
   requests can opt into a second tool call that cites contradictory spans, and
   OpenABM validates claim/span IDs before persisting contradicted status.

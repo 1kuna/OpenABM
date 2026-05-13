@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
+import re
 import secrets
 import sqlite3
 from collections.abc import Callable, Iterable
@@ -20,10 +21,18 @@ DEFAULT_ORG_ID = "org_local"
 DEFAULT_OWNER_USER_ID = "user_local_owner"
 DEFAULT_SERVICE_ACCOUNT_ID = "service_account_local_dev"
 DEFAULT_DEV_API_KEY_ID = "api_key_local_dev"
+FTS_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
 
 
 def hash_secret(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _fts_query_from_text(value: str | None) -> str | None:
+    if not value:
+        return None
+    tokens = FTS_TOKEN_RE.findall(value)
+    return " ".join(tokens[:64]) or None
 
 
 def _auth_role(value: Any, default: str = "viewer") -> str:
@@ -2212,12 +2221,13 @@ class SQLiteStore:
             params.append(filters["time_to"])
 
         sql = "SELECT * FROM trace_metadata WHERE " + " AND ".join(clauses)
-        if full_text_query:
+        fts_query = _fts_query_from_text(full_text_query)
+        if fts_query:
             sql += (
                 " AND trace_id IN (SELECT trace_id FROM trace_search_fts "
                 "WHERE project_id = ? AND trace_search_fts MATCH ?)"
             )
-            params.extend([project_id, full_text_query])
+            params.extend([project_id, fts_query])
         sql += " ORDER BY started_at DESC LIMIT ?"
         params.append(limit)
 
