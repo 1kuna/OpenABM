@@ -239,6 +239,8 @@ export interface PromptVersion {
   template_text: string;
   variables_schema: Record<string, unknown>;
   metadata: Record<string, unknown>;
+  active_tags?: string[];
+  usage_summary?: VersionUsageSummary;
   created_at: string;
 }
 
@@ -289,7 +291,31 @@ export interface AgentConfigVersion {
   commit_id: string;
   content: Record<string, unknown>;
   metadata: Record<string, unknown>;
+  active_tags?: string[];
+  usage_summary?: VersionUsageSummary;
   created_at: string;
+}
+
+export interface VersionUsageSummary {
+  trace_count: number;
+  trace_status_counts: Record<string, number>;
+  latest_trace_id: string | null;
+  recent_traces: Array<{
+    trace_id: string;
+    status: string;
+    environment: string;
+    session_id: string | null;
+    started_at: string;
+    ended_at: string | null;
+  }>;
+  eval_summary: Record<string, unknown> & {
+    run_count?: number;
+    completed_count?: number;
+    latest_eval_run_id?: string | null;
+    avg_pass_rate?: number | null;
+    invalid_output_count?: number;
+    eval_run_ids?: string[];
+  };
 }
 
 export interface AgentConfigCompareResult {

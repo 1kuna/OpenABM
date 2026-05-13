@@ -56,7 +56,7 @@ Remaining blockers or explicit non-local-reference work:
   exporters, and external deployment supervision remain integration work beyond
   the local reference implementation.
 - Real OCR/binary attachment parsing, production vector-store/ANN choices,
-  broader clustering experiments, and deeper UI drilldowns remain future
+  broader clustering experiments, and broader UI usability polish remain future
   hardening.
 - Any semantic task that the local 9B model cannot handle after prompt/runtime
   tuning should be deferred for a heavier model rather than replaced with
@@ -969,6 +969,9 @@ Verified after the latest implementation slices:
 - Prompt and agent-config diff views now render structured change summaries,
   linked eval deltas, and tag-movement history as scannable rows instead of raw
   JSON dumps.
+- Prompt and agent-config version histories now include active tag pointers,
+  trace usage counts/statuses, recent trace drilldowns, and linked eval-run
+  summaries so registry history can be tied back to production/eval evidence.
 - Impact reports now render affected entities, known behavior labels, and
   suspected root-cause candidates as inspectable drilldown rows with direct
   trace-open actions instead of compressed summary text.
@@ -1021,9 +1024,9 @@ Known remaining gaps before calling the whole spec complete:
   while real OCR, binary/deep document parsing, and vendor-specific chat
   connectors are still future integration work.
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
-  deeper prompt/configuration history; behavior review actions, impact-report
-  drilldowns, eval comparison behavior-shift drilldown, and prompt/config diff
-  history summaries are now wired into their workspaces.
+  broader usability polish; behavior review actions, impact-report drilldowns,
+  eval comparison behavior-shift drilldown, prompt/config diff summaries, and
+  prompt/config version usage histories are now wired into their workspaces.
 - External IdP/OAuth login, vendor email/SMTP invite delivery, and production
   secret-manager provider adapters remain beyond the local reference scaffold.
 - Production-grade observability exporters, log aggregation, external

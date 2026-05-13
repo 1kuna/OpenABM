@@ -77,7 +77,8 @@ import type {
   TraceAssertionResult,
   TraceDetail,
   TraceEnvelope,
-  TraceStatus
+  TraceStatus,
+  VersionUsageSummary
 } from "./types";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:8787";
@@ -334,9 +335,25 @@ export function App() {
         ) : activeView === "automations" ? (
           <AutomationWorkspace client={client} connection={connection} projectId={projectId} traces={traces} />
         ) : activeView === "prompts" ? (
-          <PromptRegistryWorkspace client={client} connection={connection} projectId={projectId} />
+          <PromptRegistryWorkspace
+            client={client}
+            connection={connection}
+            projectId={projectId}
+            onOpenTrace={(traceId) => {
+              setSelectedTraceId(traceId);
+              setActiveView("traces");
+            }}
+          />
         ) : activeView === "configs" ? (
-          <AgentConfigWorkspace client={client} connection={connection} projectId={projectId} />
+          <AgentConfigWorkspace
+            client={client}
+            connection={connection}
+            projectId={projectId}
+            onOpenTrace={(traceId) => {
+              setSelectedTraceId(traceId);
+              setActiveView("traces");
+            }}
+          />
         ) : activeView === "ops" ? (
           <OpsWorkspace client={client} connection={connection} projectId={projectId} />
         ) : (
@@ -356,8 +373,9 @@ function AgentConfigWorkspace(props: {
   client: OpenAbmClient;
   connection: ConnectionState;
   projectId: string;
+  onOpenTrace: (traceId: string) => void;
 }) {
-  const { client, connection, projectId } = props;
+  const { client, connection, projectId, onOpenTrace } = props;
   const [configs, setConfigs] = useState<AgentConfigDefinition[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [name, setName] = useState("Refund runtime");
@@ -544,18 +562,22 @@ function AgentConfigWorkspace(props: {
                 <h4>Versions</h4>
                 <div className="versionRows">
                   {versions.map((version) => (
-                    <button
-                      key={version.agent_config_version_id}
-                      onClick={() => {
-                        setContentText(JSON.stringify(version.content, null, 2));
-                        setMetadataText(JSON.stringify(version.metadata, null, 2));
-                        setNewCommitId(version.commit_id);
-                      }}
-                    >
-                      <strong>v{version.version} · {version.commit_id}</strong>
-                      <span>{formatConfigContent(version.content)}</span>
-                      <small>{formatTime(version.created_at)}</small>
-                    </button>
+                    <div className="versionUsageRow" key={version.agent_config_version_id}>
+                      <button
+                        className="versionSelectButton"
+                        onClick={() => {
+                          setContentText(JSON.stringify(version.content, null, 2));
+                          setMetadataText(JSON.stringify(version.metadata, null, 2));
+                          setNewCommitId(version.commit_id);
+                        }}
+                      >
+                        <strong>v{version.version} · {version.commit_id}</strong>
+                        <span>{formatConfigContent(version.content)}</span>
+                        <span>Tags {formatStringList(version.active_tags ?? [])}</span>
+                        <small>{formatTime(version.created_at)}</small>
+                      </button>
+                      <VersionUsageRows usage={version.usage_summary} onOpenTrace={onOpenTrace} />
+                    </div>
                   ))}
                   {!versions.length ? <p className="systemNote">No versions yet</p> : null}
                 </div>
@@ -2353,6 +2375,28 @@ function TraceButtonRow(props: {
   );
 }
 
+function VersionUsageRows(props: {
+  usage?: VersionUsageSummary;
+  onOpenTrace: (traceId: string) => void;
+}) {
+  if (!props.usage) {
+    return <span className="versionUsageSummary">Usage not loaded</span>;
+  }
+  const evalSummary = props.usage.eval_summary ?? {};
+  const recentTraceIds = props.usage.recent_traces.map((trace) => trace.trace_id);
+  const evalIds = stringsFromUnknown(evalSummary.eval_run_ids);
+  return (
+    <div className="versionUsageSummary">
+      <span>
+        Traces {props.usage.trace_count} · status {formatCounts(props.usage.trace_status_counts)}
+      </span>
+      <span>Eval usage {formatLinkedEvalSummary(evalSummary)}</span>
+      {evalIds.length ? <small>Eval runs {evalIds.map(shortIdentifier).join(", ")}</small> : null}
+      <TraceButtonRow traceIds={recentTraceIds} onOpenTrace={props.onOpenTrace} />
+    </div>
+  );
+}
+
 function AgentConfigDiffSummary(props: { comparison: AgentConfigCompareResult }) {
   const structured = props.comparison.structured_diff;
   const metadata = props.comparison.metadata_diff;
@@ -2377,8 +2421,9 @@ function PromptRegistryWorkspace(props: {
   client: OpenAbmClient;
   connection: ConnectionState;
   projectId: string;
+  onOpenTrace: (traceId: string) => void;
 }) {
-  const { client, connection, projectId } = props;
+  const { client, connection, projectId, onOpenTrace } = props;
   const [prompts, setPrompts] = useState<PromptDefinition[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [newName, setNewName] = useState("Refund assistant");
@@ -2593,19 +2638,23 @@ function PromptRegistryWorkspace(props: {
                 <h4>Versions</h4>
                 <div className="versionRows">
                   {versions.map((version) => (
-                    <button
-                      key={version.prompt_version_id}
-                      onClick={() => {
-                        setTemplateText(version.template_text);
-                        setSchemaText(JSON.stringify(version.variables_schema));
-                        setRenderCommitId(version.commit_id);
-                        setNewCommitId(version.commit_id);
-                      }}
-                    >
-                      <strong>{version.commit_id}</strong>
-                      <span>{version.parent_commit_id ? `parent ${version.parent_commit_id}` : "root"}</span>
-                      <small>{formatTime(version.created_at)}</small>
-                    </button>
+                    <div className="versionUsageRow" key={version.prompt_version_id}>
+                      <button
+                        className="versionSelectButton"
+                        onClick={() => {
+                          setTemplateText(version.template_text);
+                          setSchemaText(JSON.stringify(version.variables_schema));
+                          setRenderCommitId(version.commit_id);
+                          setNewCommitId(version.commit_id);
+                        }}
+                      >
+                        <strong>{version.commit_id}</strong>
+                        <span>{version.parent_commit_id ? `parent ${version.parent_commit_id}` : "root"}</span>
+                        <span>Tags {formatStringList(version.active_tags ?? [])}</span>
+                        <small>{formatTime(version.created_at)}</small>
+                      </button>
+                      <VersionUsageRows usage={version.usage_summary} onOpenTrace={onOpenTrace} />
+                    </div>
                   ))}
                   {!versions.length ? <p className="systemNote">No versions yet</p> : null}
                 </div>

@@ -1439,6 +1439,24 @@ pre {
   padding: 9px;
 }
 
+.versionRows .versionUsageRow {
+  gap: 8px;
+}
+
+.versionRows .versionSelectButton {
+  grid-template-columns: 1fr;
+  border-color: #e5e7eb;
+}
+
+.versionRows .versionUsageSummary {
+  display: grid;
+  gap: 5px;
+  border: 0;
+  border-top: 1px solid #edf0f4;
+  border-radius: 0;
+  padding: 8px 0 0;
+}
+
 .driftTable span,
 .versionRows span,
 .versionRows small {

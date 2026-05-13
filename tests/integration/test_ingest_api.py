@@ -1734,6 +1734,43 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
     assert linked_eval_diff["old"]["eval_run_ids"] == [baseline.json()["eval_run_id"]]
     assert linked_eval_diff["new"]["eval_run_ids"] == [candidate.json()["eval_run_id"]]
     assert linked_eval_diff["run_count_delta"] == 0
+    prompt_usage = client.get(
+        f"/v1/prompts/{prompt_id}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    ).json()
+    prompt_v2_usage = next(
+        version["usage_summary"]
+        for version in prompt_usage["versions"]
+        if version["prompt_version_id"] == version_2.json()["prompt_version_id"]
+    )
+    assert prompt_v2_usage["trace_count"] == 1
+    assert prompt_v2_usage["trace_status_counts"] == {"error": 1}
+    assert prompt_v2_usage["recent_traces"][0]["trace_id"] == trace["trace_id"]
+    assert prompt_v2_usage["eval_summary"]["eval_run_ids"] == [candidate.json()["eval_run_id"]]
+    assert next(
+        version["active_tags"]
+        for version in prompt_usage["versions"]
+        if version["commit_id"] == version_2.json()["commit_id"]
+    ) == ["prod"]
+    config_usage = client.get(
+        f"/v1/agent-configs/{config_id}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    ).json()
+    config_v2_usage = next(
+        version["usage_summary"]
+        for version in config_usage["versions"]
+        if version["agent_config_version_id"] == cfg_v2.json()["agent_config_version_id"]
+    )
+    assert config_v2_usage["trace_count"] == 1
+    assert config_v2_usage["recent_traces"][0]["trace_id"] == trace["trace_id"]
+    assert config_v2_usage["eval_summary"]["eval_run_ids"] == [candidate.json()["eval_run_id"]]
+    assert next(
+        version["active_tags"]
+        for version in config_usage["versions"]
+        if version["commit_id"] == cfg_v2.json()["commit_id"]
+    ) == ["prod"]
     analytics = client.get(
         "/v1/evals/analytics",
         params={"project_id": "proj_demo"},

@@ -3648,7 +3648,19 @@ class SQLiteStore:
         if row is None:
             return None
         prompt = self._prompt_from_row(row)
-        prompt["versions"] = [self._prompt_version_from_row(version) for version in versions]
+        prompt["versions"] = []
+        for version_row in versions:
+            version = self._prompt_version_from_row(version_row)
+            version["active_tags"] = sorted(
+                tag
+                for tag, commit_id in prompt["tags"].items()
+                if commit_id == version["commit_id"]
+            )
+            version["usage_summary"] = self._prompt_version_usage_summary(
+                project_id,
+                version["prompt_version_id"],
+            )
+            prompt["versions"].append(version)
         return prompt
 
     def commit_prompt_version(
@@ -3839,6 +3851,22 @@ class SQLiteStore:
         summary["eval_run_ids"] = [run["eval_run_id"] for run in runs]
         return summary
 
+    def _prompt_version_usage_summary(
+        self,
+        project_id: str,
+        prompt_version_id: str,
+    ) -> dict[str, Any]:
+        usage = self._version_trace_usage_summary(
+            project_id,
+            "prompt_version_id",
+            prompt_version_id,
+        )
+        usage["eval_summary"] = self._prompt_version_eval_summary(
+            project_id,
+            prompt_version_id,
+        )
+        return usage
+
     def list_prompt_tag_events(
         self,
         project_id: str,
@@ -3980,9 +4008,19 @@ class SQLiteStore:
         if row is None:
             return None
         config = self._agent_config_from_row(row)
-        config["versions"] = [
-            self._agent_config_version_from_row(version) for version in versions
-        ]
+        config["versions"] = []
+        for version_row in versions:
+            version = self._agent_config_version_from_row(version_row)
+            version["active_tags"] = sorted(
+                tag
+                for tag, commit_id in config["tags"].items()
+                if commit_id == version["commit_id"]
+            )
+            version["usage_summary"] = self._agent_config_version_usage_summary(
+                project_id,
+                version["agent_config_version_id"],
+            )
+            config["versions"].append(version)
         return config
 
     def commit_agent_config_version(
@@ -4169,6 +4207,72 @@ class SQLiteStore:
         summary = _eval_group_summary(agent_config_version_id, runs)
         summary["eval_run_ids"] = [run["eval_run_id"] for run in runs]
         return summary
+
+    def _agent_config_version_usage_summary(
+        self,
+        project_id: str,
+        agent_config_version_id: str,
+    ) -> dict[str, Any]:
+        usage = self._version_trace_usage_summary(
+            project_id,
+            "agent_config_version_id",
+            agent_config_version_id,
+        )
+        usage["eval_summary"] = self._agent_config_version_eval_summary(
+            project_id,
+            agent_config_version_id,
+        )
+        return usage
+
+    def _version_trace_usage_summary(
+        self,
+        project_id: str,
+        version_column: str,
+        version_id: str,
+    ) -> dict[str, Any]:
+        if version_column not in {"prompt_version_id", "agent_config_version_id"}:
+            raise ValueError(f"unsupported version usage column: {version_column}")
+        with self.connect() as conn:
+            status_rows = conn.execute(
+                f"""
+                SELECT status, COUNT(*) AS count
+                FROM trace_metadata
+                WHERE project_id = ? AND {version_column} = ?
+                GROUP BY status
+                ORDER BY status ASC
+                """,
+                (project_id, version_id),
+            ).fetchall()
+            recent_rows = conn.execute(
+                f"""
+                SELECT trace_id, status, environment, session_id, started_at, ended_at
+                FROM trace_metadata
+                WHERE project_id = ? AND {version_column} = ?
+                ORDER BY started_at DESC
+                LIMIT 10
+                """,
+                (project_id, version_id),
+            ).fetchall()
+        trace_status_counts = {
+            str(row["status"]): int(row["count"]) for row in status_rows
+        }
+        recent_traces = [
+            {
+                "trace_id": row["trace_id"],
+                "status": row["status"],
+                "environment": row["environment"],
+                "session_id": row["session_id"],
+                "started_at": row["started_at"],
+                "ended_at": row["ended_at"],
+            }
+            for row in recent_rows
+        ]
+        return {
+            "trace_count": sum(trace_status_counts.values()),
+            "trace_status_counts": trace_status_counts,
+            "latest_trace_id": recent_traces[0]["trace_id"] if recent_traces else None,
+            "recent_traces": recent_traces,
+        }
 
     def _move_agent_config_tag(
         self,
