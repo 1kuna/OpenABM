@@ -23,6 +23,7 @@ import { fixtureDetails, fixtureProjects, fixtureTraces } from "./fixtures";
 import type {
   AgentConfigCompareResult,
   AgentConfigDefinition,
+  AgentConfigVersion,
   AgentContextPack,
   AuthApiKey,
   AuthContract,
@@ -59,6 +60,7 @@ import type {
   ProjectExportBundle,
   PromptDefinition,
   PromptDiffResult,
+  PromptVersion,
   RetentionApplyResult,
   RetentionPolicy,
   ReviewTask,
@@ -296,6 +298,8 @@ export function App() {
             onApplySavedSearch={(savedSearch) => void applySavedSearch(savedSearch)}
             onSelectTrace={setSelectedTraceId}
             onCheckSimilarity={() => void checkSimilarity()}
+            onOpenPrompts={() => setActiveView("prompts")}
+            onOpenConfigs={() => setActiveView("configs")}
           />
         ) : activeView === "issues" ? (
           <IssueInvestigationWorkspace
@@ -4662,6 +4666,8 @@ function TraceExplorer(props: {
   onApplySavedSearch: (savedSearch: SavedSearch) => void;
   onSelectTrace: (traceId: string) => void;
   onCheckSimilarity: () => void;
+  onOpenPrompts: () => void;
+  onOpenConfigs: () => void;
 }) {
   const { traces, detail } = props;
   const [detailMode, setDetailMode] = useState<TraceDetailMode>("timeline");
@@ -4676,6 +4682,8 @@ function TraceExplorer(props: {
   const [behaviorMatchesByTrace, setBehaviorMatchesByTrace] = useState<Record<string, BehaviorMatch[]>>({});
   const [datasetMembershipByTrace, setDatasetMembershipByTrace] = useState<Record<string, DatasetMembership[]>>({});
   const [behaviorDefinitions, setBehaviorDefinitions] = useState<BehaviorDefinition[]>([]);
+  const [promptDefinitions, setPromptDefinitions] = useState<PromptDefinition[]>([]);
+  const [agentConfigDefinitions, setAgentConfigDefinitions] = useState<AgentConfigDefinition[]>([]);
   const [labelBehaviorId, setLabelBehaviorId] = useState("");
   const [judgeDefinitions, setJudgeDefinitions] = useState<JudgeDefinition[]>([]);
   const [selectedJudgeId, setSelectedJudgeId] = useState("");
@@ -4695,6 +4703,8 @@ function TraceExplorer(props: {
       setBehaviorMatchesByTrace({});
       setDatasetMembershipByTrace({});
       setBehaviorDefinitions([]);
+      setPromptDefinitions([]);
+      setAgentConfigDefinitions([]);
       setLabelBehaviorId("");
       setJudgeDefinitions([]);
       setSelectedJudgeId("");
@@ -4709,14 +4719,24 @@ function TraceExplorer(props: {
         loadedScores,
         loadedBehaviorMatches,
         loadedBehaviors,
-        loadedJudges
+        loadedJudges,
+        listedPrompts,
+        listedConfigs
       ] = await Promise.all([
         props.client.listSavedSearches(props.projectId),
         props.client.listDatasets(props.projectId),
         props.client.listScores(props.projectId),
         props.client.listBehaviorMatches(props.projectId),
         props.client.listBehaviors(props.projectId),
-        props.client.listJudges(props.projectId)
+        props.client.listJudges(props.projectId),
+        props.client.listPrompts(props.projectId),
+        props.client.listAgentConfigs(props.projectId)
+      ]);
+      const [hydratedPrompts, hydratedConfigs] = await Promise.all([
+        Promise.all(listedPrompts.map((prompt) => props.client.getPrompt(props.projectId, prompt.prompt_id))),
+        Promise.all(
+          listedConfigs.map((config) => props.client.getAgentConfig(props.projectId, config.agent_config_id))
+        )
       ]);
       const datasetExamples = await Promise.all(
         loadedDatasets.map(async (dataset) => ({
@@ -4730,6 +4750,8 @@ function TraceExplorer(props: {
       setBehaviorMatchesByTrace(groupByTraceId(loadedBehaviorMatches));
       setDatasetMembershipByTrace(groupDatasetMembership(datasetExamples));
       setBehaviorDefinitions(loadedBehaviors);
+      setPromptDefinitions(hydratedPrompts);
+      setAgentConfigDefinitions(hydratedConfigs);
       setJudgeDefinitions(loadedJudges);
       setLabelBehaviorId((current) =>
         loadedBehaviors.some((behavior) => behavior.behavior_id === current)
@@ -5042,6 +5064,13 @@ function TraceExplorer(props: {
               <Metric icon={<AlertTriangle />} label="Warnings" value={String(detail.reconstruction.warnings.length)} />
               <Metric icon={<Box />} label="Payloads" value={payloadSummary(detail)} />
             </div>
+            <TraceRuntimeProvenance
+              trace={detail.trace}
+              prompts={promptDefinitions}
+              agentConfigs={agentConfigDefinitions}
+              onOpenPrompts={props.onOpenPrompts}
+              onOpenConfigs={props.onOpenConfigs}
+            />
             <div className="traceModeTabs" role="tablist" aria-label="Trace detail modes">
               {traceModeLabels.map((mode) => (
                 <button
@@ -5137,6 +5166,48 @@ const traceModeLabels: Array<{ value: TraceDetailMode; label: string }> = [
   { value: "tools", label: "Tools" },
   { value: "code", label: "Code/error" }
 ];
+
+function TraceRuntimeProvenance(props: {
+  trace: TraceEnvelope;
+  prompts: PromptDefinition[];
+  agentConfigs: AgentConfigDefinition[];
+  onOpenPrompts: () => void;
+  onOpenConfigs: () => void;
+}) {
+  const promptMatch = findPromptVersion(props.prompts, props.trace.prompt_version_id);
+  const configMatch = findAgentConfigVersion(
+    props.agentConfigs,
+    props.trace.agent_config_version_id,
+  );
+  return (
+    <div className="runtimeProvenancePanel">
+      <div>
+        <strong>Prompt version</strong>
+        <span>{formatPromptVersionLink(promptMatch, props.trace.prompt_version_id)}</span>
+        <button onClick={props.onOpenPrompts}>
+          <Split size={14} />
+          Registry
+        </button>
+      </div>
+      <div>
+        <strong>Runtime config</strong>
+        <span>{formatAgentConfigVersionLink(configMatch, props.trace.agent_config_version_id)}</span>
+        <button onClick={props.onOpenConfigs}>
+          <KeyRound size={14} />
+          Configs
+        </button>
+      </div>
+      <div>
+        <strong>Deployment</strong>
+        <span>{props.trace.deployment_context_id ?? "none"}</span>
+      </div>
+      <div>
+        <strong>Tool versions</strong>
+        <span>{formatStringList(props.trace.tool_version_ids)}</span>
+      </div>
+    </div>
+  );
+}
 
 function TraceModeView(props: {
   detail: TraceDetail;
@@ -6496,6 +6567,54 @@ function parseJsonObject(value: string): Record<string, unknown> {
     throw new Error("Expected a JSON object");
   }
   return parsed as Record<string, unknown>;
+}
+
+function findPromptVersion(
+  prompts: PromptDefinition[],
+  promptVersionId: string | null
+): { prompt: PromptDefinition; version: PromptVersion } | null {
+  if (!promptVersionId) return null;
+  for (const prompt of prompts) {
+    for (const version of prompt.versions ?? []) {
+      if (version.prompt_version_id === promptVersionId) return { prompt, version };
+    }
+  }
+  return null;
+}
+
+function findAgentConfigVersion(
+  configs: AgentConfigDefinition[],
+  agentConfigVersionId: string | null
+): { config: AgentConfigDefinition; version: AgentConfigVersion } | null {
+  if (!agentConfigVersionId) return null;
+  for (const config of configs) {
+    for (const version of config.versions ?? []) {
+      if (version.agent_config_version_id === agentConfigVersionId) {
+        return { config, version };
+      }
+    }
+  }
+  return null;
+}
+
+function formatPromptVersionLink(
+  match: { prompt: PromptDefinition; version: PromptVersion } | null,
+  promptVersionId: string | null
+) {
+  if (!promptVersionId) return "none";
+  if (!match) return promptVersionId;
+  const tags = formatStringList(match.version.active_tags ?? []);
+  return `${match.prompt.name} · ${shortIdentifier(match.version.commit_id)} · tags ${tags}`;
+}
+
+function formatAgentConfigVersionLink(
+  match: { config: AgentConfigDefinition; version: AgentConfigVersion } | null,
+  agentConfigVersionId: string | null
+) {
+  if (!agentConfigVersionId) return "none";
+  if (!match) return agentConfigVersionId;
+  const tags = formatStringList(match.version.active_tags ?? []);
+  return `${match.config.name} · v${match.version.version} · ${shortIdentifier(match.version.commit_id)} · tags ${tags}`;
 }
 
 function formatTags(tags: Record<string, string>) {

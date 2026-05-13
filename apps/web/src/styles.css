@@ -910,6 +910,48 @@ td span {
   overflow-wrap: anywhere;
 }
 
+.runtimeProvenancePanel {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  border: 1px solid #edf0f4;
+  border-radius: 7px;
+  padding: 10px;
+  background: #fafafa;
+}
+
+.runtimeProvenancePanel > div {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+}
+
+.runtimeProvenancePanel strong {
+  font-size: 12px;
+  color: #374151;
+}
+
+.runtimeProvenancePanel span {
+  color: #6b7280;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.runtimeProvenancePanel button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  width: fit-content;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  padding: 0 9px;
+}
+
 .traceModeTabs {
   display: flex;
   flex-wrap: wrap;
@@ -2309,6 +2351,7 @@ pre {
   .inspectorFacts,
   .payloadGrid,
   .inspectorSections,
+  .runtimeProvenancePanel,
   .traceEvidencePanel {
     grid-template-columns: 1fr;
   }

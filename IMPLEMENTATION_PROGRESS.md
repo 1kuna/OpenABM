@@ -972,6 +972,9 @@ Verified after the latest implementation slices:
 - Prompt and agent-config version histories now include active tag pointers,
   trace usage counts/statuses, recent trace drilldowns, and linked eval-run
   summaries so registry history can be tied back to production/eval evidence.
+- Trace detail now resolves captured prompt/config runtime provenance into
+  registry names, commits, tags, deployment context, and tool-version IDs so
+  versioned runtime context is visible next to the reconstructed trace.
 - Impact reports now render affected entities, known behavior labels, and
   suspected root-cause candidates as inspectable drilldown rows with direct
   trace-open actions instead of compressed summary text.
@@ -1026,7 +1029,8 @@ Known remaining gaps before calling the whole spec complete:
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
   broader usability polish; behavior review actions, impact-report drilldowns,
   eval comparison behavior-shift drilldown, prompt/config diff summaries, and
-  prompt/config version usage histories are now wired into their workspaces.
+  prompt/config version usage histories are now wired into their workspaces, and
+  trace detail resolves captured prompt/config/deployment/tool runtime context.
 - External IdP/OAuth login, vendor email/SMTP invite delivery, and production
   secret-manager provider adapters remain beyond the local reference scaffold.
 - Production-grade observability exporters, log aggregation, external
