@@ -254,6 +254,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "trace_id": NULLABLE_STRING,
                 "span_id": NULLABLE_STRING,
                 "source_revision": NULLABLE_STRING,
+                "max_classification": STRING,
                 "limit": LIMIT,
             },
         ),
@@ -266,7 +267,11 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "Fetch one source/code provenance record.",
         _schema(
             ["project_id", "code_context_id"],
-            {"project_id": STRING, "code_context_id": STRING},
+            {
+                "project_id": STRING,
+                "code_context_id": STRING,
+                "max_classification": STRING,
+            },
         ),
         scopes=READ_TRACE_SCOPE,
         example_request={"project_id": "proj_demo", "code_context_id": "code_context_123"},
@@ -289,6 +294,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "stack_frame_hash_nullable": NULLABLE_STRING,
                 "source_url_nullable": NULLABLE_STRING,
                 "source_revision_nullable": NULLABLE_STRING,
+                "classification": STRING,
                 "created_at": STRING,
             },
         ),

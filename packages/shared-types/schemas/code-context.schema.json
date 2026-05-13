@@ -17,6 +17,9 @@
     "stack_frame_hash_nullable": {"type": ["string", "null"]},
     "source_url_nullable": {"type": ["string", "null"]},
     "source_revision_nullable": {"type": ["string", "null"]},
+    "classification": {"enum": ["public", "internal", "confidential", "restricted", "secret"], "default": "internal"},
+    "redacted": {"type": "boolean"},
+    "reason": {"type": "string"},
     "created_at": {"type": "string", "format": "date-time"}
   }
 }

@@ -82,6 +82,9 @@ export interface CodeContext {
   stack_frame_hash_nullable: string | null;
   source_url_nullable: string | null;
   source_revision_nullable: string | null;
+  classification?: string;
+  redacted?: boolean;
+  reason?: string;
   created_at: string;
 }
 

@@ -276,15 +276,18 @@ def _call_tool_impl(
         return client.request("POST", "/v1/deployment-contexts", json_body=arguments)
     if name == "list_code_contexts":
         params = {"project_id": arguments["project_id"]}
-        for key in ["trace_id", "span_id", "source_revision", "limit"]:
+        for key in ["trace_id", "span_id", "source_revision", "max_classification", "limit"]:
             if arguments.get(key):
                 params[key] = arguments[key]
         return client.request("GET", "/v1/code-contexts", params=params)
     if name == "get_code_context":
+        params = {"project_id": arguments["project_id"]}
+        if arguments.get("max_classification"):
+            params["max_classification"] = arguments["max_classification"]
         return client.request(
             "GET",
             f"/v1/code-contexts/{arguments['code_context_id']}",
-            params={"project_id": arguments["project_id"]},
+            params=params,
         )
     if name == "register_code_context":
         return client.request("POST", "/v1/code-contexts", json_body=arguments)

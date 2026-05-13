@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS trace_dimensions (
   value TEXT NOT NULL,
   value_type TEXT NOT NULL,
   source TEXT NOT NULL,
+  classification TEXT NOT NULL DEFAULT 'internal',
   created_at TEXT NOT NULL
 );
 
@@ -40,6 +41,7 @@ CREATE TABLE IF NOT EXISTS code_contexts (
   stack_frame_hash_nullable TEXT,
   source_url_nullable TEXT,
   source_revision_nullable TEXT,
+  classification TEXT NOT NULL DEFAULT 'internal',
   created_at TEXT NOT NULL
 );
 

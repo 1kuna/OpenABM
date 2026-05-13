@@ -13,6 +13,9 @@
     "value": {"type": "string"},
     "value_type": {"enum": ["string", "number", "boolean", "datetime", "json"]},
     "source": {"type": "string"},
+    "classification": {"enum": ["public", "internal", "confidential", "restricted", "secret"], "default": "internal"},
+    "redacted": {"type": "boolean"},
+    "reason": {"type": "string"},
     "created_at": {"type": "string", "format": "date-time"}
   }
 }

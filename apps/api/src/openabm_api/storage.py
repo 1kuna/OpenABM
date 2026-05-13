@@ -97,6 +97,15 @@ def decode_json(value: str | None, default: Any) -> Any:
 
 
 PAYLOAD_REDACTED_FIELDS = {"byte_size_nullable", "sha256_nullable", "storage_uri"}
+CODE_CONTEXT_REDACTED_VALUES = {
+    "file_path_nullable": None,
+    "function_name_nullable": None,
+    "line_start_nullable": None,
+    "line_end_nullable": None,
+    "stack_frame_hash_nullable": None,
+    "source_url_nullable": None,
+    "source_revision_nullable": None,
+}
 
 
 def _payload_metadata_only(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -112,30 +121,65 @@ def _payload_metadata_only(payloads: list[dict[str, Any]]) -> list[dict[str, Any
 
 def _included_classifications(sections: dict[str, Any]) -> list[str]:
     classifications = set()
-    for item in sections.get("context_packs", []):
-        if item.get("classification"):
-            classifications.add(item["classification"])
-    for item in sections.get("payloads", []):
-        if item.get("classification"):
-            classifications.add(str(item["classification"]))
+    for section in ("context_packs", "payloads", "trace_dimensions", "code_contexts"):
+        for item in sections.get(section, []):
+            if item.get("classification"):
+                classifications.add(str(item["classification"]))
     return sorted(classifications or {"unspecified"})
 
 
-def _payload_object_for_access(payload: dict[str, Any], max_classification: str) -> dict[str, Any]:
-    classification = normalize_classification(payload.get("classification"), "internal")
-    item = {**payload, "classification": classification}
+def _classified_record_for_access(
+    item: dict[str, Any],
+    max_classification: str,
+    *,
+    removed_fields: set[str] | None = None,
+    redacted_values: dict[str, Any] | None = None,
+    reason: str = "record classification exceeds caller allowance",
+) -> dict[str, Any]:
+    classification = normalize_classification(item.get("classification"), "internal")
+    item = {**item, "classification": classification}
     if can_access(classification, max_classification):
         return item
-    return {
-        key: value
-        for key, value in {
-            **item,
-            "redacted": True,
-            "redaction_state": "redacted",
-            "reason": "payload classification exceeds caller allowance",
-        }.items()
-        if key not in PAYLOAD_REDACTED_FIELDS
+    redacted = {
+        **item,
+        "redacted": True,
+        "reason": reason,
+        **(redacted_values or {}),
     }
+    for field in removed_fields or set():
+        redacted.pop(field, None)
+    return redacted
+
+
+def _payload_object_for_access(payload: dict[str, Any], max_classification: str) -> dict[str, Any]:
+    return _classified_record_for_access(
+        payload,
+        max_classification,
+        removed_fields=PAYLOAD_REDACTED_FIELDS,
+        redacted_values={"redaction_state": "redacted"},
+        reason="payload classification exceeds caller allowance",
+    )
+
+
+def _trace_dimension_for_access(
+    dimension: dict[str, Any],
+    max_classification: str,
+) -> dict[str, Any]:
+    return _classified_record_for_access(
+        dimension,
+        max_classification,
+        redacted_values={"value": "[redacted]"},
+        reason="trace dimension classification exceeds caller allowance",
+    )
+
+
+def _code_context_for_access(context: dict[str, Any], max_classification: str) -> dict[str, Any]:
+    return _classified_record_for_access(
+        context,
+        max_classification,
+        redacted_values=CODE_CONTEXT_REDACTED_VALUES,
+        reason="code context classification exceeds caller allowance",
+    )
 
 
 def _jsonl(items: Iterable[dict[str, Any]]) -> str:
@@ -894,6 +938,8 @@ class SQLiteStore:
             self._ensure_eval_result_assertion_results_column(conn)
             self._ensure_agent_config_tag_tables(conn)
             self._ensure_payload_classification_column(conn)
+            self._ensure_trace_dimension_classification_column(conn)
+            self._ensure_code_context_classification_column(conn)
             self.ensure_project("proj_demo", "Demo Project")
 
     @staticmethod
@@ -921,6 +967,29 @@ class SQLiteStore:
         if "classification" not in columns:
             conn.execute(
                 "ALTER TABLE payload_objects ADD COLUMN classification "
+                "TEXT NOT NULL DEFAULT 'internal'"
+            )
+
+    @staticmethod
+    def _ensure_trace_dimension_classification_column(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(trace_dimensions)").fetchall()
+        }
+        if "classification" not in columns:
+            conn.execute(
+                "ALTER TABLE trace_dimensions ADD COLUMN classification "
+                "TEXT NOT NULL DEFAULT 'internal'"
+            )
+
+    @staticmethod
+    def _ensure_code_context_classification_column(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(code_contexts)").fetchall()
+        }
+        if "classification" not in columns:
+            conn.execute(
+                "ALTER TABLE code_contexts ADD COLUMN classification "
                 "TEXT NOT NULL DEFAULT 'internal'"
             )
 
@@ -2633,6 +2702,7 @@ class SQLiteStore:
         project_id = context["project_id"]
         code_context_id = context["code_context_id"]
         trace_id = context["trace_id"]
+        classification = normalize_classification(context.get("classification"), "internal")
         if self.get_trace(project_id, trace_id) is None:
             raise KeyError(f"trace not found: {trace_id}")
         span_id = context.get("span_id_nullable")
@@ -2654,9 +2724,9 @@ class SQLiteStore:
                   code_context_id, project_id, trace_id, span_id_nullable,
                   file_path_nullable, function_name_nullable, line_start_nullable,
                   line_end_nullable, stack_frame_hash_nullable, source_url_nullable,
-                  source_revision_nullable, created_at
+                  source_revision_nullable, classification, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(code_context_id) DO UPDATE SET
                   trace_id = excluded.trace_id,
                   span_id_nullable = excluded.span_id_nullable,
@@ -2666,7 +2736,8 @@ class SQLiteStore:
                   line_end_nullable = excluded.line_end_nullable,
                   stack_frame_hash_nullable = excluded.stack_frame_hash_nullable,
                   source_url_nullable = excluded.source_url_nullable,
-                  source_revision_nullable = excluded.source_revision_nullable
+                  source_revision_nullable = excluded.source_revision_nullable,
+                  classification = excluded.classification
                 """,
                 (
                     code_context_id,
@@ -2680,10 +2751,15 @@ class SQLiteStore:
                     context.get("stack_frame_hash_nullable"),
                     context.get("source_url_nullable"),
                     context.get("source_revision_nullable"),
+                    classification,
                     context["created_at"],
                 ),
             )
-        code_context = self.get_code_context(project_id, code_context_id)
+        code_context = self.get_code_context(
+            project_id,
+            code_context_id,
+            max_classification="secret",
+        )
         if code_context is None:
             raise KeyError(f"code context not found: {code_context_id}")
         return code_context
@@ -2696,7 +2772,9 @@ class SQLiteStore:
         span_id: str | None = None,
         source_revision: str | None = None,
         limit: int = 100,
+        max_classification: str | None = None,
     ) -> list[dict[str, Any]]:
+        max_level = normalize_classification(max_classification, "internal")
         clauses = ["project_id = ?"]
         params: list[Any] = [project_id]
         if trace_id:
@@ -2721,13 +2799,18 @@ class SQLiteStore:
                 """,
                 params,
             ).fetchall()
-        return [self._code_context_from_row(row) for row in rows]
+        return [
+            _code_context_for_access(self._code_context_from_row(row), max_level) for row in rows
+        ]
 
     def get_code_context(
         self,
         project_id: str,
         code_context_id: str,
+        *,
+        max_classification: str | None = None,
     ) -> dict[str, Any] | None:
+        max_level = normalize_classification(max_classification, "internal")
         with self.connect() as conn:
             row = conn.execute(
                 """
@@ -2736,7 +2819,9 @@ class SQLiteStore:
                 """,
                 (project_id, code_context_id),
             ).fetchone()
-        return self._code_context_from_row(row) if row else None
+        if row is None:
+            return None
+        return _code_context_for_access(self._code_context_from_row(row), max_level)
 
     def get_trace(self, project_id: str, trace_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:
@@ -3955,9 +4040,11 @@ class SQLiteStore:
         value: str,
         value_type: str = "string",
         source: str = "manual",
+        classification: str | None = None,
     ) -> dict[str, Any]:
         if self.get_trace(project_id, trace_id) is None:
             raise KeyError(f"trace not found: {trace_id}")
+        classification_level = normalize_classification(classification, "internal")
         item = {
             "trace_dimension_id": new_id("trace_dimension"),
             "trace_id": trace_id,
@@ -3966,6 +4053,7 @@ class SQLiteStore:
             "value": value,
             "value_type": value_type,
             "source": source,
+            "classification": classification_level,
             "created_at": utc_now(),
         }
         with self.connect() as conn:
@@ -3973,9 +4061,9 @@ class SQLiteStore:
                 """
                 INSERT INTO trace_dimensions(
                   trace_dimension_id, trace_id, project_id, key, value, value_type,
-                  source, created_at
+                  source, classification, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item["trace_dimension_id"],
@@ -3985,6 +4073,7 @@ class SQLiteStore:
                     value,
                     value_type,
                     source,
+                    classification_level,
                     item["created_at"],
                 ),
             )
@@ -3994,7 +4083,9 @@ class SQLiteStore:
         self,
         project_id: str,
         trace_id: str | None = None,
+        max_classification: str | None = None,
     ) -> list[dict[str, Any]]:
+        max_level = normalize_classification(max_classification, "internal")
         clauses = ["project_id = ?"]
         params: list[Any] = [project_id]
         if trace_id:
@@ -4007,7 +4098,7 @@ class SQLiteStore:
                 + " ORDER BY created_at DESC",
                 params,
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [_trace_dimension_for_access(dict(row), max_level) for row in rows]
 
     def create_saved_search(
         self,
@@ -6244,7 +6335,15 @@ class SQLiteStore:
             "dataset_examples": self._list_dataset_examples(project_id),
             "prompts": self.list_prompts(project_id),
             "deployment_contexts": self.list_deployment_contexts(project_id, limit=10000),
-            "code_contexts": self.list_code_contexts(project_id, limit=10000),
+            "trace_dimensions": self.list_trace_dimensions(
+                project_id,
+                max_classification=max_level,
+            ),
+            "code_contexts": self.list_code_contexts(
+                project_id,
+                limit=10000,
+                max_classification=max_level,
+            ),
             "issues": self.list_issues(project_id),
             "issue_links": self._list_issue_links(project_id),
             "investigations": self.list_investigation_runs(project_id),
@@ -7434,6 +7533,7 @@ class SQLiteStore:
 
     @staticmethod
     def _code_context_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        keys = set(row.keys())
         return {
             "code_context_id": row["code_context_id"],
             "project_id": row["project_id"],
@@ -7446,6 +7546,7 @@ class SQLiteStore:
             "stack_frame_hash_nullable": row["stack_frame_hash_nullable"],
             "source_url_nullable": row["source_url_nullable"],
             "source_revision_nullable": row["source_revision_nullable"],
+            "classification": row["classification"] if "classification" in keys else "internal",
             "created_at": row["created_at"],
         }
 

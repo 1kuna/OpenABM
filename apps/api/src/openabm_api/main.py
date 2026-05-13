@@ -970,6 +970,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         trace_id: str | None = None,
         span_id: str | None = None,
         source_revision: str | None = None,
+        max_classification: str | None = None,
         limit: int = 100,
         actor: dict[str, object] = Depends(auth_dependency(["traces:read"])),
     ) -> dict[str, object]:
@@ -981,6 +982,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             span_id=span_id,
             source_revision=source_revision,
             limit=bounded_limit,
+            max_classification=max_classification,
         )
         return {
             "data": data,
@@ -991,10 +993,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def get_code_context(
         code_context_id: str,
         project_id: str,
+        max_classification: str | None = None,
         actor: dict[str, object] = Depends(auth_dependency(["traces:read"])),
     ) -> dict[str, object]:
         del actor
-        context = store.get_code_context(project_id, code_context_id)
+        context = store.get_code_context(
+            project_id,
+            code_context_id,
+            max_classification=max_classification,
+        )
         if context is None:
             raise HTTPException(
                 status_code=404,
@@ -2528,10 +2535,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def list_trace_dimensions(
         project_id: str,
         trace_id: str | None = None,
+        max_classification: str | None = None,
         actor: dict[str, object] = Depends(auth_dependency(["traces:read"])),
     ) -> dict[str, object]:
         del actor
-        return {"data": store.list_trace_dimensions(project_id, trace_id)}
+        return {
+            "data": store.list_trace_dimensions(
+                project_id,
+                trace_id,
+                max_classification=max_classification,
+            )
+        }
 
     @app.post("/api/trace-dimensions", status_code=201)
     def create_trace_dimension(
@@ -2546,14 +2560,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     f"{key} is required",
                     f"/{key}",
                 )
-        item = store.add_trace_dimension(
-            request["project_id"],
-            request["trace_id"],
-            request["key"],
-            str(request["value"]),
-            value_type=request.get("value_type", "string"),
-            source=request.get("source", "manual"),
-        )
+        try:
+            item = store.add_trace_dimension(
+                request["project_id"],
+                request["trace_id"],
+                request["key"],
+                str(request["value"]),
+                value_type=request.get("value_type", "string"),
+                source=request.get("source", "manual"),
+                classification=request.get("classification"),
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
+        except ValueError as exc:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                str(exc),
+                "/classification",
+            ) from exc
         store.append_audit(
             "create_trace_dimension",
             "trace_dimension",
@@ -3354,7 +3378,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail=_error("not_found", "Trace not found."))
             traces.append(trace)
             spans_by_trace[trace_id] = store.list_spans(project_id, trace_id)
-            dimensions_by_trace[trace_id] = store.list_trace_dimensions(project_id, trace_id)
+            dimensions_by_trace[trace_id] = store.list_trace_dimensions(
+                project_id,
+                trace_id,
+                max_classification=classification,
+            )
         issue_id = request.get("issue_id_nullable")
         issue = store.get_issue(project_id, issue_id) if issue_id else None
         try:

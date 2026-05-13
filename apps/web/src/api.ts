@@ -114,7 +114,13 @@ export class OpenAbmClient {
 
   async listCodeContexts(
     projectId: string,
-    options: { traceId?: string; spanId?: string; sourceRevision?: string; limit?: number } = {}
+    options: {
+      traceId?: string;
+      spanId?: string;
+      sourceRevision?: string;
+      maxClassification?: string;
+      limit?: number;
+    } = {}
   ): Promise<CodeContext[]> {
     const params = new URLSearchParams({
       project_id: projectId,
@@ -123,12 +129,18 @@ export class OpenAbmClient {
     if (options.traceId) params.set("trace_id", options.traceId);
     if (options.spanId) params.set("span_id", options.spanId);
     if (options.sourceRevision) params.set("source_revision", options.sourceRevision);
+    if (options.maxClassification) params.set("max_classification", options.maxClassification);
     const body = await this.get<{ data: CodeContext[] }>(`/v1/code-contexts?${params.toString()}`);
     return body.data;
   }
 
-  async getCodeContext(projectId: string, codeContextId: string): Promise<CodeContext> {
+  async getCodeContext(
+    projectId: string,
+    codeContextId: string,
+    maxClassification?: string
+  ): Promise<CodeContext> {
     const params = new URLSearchParams({ project_id: projectId });
+    if (maxClassification) params.set("max_classification", maxClassification);
     return this.get<CodeContext>(`/v1/code-contexts/${codeContextId}?${params.toString()}`);
   }
 

@@ -738,6 +738,113 @@ def test_payload_classification_redacts_exported_payload_objects(tmp_path) -> No
     assert exposed_payload["sha256_nullable"] == payload["sha256_nullable"]
 
 
+def test_business_and_code_context_classification_redacts_access_surfaces(tmp_path) -> None:
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][0]
+    trace_id = fixture["trace"]["trace_id"]
+    span_id = fixture["spans"][0]["span_id"]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+
+    dimension = client.post(
+        "/v1/trace-dimensions",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": trace_id,
+            "key": "account_id",
+            "value": "acct_secret",
+            "classification": "secret",
+        },
+    )
+    assert dimension.status_code == 201
+    assert dimension.json()["classification"] == "secret"
+
+    restricted_dimensions = client.get(
+        "/v1/trace-dimensions",
+        headers=auth_headers(),
+        params={
+            "project_id": "proj_demo",
+            "trace_id": trace_id,
+            "max_classification": "restricted",
+        },
+    )
+    assert restricted_dimensions.status_code == 200
+    redacted_dimension = restricted_dimensions.json()["data"][0]
+    assert redacted_dimension["value"] == "[redacted]"
+    assert redacted_dimension["redacted"] is True
+
+    secret_dimensions = client.get(
+        "/v1/trace-dimensions",
+        headers=auth_headers(),
+        params={
+            "project_id": "proj_demo",
+            "trace_id": trace_id,
+            "max_classification": "secret",
+        },
+    )
+    assert secret_dimensions.status_code == 200
+    assert secret_dimensions.json()["data"][0]["value"] == "acct_secret"
+
+    code_context = client.post(
+        "/v1/code-contexts",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "code_context_id": "code_context_secret",
+            "trace_id": trace_id,
+            "span_id_nullable": span_id,
+            "file_path_nullable": "agents/secret_refund.py",
+            "function_name_nullable": "run_secret_refund",
+            "line_start_nullable": 10,
+            "line_end_nullable": 42,
+            "stack_frame_hash_nullable": "stack-secret",
+            "source_url_nullable": "https://example.invalid/secret.py#L10-L42",
+            "source_revision_nullable": "secret-rev",
+            "classification": "secret",
+            "created_at": "2026-05-13T00:00:00Z",
+        },
+    )
+    assert code_context.status_code == 201
+    assert code_context.json()["file_path_nullable"] == "agents/secret_refund.py"
+
+    restricted_context = client.get(
+        "/v1/code-contexts/code_context_secret",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo", "max_classification": "restricted"},
+    )
+    assert restricted_context.status_code == 200
+    restricted_context_body = restricted_context.json()
+    assert restricted_context_body["classification"] == "secret"
+    assert restricted_context_body["redacted"] is True
+    assert restricted_context_body["file_path_nullable"] is None
+    assert restricted_context_body["function_name_nullable"] is None
+    assert restricted_context_body["source_revision_nullable"] is None
+
+    secret_contexts = client.get(
+        "/v1/code-contexts",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo", "max_classification": "secret"},
+    )
+    assert secret_contexts.status_code == 200
+    assert secret_contexts.json()["data"][0]["function_name_nullable"] == "run_secret_refund"
+
+    restricted_export = client.post(
+        "/v1/exports/project",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "max_classification": "restricted"},
+    )
+    assert restricted_export.status_code == 200
+    export_body = restricted_export.json()
+    assert export_body["trace_dimensions"][0]["value"] == "[redacted]"
+    assert export_body["code_contexts"][0]["file_path_nullable"] is None
+    assert export_body["manifest"]["sections"]["trace_dimensions"]["count"] == 1
+    assert "secret" in export_body["manifest"]["included_classifications"]
+
+
 def test_search_similar_fails_closed_without_embeddings(tmp_path) -> None:
     client = make_client(tmp_path)
     fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][2]

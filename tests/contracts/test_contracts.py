@@ -221,6 +221,45 @@ def test_payload_object_schema_accepts_classification_levels() -> None:
     assert list(validator.iter_errors(invalid_payload))
 
 
+def test_business_and_code_context_schemas_accept_classification_levels() -> None:
+    trace_dimension_schema = load_json(SCHEMA_DIR / "trace-dimension.schema.json")
+    code_context_schema = load_json(SCHEMA_DIR / "code-context.schema.json")
+    trace_dimension = {
+        "trace_dimension_id": "trace_dimension_1",
+        "trace_id": "trace_1",
+        "project_id": "proj_demo",
+        "key": "account_id",
+        "value": "acct_1",
+        "value_type": "string",
+        "source": "manual",
+        "classification": "restricted",
+        "created_at": "2026-05-13T00:00:00Z",
+    }
+    code_context = {
+        "code_context_id": "code_context_1",
+        "project_id": "proj_demo",
+        "trace_id": "trace_1",
+        "span_id_nullable": None,
+        "file_path_nullable": "agents/refunds.py",
+        "function_name_nullable": "run_refund_agent",
+        "line_start_nullable": 10,
+        "line_end_nullable": 20,
+        "stack_frame_hash_nullable": "stack_hash_1",
+        "source_url_nullable": None,
+        "source_revision_nullable": "rev_1",
+        "classification": "secret",
+        "created_at": "2026-05-13T00:00:00Z",
+    }
+
+    Draft202012Validator(trace_dimension_schema).validate(trace_dimension)
+    Draft202012Validator(code_context_schema).validate(code_context)
+    assert list(
+        Draft202012Validator(trace_dimension_schema).iter_errors(
+            {**trace_dimension, "classification": "top_secret"}
+        )
+    )
+
+
 def test_score_result_schema_enforces_failure_reason_contract() -> None:
     schema = load_json(SCHEMA_DIR / "score-result.schema.json")
     validator = Draft202012Validator(schema)
