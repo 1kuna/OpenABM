@@ -4515,6 +4515,10 @@ class SQLiteStore:
         }
         if result.get("model_extraction"):
             check["model_extraction"] = result["model_extraction"]
+        if result.get("model_contradiction_adjudication"):
+            check["model_contradiction_adjudication"] = result[
+                "model_contradiction_adjudication"
+            ]
         with self.connect() as conn:
             conn.execute(
                 """
@@ -4550,6 +4554,21 @@ class SQLiteStore:
                         now,
                     ),
                 )
+            if result.get("model_contradiction_adjudication"):
+                conn.execute(
+                    """
+                    INSERT INTO grounding_check_model_adjudications(
+                      grounding_check_id, project_id, model_adjudication_json, created_at
+                    )
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        check["grounding_check_id"],
+                        project_id,
+                        encode_json(result["model_contradiction_adjudication"]),
+                        now,
+                    ),
+                )
         return check
 
     def list_grounding_checks(self, project_id: str) -> list[dict[str, Any]]:
@@ -4570,14 +4589,30 @@ class SQLiteStore:
                 """,
                 (project_id,),
             ).fetchall()
+            adjudication_rows = conn.execute(
+                """
+                SELECT grounding_check_id, model_adjudication_json
+                FROM grounding_check_model_adjudications
+                WHERE project_id = ?
+                """,
+                (project_id,),
+            ).fetchall()
         extractions = {
             row["grounding_check_id"]: decode_json(row["model_extraction_json"], {})
             for row in extraction_rows
+        }
+        adjudications = {
+            row["grounding_check_id"]: decode_json(row["model_adjudication_json"], {})
+            for row in adjudication_rows
         }
         checks = [self._grounding_check_from_row(row) for row in rows]
         for check in checks:
             if check["grounding_check_id"] in extractions:
                 check["model_extraction"] = extractions[check["grounding_check_id"]]
+            if check["grounding_check_id"] in adjudications:
+                check["model_contradiction_adjudication"] = adjudications[
+                    check["grounding_check_id"]
+                ]
         return checks
 
     def create_novelty_run(

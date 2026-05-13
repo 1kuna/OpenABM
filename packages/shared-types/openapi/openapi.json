@@ -2389,6 +2389,10 @@
                   "extract_claims_with_model": {
                     "type": "boolean",
                     "default": false
+                  },
+                  "adjudicate_contradictions_with_model": {
+                    "type": "boolean",
+                    "default": false
                   }
                 }
               }

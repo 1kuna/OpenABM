@@ -424,8 +424,13 @@ Done:
   API persisted the extraction, and deterministic validation marked `delivered`
   supported while keeping the policy claim in review. A richer contradiction
   extraction prompt caused the 9B model to spend 8,191 reasoning tokens without
-  emitting a tool call, so semantic contradiction adjudication remains a later,
-  separately scoped tool.
+  emitting a tool call, so contradiction adjudication was split into a separate
+  review-gated tool-call step instead of overloading claim extraction.
+- Added model-backed grounding contradiction adjudication through a dedicated
+  tool call. The model may identify direct contradictions and cite span IDs, but
+  OpenABM validates claim membership and span citations before marking any claim
+  `contradicted`, persists the adjudication metadata, and still routes the check
+  through human review.
 - Added passive novelty detection runs that group unknown error/tool signatures,
   persist candidate outputs, and create review tasks for behavior candidates.
 - Added optional local-model semantic grouping for novelty runs through tool
@@ -737,8 +742,10 @@ Known remaining gaps before calling the whole spec complete:
   optional model semantic grouping/naming with validated membership; larger
   clustering and embedding-backed discovery remain future work.
 - Grounding/fabricated-value checks support explicit, deterministically split,
-  and model-extracted claims with exact evidence matching; broader semantic
-  contradiction adjudication remains review-gated rather than automatic.
+  and model-extracted claims with exact evidence matching, plus review-gated
+  model contradiction adjudication with validated span citations; broad
+  automatic contradiction decisions across arbitrary evidence types remain out
+  of scope.
 - Screenshot issue intake and ChatOps-style issue/investigation creation exist;
   screenshot/attachment metadata and extracted text are preserved as evidence,
   while real OCR, deeper attachment parsing, and vendor-specific chat
@@ -873,6 +880,9 @@ Implemented in this pass:
   for weak human reports and chat-originated investigations; screenshot intake
   now preserves screenshot and attachment payload links plus extracted text
   evidence for seed trace search.
+- Added review-gated model contradiction adjudication for grounding checks:
+  requests can opt into a second tool call that cites contradictory spans, and
+  OpenABM validates claim/span IDs before persisting contradicted status.
 - Added `/v1/judges`, `/v1/judges/drafts`, `/v1/evals/run`,
   `/v1/evals/compare`, and `/v1/docs/search`, then wired the corresponding MCP
   tool handlers so the agent surface no longer reports those paths as

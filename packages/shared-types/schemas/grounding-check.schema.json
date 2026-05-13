@@ -10,9 +10,12 @@
     "project_id": {"type": "string"},
     "trace_id": {"type": "string"},
     "span_id_nullable": {"type": ["string", "null"]},
-    "status": {"enum": ["supported", "unsupported", "contradicted", "insufficient_evidence", "not_checked"]},
+    "status": {"enum": ["supported", "needs_review", "unsupported", "contradicted", "insufficient_evidence", "not_checked"]},
     "claims": {"type": "array", "items": {"type": "object"}},
     "evidence_span_ids": {"type": "array", "items": {"type": "string"}},
+    "contradicted_span_ids": {"type": "array", "items": {"type": "string"}},
+    "model_extraction": {"type": "object"},
+    "model_contradiction_adjudication": {"type": "object"},
     "created_at": {"type": "string", "format": "date-time"}
   }
 }

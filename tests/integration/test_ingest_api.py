@@ -1794,6 +1794,106 @@ def test_v1_model_extracted_grounding_claims_are_deterministically_checked(
     assert body["model_extraction"]["model_metadata"]["model"] == "stub-model"
 
 
+def test_v1_model_adjudicated_grounding_contradictions_are_review_gated(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class StubProvider:
+        async def tool_completion(self, request, tools):
+            assert request["tool_choice"]["function"]["name"] == (
+                "record_grounding_contradictions"
+            )
+            assert tools[0]["function"]["name"] == "record_grounding_contradictions"
+            return {
+                "status": "succeeded",
+                "tool_calls": [
+                    {
+                        "name": "record_grounding_contradictions",
+                        "arguments": {
+                            "contradictions": [
+                                {
+                                    "claim": "refund policy approved",
+                                    "contradicted_by_span_ids": [
+                                        "span_wrong_tool_order_lookup",
+                                        "span_not_real",
+                                    ],
+                                    "reason": "Trace evidence shows an order lookup instead.",
+                                    "uncertainty": "single fixture trace",
+                                },
+                                {
+                                    "claim": "not one of the supplied claims",
+                                    "contradicted_by_span_ids": [
+                                        "span_wrong_tool_order_lookup",
+                                    ],
+                                    "reason": "Should be ignored by deterministic validation.",
+                                },
+                            ],
+                            "uncertainty": "model contradiction adjudication",
+                        },
+                    }
+                ],
+                "provider": "stub",
+                "model": "stub-model",
+                "usage": {"total_tokens": 88},
+            }
+
+    monkeypatch.setattr(
+        "openabm_api.main.model_provider_from_settings",
+        lambda settings: StubProvider(),
+    )
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    trace_id = fixture["trace"]["trace_id"]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    response = client.post(
+        "/v1/grounding-checks",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": trace_id,
+            "claims": [
+                {"claim": "delivered"},
+                {"claim": "refund policy approved"},
+            ],
+            "adjudicate_contradictions_with_model": True,
+        },
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "contradicted"
+    claims = {claim["claim"]: claim for claim in body["claims"]}
+    assert claims["delivered"]["status"] == "supported"
+    assert claims["refund policy approved"]["status"] == "contradicted"
+    assert claims["refund policy approved"]["contradicted_by_span_ids"] == [
+        "span_wrong_tool_order_lookup"
+    ]
+    adjudication = body["model_contradiction_adjudication"]
+    assert adjudication["model_metadata"]["model"] == "stub-model"
+    assert adjudication["contradictions"][0]["claim"] == "refund policy approved"
+    assert adjudication["contradictions"][0]["contradicted_by_span_ids"] == [
+        "span_wrong_tool_order_lookup"
+    ]
+
+    listed = client.get(
+        "/v1/grounding-checks",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert listed.status_code == 200
+    assert listed.json()["data"][0]["model_contradiction_adjudication"] == adjudication
+    reviews = client.get(
+        "/v1/review-tasks",
+        params={"project_id": "proj_demo", "task_type": "grounding_check"},
+        headers=auth_headers(),
+    )
+    assert reviews.status_code == 200
+    assert reviews.json()["data"][0]["source_entity_id"] == body["grounding_check_id"]
+
+
 def test_v1_screenshot_issue_and_chatops_create_canonical_artifacts(tmp_path) -> None:
     client = make_client(tmp_path)
     fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]

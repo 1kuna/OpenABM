@@ -20,6 +20,8 @@ from openabm_worker.behaviors import backtest_behavior
 from openabm_worker.context_packs import build_agent_context_pack_content
 from openabm_worker.eval_assertions import evaluate_trace_assertions
 from openabm_worker.grounding import (
+    adjudicate_grounding_contradictions_with_model,
+    apply_grounding_contradictions,
     claims_from_text,
     evaluate_grounding_claims,
     extract_grounding_claims_with_model,
@@ -3008,13 +3010,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=_error("not_found", "Trace not found."))
         spans = store.list_spans(request["project_id"], request["trace_id"])
         model_extraction = None
+        model_provider = None
         if request.get("claims"):
             claims = request["claims"]
         elif request.get("extract_claims_with_model"):
             try:
-                provider = _observed_model_provider(settings, metrics)
+                model_provider = _observed_model_provider(settings, metrics)
                 model_extraction = await extract_grounding_claims_with_model(
-                    provider,
+                    model_provider,
                     text=request.get("text") or trace.get("summary") or "",
                     trace=trace,
                     spans=spans,
@@ -3047,13 +3050,47 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "uncertainty": model_extraction["uncertainty"],
                 "model_metadata": model_extraction["model_metadata"],
             }
+        if request.get("adjudicate_contradictions_with_model"):
+            try:
+                if model_provider is None:
+                    model_provider = _observed_model_provider(settings, metrics)
+                model_adjudication = await adjudicate_grounding_contradictions_with_model(
+                    model_provider,
+                    claims=claims,
+                    trace=trace,
+                    spans=spans,
+                )
+            except ModelConfigurationError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=_error("model_unavailable", str(exc), retryable=True),
+                ) from exc
+            except ModelCallsDisabled as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=_error("model_unavailable", str(exc), retryable=True),
+                ) from exc
+            if model_adjudication["status"] != "succeeded":
+                raise HTTPException(
+                    status_code=422,
+                    detail=_error(
+                        "invalid_model_output",
+                        "Grounding contradiction model output was invalid.",
+                    ),
+                )
+            result = apply_grounding_contradictions(result, model_adjudication)
+            result["model_contradiction_adjudication"] = {
+                "contradictions": model_adjudication["contradictions"],
+                "uncertainty": model_adjudication["uncertainty"],
+                "model_metadata": model_adjudication["model_metadata"],
+            }
         check = store.create_grounding_check(
             request["project_id"],
             request["trace_id"],
             result,
             span_id=request.get("span_id_nullable"),
         )
-        if check["status"] == "needs_review":
+        if check["status"] in {"needs_review", "contradicted"}:
             store.create_review_task(
                 {
                     "project_id": request["project_id"],

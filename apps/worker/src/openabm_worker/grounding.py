@@ -33,6 +33,44 @@ GROUNDING_EXTRACTION_TOOL = {
     },
 }
 
+GROUNDING_CONTRADICTION_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "required": ["contradictions"],
+    "properties": {
+        "contradictions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["claim", "contradicted_by_span_ids", "reason"],
+                "properties": {
+                    "claim": {"type": "string"},
+                    "contradicted_by_span_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "reason": {"type": "string"},
+                    "uncertainty": {"type": "string"},
+                },
+            },
+        },
+        "uncertainty": {"type": "string"},
+    },
+}
+
+GROUNDING_CONTRADICTION_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "record_grounding_contradictions",
+        "description": (
+            "Record claims that directly conflict with supplied trace evidence. This "
+            "tool must cite existing span IDs and must not treat missing evidence as a "
+            "contradiction."
+        ),
+        "parameters": GROUNDING_CONTRADICTION_SCHEMA,
+    },
+}
+
 
 def evaluate_grounding_claims(
     claims: list[dict[str, Any]],
@@ -62,6 +100,56 @@ def evaluate_grounding_claims(
         "status": "supported" if not unsupported else "needs_review",
         "claims": evaluated,
         "evidence_span_ids": sorted(all_evidence_span_ids),
+    }
+
+
+def apply_grounding_contradictions(
+    result: dict[str, Any],
+    adjudication: dict[str, Any],
+) -> dict[str, Any]:
+    if adjudication.get("status") != "succeeded":
+        return result
+    by_claim: dict[str, list[dict[str, Any]]] = {}
+    for contradiction in adjudication.get("contradictions", []):
+        by_claim.setdefault(contradiction["claim"], []).append(contradiction)
+    if not by_claim:
+        return result
+
+    claims = []
+    contradiction_span_ids = set()
+    for claim in result.get("claims", []):
+        claim_text = claim.get("claim")
+        contradictions = by_claim.get(claim_text, [])
+        if not contradictions:
+            claims.append(claim)
+            continue
+        contradicted_by = sorted(
+            {
+                span_id
+                for contradiction in contradictions
+                for span_id in contradiction.get("contradicted_by_span_ids", [])
+            }
+        )
+        contradiction_span_ids.update(contradicted_by)
+        reasons = [
+            contradiction["reason"]
+            for contradiction in contradictions
+            if contradiction.get("reason")
+        ]
+        claims.append(
+            {
+                **claim,
+                "status": "contradicted",
+                "contradicted_by_span_ids": contradicted_by,
+                "contradiction_reasons": reasons,
+                "uncertainty": "model-adjudicated contradiction; human review required",
+            }
+        )
+    return {
+        **result,
+        "status": "contradicted",
+        "claims": claims,
+        "contradicted_span_ids": sorted(contradiction_span_ids),
     }
 
 
@@ -111,6 +199,47 @@ async def extract_grounding_claims_with_model(
     }
 
 
+async def adjudicate_grounding_contradictions_with_model(
+    provider: Any,
+    *,
+    claims: list[dict[str, Any]],
+    trace: dict[str, Any],
+    spans: list[dict[str, Any]],
+) -> dict[str, Any]:
+    claim_texts = {
+        str(claim.get("claim") or claim.get("text") or "").strip()
+        for claim in claims
+        if str(claim.get("claim") or claim.get("text") or "").strip()
+    }
+    span_ids = {span["span_id"] for span in spans}
+    request = _grounding_contradiction_request(
+        claims=claims,
+        trace=trace,
+        spans=spans,
+    )
+    completion = await provider.tool_completion(
+        {
+            **request,
+            "tool_choice": {
+                "type": "function",
+                "function": {"name": "record_grounding_contradictions"},
+            },
+        },
+        [GROUNDING_CONTRADICTION_TOOL],
+    )
+    if completion.get("status") != "succeeded":
+        return _invalid_contradiction_output(completion)
+    call = _first_named_tool_call(completion, "record_grounding_contradictions")
+    if call is None:
+        return _invalid_contradiction_output(completion)
+    return _grounding_contradiction_success(
+        call["arguments"],
+        completion,
+        claim_texts,
+        span_ids,
+    )
+
+
 def _grounding_extraction_request(
     *,
     text: str,
@@ -145,6 +274,52 @@ def _grounding_extraction_request(
     }
 
 
+def _grounding_contradiction_request(
+    *,
+    claims: list[dict[str, Any]],
+    trace: dict[str, Any],
+    spans: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "Find direct contradictions between supplied claim strings and trace "
+                    "evidence. Call record_grounding_contradictions exactly once. Use "
+                    "only claim strings from claims_to_check and only span IDs from "
+                    "trace_evidence. Return an empty contradictions list when evidence "
+                    "is merely missing or inconclusive. Do not invent claims, span IDs, "
+                    "or evidence. This is a review-gated adjudication, so keep reasons "
+                    "short and cite the conflicting span IDs."
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "trace": {
+                            "trace_id": trace.get("trace_id"),
+                            "summary": trace.get("summary"),
+                            "status": trace.get("status"),
+                            "attributes": trace.get("attributes", {}),
+                        },
+                        "claims_to_check": [
+                            str(claim.get("claim") or claim.get("text") or "").strip()
+                            for claim in claims
+                            if str(claim.get("claim") or claim.get("text") or "").strip()
+                        ],
+                        "trace_evidence": _span_context(spans),
+                    },
+                    sort_keys=True,
+                ),
+            },
+        ],
+        "temperature": 0.1,
+        "max_tokens": 8192,
+    }
+
+
 def _grounding_extraction_success(
     value: dict[str, Any],
     completion: dict[str, Any],
@@ -169,6 +344,36 @@ def _grounding_extraction_success(
     }
 
 
+def _grounding_contradiction_success(
+    value: dict[str, Any],
+    completion: dict[str, Any],
+    claim_texts: set[str],
+    span_ids: set[str],
+) -> dict[str, Any]:
+    contradictions = _normalize_model_contradictions(
+        value.get("contradictions", []),
+        span_ids,
+        claim_texts=claim_texts,
+        require_citations=True,
+    )
+    return {
+        "status": "succeeded",
+        "contradictions": contradictions,
+        "uncertainty": str(
+            value.get("uncertainty") or "model adjudicated contradictions via tool call"
+        ),
+        "model_metadata": _metadata(completion),
+    }
+
+
+def _invalid_contradiction_output(completion: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": "invalid_model_output",
+        "model_metadata": _metadata(completion),
+        "raw_output": completion.get("raw_message"),
+    }
+
+
 def _normalize_model_claims(raw_claims: Any) -> list[dict[str, Any]]:
     if not isinstance(raw_claims, list):
         return []
@@ -189,6 +394,9 @@ def _normalize_model_claims(raw_claims: Any) -> list[dict[str, Any]]:
 def _normalize_model_contradictions(
     raw_contradictions: Any,
     span_ids: set[str],
+    *,
+    claim_texts: set[str] | None = None,
+    require_citations: bool = False,
 ) -> list[dict[str, Any]]:
     if not isinstance(raw_contradictions, list):
         return []
@@ -200,15 +408,20 @@ def _normalize_model_contradictions(
         raw_ids = item.get("contradicted_by_span_ids", [])
         if not claim_text or not isinstance(raw_ids, list):
             continue
+        if claim_texts is not None and claim_text not in claim_texts:
+            continue
+        cited_span_ids = [
+            span_id
+            for span_id in raw_ids
+            if isinstance(span_id, str) and span_id in span_ids
+        ]
+        if require_citations and not cited_span_ids:
+            continue
         contradictions.append(
             {
                 **item,
                 "claim": claim_text,
-                "contradicted_by_span_ids": [
-                    span_id
-                    for span_id in raw_ids
-                    if isinstance(span_id, str) and span_id in span_ids
-                ],
+                "contradicted_by_span_ids": cited_span_ids,
             }
         )
     return contradictions
