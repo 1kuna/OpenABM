@@ -837,9 +837,73 @@ td span {
   overflow-wrap: anywhere;
 }
 
+.traceModeTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.traceModeTabs button {
+  flex: 1 1 105px;
+  min-height: 34px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0 8px;
+}
+
+.traceModeTabs button.active {
+  border-color: #111827;
+  background: #111827;
+  color: #ffffff;
+}
+
+.traceModePanel {
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  display: grid;
+  gap: 10px;
+  min-height: 160px;
+  padding: 12px;
+}
+
 .timeline {
   display: grid;
   gap: 8px;
+}
+
+.spanTreePanel {
+  align-content: start;
+}
+
+.spanTreeNode {
+  display: grid;
+  gap: 7px;
+}
+
+.spanTreeCard {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid #edf0f4;
+  border-radius: 7px;
+  padding: 9px;
+}
+
+.spanTreeCard strong,
+.spanTreeCard small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.spanTreeCard small {
+  color: #6b7280;
+  margin-top: 2px;
 }
 
 .timelineRow {
@@ -873,6 +937,121 @@ td span {
 .timelineRow small {
   color: #6b7280;
   margin-top: 2px;
+}
+
+.conversationRows {
+  align-content: start;
+}
+
+.conversationRow {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.conversationRow > span {
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.conversationRow.assistant > span {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.conversationRow.tool > span {
+  background: #fffbeb;
+  color: #a16207;
+}
+
+.conversationRow div {
+  border: 1px solid #edf0f4;
+  border-radius: 7px;
+  padding: 9px;
+}
+
+.conversationRow p {
+  margin: 5px 0;
+  color: #111827;
+  overflow-wrap: anywhere;
+}
+
+.conversationRow small,
+.inlineAnnotations span,
+.toolStep small,
+.toolStep dd,
+.codeErrorRow small {
+  color: #6b7280;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.inlineAnnotations,
+.toolSequence,
+.codeErrorRows {
+  align-content: start;
+}
+
+.inlineAnnotations div,
+.codeContextBlock,
+.codeErrorRow {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #edf0f4;
+  border-radius: 7px;
+  padding: 9px;
+}
+
+.codeContextBlock strong,
+.codeErrorRow strong,
+.codeErrorRow small {
+  display: block;
+}
+
+.toolStep {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.toolStep > span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.toolStep dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 8px 0 0;
+}
+
+.toolStep dl div {
+  border: 1px solid #edf0f4;
+  border-radius: 7px;
+  padding: 8px;
+}
+
+.toolStep dt {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.toolStep dd {
+  margin: 3px 0 0;
 }
 
 .inspector {
@@ -1681,6 +1860,12 @@ pre {
 
   .inlineControls,
   .ruleControls {
+    grid-template-columns: 1fr;
+  }
+
+  .conversationRow,
+  .toolStep,
+  .toolStep dl {
     grid-template-columns: 1fr;
   }
 

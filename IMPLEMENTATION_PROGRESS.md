@@ -130,6 +130,10 @@ Done:
 - Added React/Vite trace explorer UI with API connection controls, trace table,
   status filtering, full-text search trigger, trace detail, timeline, payload
   state summary, span inspector, and scaffolded actions.
+- Added trace detail modes for span tree, timeline/waterfall, conversation/
+  thread payloads, tool sequence, and code/error context views. These are
+  derived from reconstructed spans, payload redaction states, events, and
+  captured attributes without hardcoding semantic decisions.
 - Replaced the old fail-closed similar-trace stub with model-backed semantic
   similarity ranking over candidate traces, preserving cited candidate span
   evidence and model metadata.
@@ -409,12 +413,12 @@ Verified after the latest implementation slices:
 - `make lint && make test`: passed, 43 tests after the operations workspace
   slice.
 - `npm --prefix apps/web run build`: passed.
-- Browser QA captured desktop and mobile Operations, Issues, and Automations
-  workspace screenshots under `artifacts/ui-qa/`; retention dry-run, export
-  manifest, classification, issue intake, screenshot intake, ChatOps
-  investigation, notification-target creation, automation creation, and
-  automation run-once flows completed against the live local API with no console
-  errors or failing API responses.
+- Browser QA captured desktop and mobile Trace Detail, Operations, Issues, and
+  Automations workspace screenshots under `artifacts/ui-qa/`; trace detail mode
+  switching, retention dry-run, export manifest, classification, issue intake,
+  screenshot intake, ChatOps investigation, notification-target creation,
+  automation creation, and automation run-once flows completed against the live
+  local API with no console errors or failing API responses.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
 - MCP stdio smoke: `tools/list` returned 35 tools and

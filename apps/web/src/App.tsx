@@ -51,6 +51,7 @@ import type {
   ReviewTask,
   ScreenshotIssueResult,
   SpanEnvelope,
+  SpanNode,
   TimelineRow,
   TraceDetail,
   TraceEnvelope,
@@ -61,6 +62,7 @@ const DEFAULT_BASE_URL = "http://127.0.0.1:8787";
 const DEFAULT_API_KEY = "dev-openabm-key";
 
 type ConnectionState = "connecting" | "live" | "fixture";
+type TraceDetailMode = "tree" | "timeline" | "conversation" | "tools" | "code";
 type ViewKey =
   | "traces"
   | "issues"
@@ -2625,6 +2627,7 @@ function TraceExplorer(props: {
   onCheckSimilarity: () => void;
 }) {
   const { traces, detail } = props;
+  const [detailMode, setDetailMode] = useState<TraceDetailMode>("timeline");
   const selectedSpan = detail?.spans[0] ?? null;
   return (
     <div className="traceGrid">
@@ -2700,7 +2703,20 @@ function TraceExplorer(props: {
               <Metric icon={<AlertTriangle />} label="Warnings" value={String(detail.reconstruction.warnings.length)} />
               <Metric icon={<Box />} label="Payloads" value={payloadSummary(detail)} />
             </div>
-            <Timeline rows={detail.reconstruction.timeline_rows} />
+            <div className="traceModeTabs" role="tablist" aria-label="Trace detail modes">
+              {traceModeLabels.map((mode) => (
+                <button
+                  key={mode.value}
+                  className={detailMode === mode.value ? "active" : ""}
+                  onClick={() => setDetailMode(mode.value)}
+                  role="tab"
+                  aria-selected={detailMode === mode.value}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            <TraceModeView detail={detail} mode={detailMode} />
             <Inspector span={selectedSpan} />
             <div className="actionStrip">
               <button onClick={props.onCheckSimilarity}>
@@ -2726,9 +2742,64 @@ function TraceExplorer(props: {
   );
 }
 
+const traceModeLabels: Array<{ value: TraceDetailMode; label: string }> = [
+  { value: "tree", label: "Span tree" },
+  { value: "timeline", label: "Timeline" },
+  { value: "conversation", label: "Conversation" },
+  { value: "tools", label: "Tools" },
+  { value: "code", label: "Code/error" }
+];
+
+function TraceModeView({ detail, mode }: { detail: TraceDetail; mode: TraceDetailMode }) {
+  if (mode === "tree") return <SpanTree detail={detail} />;
+  if (mode === "conversation") return <ConversationView detail={detail} />;
+  if (mode === "tools") return <ToolSequenceView detail={detail} />;
+  if (mode === "code") return <CodeErrorView detail={detail} />;
+  return <Timeline rows={detail.reconstruction.timeline_rows} />;
+}
+
+function SpanTree({ detail }: { detail: TraceDetail }) {
+  const roots = detail.reconstruction.span_tree.length ? detail.reconstruction.span_tree : buildSpanTree(detail.spans);
+  return (
+    <div className="traceModePanel spanTreePanel">
+      {roots.map((node) => (
+        <SpanTreeNodeView key={node.span.span_id} node={node} depth={0} detail={detail} />
+      ))}
+      {detail.reconstruction.missing_parent_group.map((node) => (
+        <SpanTreeNodeView key={node.span.span_id} node={node} depth={0} detail={detail} missing />
+      ))}
+      {!roots.length && !detail.reconstruction.missing_parent_group.length ? (
+        <p className="systemNote">No span tree available</p>
+      ) : null}
+    </div>
+  );
+}
+
+function SpanTreeNodeView(props: { node: SpanNode; depth: number; detail: TraceDetail; missing?: boolean }) {
+  const { node, depth, detail, missing } = props;
+  const payloadState = detail.reconstruction.payload_availability[node.span.span_id] ?? node.payload_state;
+  return (
+    <div className="spanTreeNode" style={{ marginLeft: `${Math.min(depth * 18, 72)}px` }}>
+      <div className="spanTreeCard">
+        <span className={`dot ${node.span.status}`} />
+        <div>
+          <strong>{node.span.name}</strong>
+          <small>
+            {node.span.span_type} · {node.span.status} · input {payloadState?.input ?? "unknown"} · output {payloadState?.output ?? "unknown"}
+            {missing ? " · missing parent" : ""}
+          </small>
+        </div>
+      </div>
+      {node.children.map((child) => (
+        <SpanTreeNodeView key={child.span.span_id} node={child} depth={depth + 1} detail={detail} />
+      ))}
+    </div>
+  );
+}
+
 function Timeline({ rows }: { rows: TimelineRow[] }) {
   return (
-    <div className="timeline">
+    <div className="traceModePanel timeline">
       {rows.map((row) => (
         <div className="timelineRow" key={row.span_id}>
           <span className={`dot ${row.status}`} />
@@ -2738,6 +2809,96 @@ function Timeline({ rows }: { rows: TimelineRow[] }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function ConversationView({ detail }: { detail: TraceDetail }) {
+  const rows = conversationRows(detail);
+  return (
+    <div className="traceModePanel conversationRows">
+      {rows.map((row, index) => (
+        <div className={`conversationRow ${row.role}`} key={`${row.spanId}-${row.role}-${index}`}>
+          <span>{row.role}</span>
+          <div>
+            <strong>{row.title}</strong>
+            <p>{row.text}</p>
+            <small>{row.redactionState} · {row.spanType}</small>
+          </div>
+        </div>
+      ))}
+      {!rows.length ? <p className="systemNote">No conversation payloads captured</p> : null}
+      {detail.spans.flatMap((span) => span.events).length ? (
+        <div className="inlineAnnotations">
+          {detail.spans.flatMap((span) =>
+            span.events.map((event) => (
+              <div key={`${span.span_id}-${event.name}-${event.time}`}>
+                <strong>{event.name}</strong>
+                <span>{JSON.stringify(event.attributes)}</span>
+              </div>
+            ))
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ToolSequenceView({ detail }: { detail: TraceDetail }) {
+  const tools = detail.spans.filter((span) => span.span_type === "tool" || Boolean(span.attributes["tool.name"]));
+  return (
+    <div className="traceModePanel toolSequence">
+      {tools.map((span, index) => (
+        <div className="toolStep" key={span.span_id}>
+          <span>{index + 1}</span>
+          <div>
+            <strong>{String(span.attributes["tool.name"] ?? span.name)}</strong>
+            <small>{span.status} · {formatTime(span.started_at)} · {span.span_id}</small>
+            <dl>
+              <div>
+                <dt>Input</dt>
+                <dd>{payloadText(span.input)}</dd>
+              </div>
+              <div>
+                <dt>Output</dt>
+                <dd>{payloadText(span.output)}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      ))}
+      {!tools.length ? <p className="systemNote">No tool calls captured</p> : null}
+    </div>
+  );
+}
+
+function CodeErrorView({ detail }: { detail: TraceDetail }) {
+  const rows = detail.spans.filter(hasCodeOrErrorContext);
+  const deployment = Object.fromEntries(
+    Object.entries(detail.trace.attributes).filter(([key]) =>
+      key.startsWith("deployment.") || key.startsWith("code.") || key.startsWith("service.")
+    )
+  );
+  return (
+    <div className="traceModePanel codeErrorRows">
+      {Object.keys(deployment).length ? (
+        <div className="codeContextBlock">
+          <strong>Deployment and code context</strong>
+          <pre>{JSON.stringify(deployment, null, 2)}</pre>
+        </div>
+      ) : null}
+      {rows.map((span) => (
+        <div className="codeErrorRow" key={span.span_id}>
+          <div>
+            <strong>{span.name}</strong>
+            <small>{span.span_type} · {span.status} · {span.span_id}</small>
+          </div>
+          <pre>{JSON.stringify(codeErrorAttributes(span), null, 2)}</pre>
+        </div>
+      ))}
+      {!rows.length && !Object.keys(deployment).length ? (
+        <p className="systemNote">No code or error context captured for this trace</p>
+      ) : null}
     </div>
   );
 }
@@ -3126,6 +3287,102 @@ function payloadSummary(detail: TraceDetail) {
     state.output
   ]);
   return Array.from(new Set(states)).join(", ") || "none";
+}
+
+function buildSpanTree(spans: SpanEnvelope[]): SpanNode[] {
+  const nodes = new Map<string, SpanNode>();
+  for (const span of spans) {
+    nodes.set(span.span_id, {
+      span,
+      children: [],
+      payload_state: {
+        input: span.input?.redaction_state ?? span.input?.mode ?? "unknown",
+        output: span.output?.redaction_state ?? span.output?.mode ?? "unknown"
+      }
+    });
+  }
+  const roots: SpanNode[] = [];
+  for (const node of nodes.values()) {
+    const parent = node.span.parent_span_id ? nodes.get(node.span.parent_span_id) : null;
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+  return roots;
+}
+
+function conversationRows(detail: TraceDetail) {
+  return detail.spans.flatMap((span) => {
+    const rows: Array<{
+      role: "user" | "assistant" | "tool" | "system";
+      title: string;
+      text: string;
+      redactionState: string;
+      spanType: string;
+      spanId: string;
+    }> = [];
+    if (span.input) {
+      rows.push({
+        role: span.span_type === "tool" ? "tool" : "user",
+        title: span.span_type === "tool" ? `${span.name} call` : `${span.name} input`,
+        text: payloadText(span.input),
+        redactionState: span.input.redaction_state ?? span.input.mode,
+        spanType: span.span_type,
+        spanId: span.span_id
+      });
+    }
+    if (span.output) {
+      rows.push({
+        role: span.span_type === "tool" ? "tool" : "assistant",
+        title: span.span_type === "tool" ? `${span.name} output` : `${span.name} output`,
+        text: payloadText(span.output),
+        redactionState: span.output.redaction_state ?? span.output.mode,
+        spanType: span.span_type,
+        spanId: span.span_id
+      });
+    }
+    return rows;
+  });
+}
+
+function payloadText(payload: SpanEnvelope["input"]) {
+  if (!payload) return "none";
+  if (payload.value == null) return `${payload.mode}${payload.payload_id ? ` · ${payload.payload_id}` : ""}`;
+  return typeof payload.value === "string" ? payload.value : JSON.stringify(payload.value);
+}
+
+function hasCodeOrErrorContext(span: SpanEnvelope) {
+  if (span.status === "error") return true;
+  if (span.events.some((event) => event.name.toLowerCase().includes("error"))) return true;
+  return Object.keys(span.attributes).some(
+    (key) =>
+      key.startsWith("error.") ||
+      key.startsWith("exception.") ||
+      key.startsWith("code.") ||
+      key.startsWith("deployment.") ||
+      key.startsWith("stack.") ||
+      key === "function.name" ||
+      key === "tool.name"
+  );
+}
+
+function codeErrorAttributes(span: SpanEnvelope) {
+  const attributes = Object.fromEntries(
+    Object.entries(span.attributes).filter(([key]) =>
+      key.startsWith("error.") ||
+      key.startsWith("exception.") ||
+      key.startsWith("code.") ||
+      key.startsWith("deployment.") ||
+      key.startsWith("stack.") ||
+      key === "function.name" ||
+      key === "tool.name"
+    )
+  );
+  return {
+    attributes,
+    events: span.events.filter((event) => event.name.toLowerCase().includes("error")),
+    input_redaction: span.input?.redaction_state ?? span.input?.mode ?? null,
+    output_redaction: span.output?.redaction_state ?? span.output?.mode ?? null
+  };
 }
 
 function formatCounts(counts: Record<string, unknown>) {
