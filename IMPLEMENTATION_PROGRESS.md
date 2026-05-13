@@ -359,9 +359,9 @@ Done:
   `qwen3.5-9b-mlx`; the model emitted one valid `record_agent_flow_plan` tool
   call using real OpenABM MCP tool names (`search_traces`, `get_trace`,
   `search_spans`), with 262144 context, memory guard `ready`, no generation
-  timeout, 1171 total tokens, and 479 reasoning tokens. The ignored
+  timeout, 1141 total tokens, and 456 reasoning tokens. The ignored
   machine-readable result is under
-  `artifacts/model-benchmarks/qwen3.5-agent-flow-smoke.json`.
+  `artifacts/model-canaries/agent-flow-smoke-qwen35-9b-20260513.json`.
 - Added judge output validation for verdicts and span citations.
 - Aligned the `ScoreResult` JSON Schema with the spec's failure-reason
   contract, including validation that succeeded scores cannot carry a
@@ -856,8 +856,8 @@ Verified after the latest implementation slices:
   `artifacts/ui-qa/openabm-ops-observability-mobile.png`.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
-- MCP stdio smoke: `tools/list` returned 41 tools and
-  `resources/templates/list` returned 14 protocol-shaped JSON resource
+- MCP manifest/stdio smoke: the current tool surface exposes 43 tools and
+  `resources/templates/list` returns 15 protocol-shaped JSON resource
   templates.
 - Live LM Studio canaries completed for structured rubric output, semantic trace
   similarity, and investigation drafting with `openabm-qwen35-9b`.
