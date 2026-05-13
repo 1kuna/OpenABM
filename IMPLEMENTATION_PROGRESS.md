@@ -477,6 +477,9 @@ Done:
 - Added trajectory assertion evaluator coverage for required/forbidden tools,
   retrieval sources, behavior IDs, span types, cost, duration, retry count, and
   grounding evidence counts.
+- Extended trajectory assertions with spec-named aliases for latency and tool
+  retry caps, expected span-pattern matching, required grounding evidence IDs,
+  and forbidden grounding-failure citations.
 - Added draft behavior creation, deterministic rule/manual-label/judge detector
   backtesting, persisted backtest-positive behavior matches, and review-task
   creation for candidate positives.

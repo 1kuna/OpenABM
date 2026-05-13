@@ -24,6 +24,13 @@ def evaluate_trace_assertions(
         for span in spans
         for value in _as_string_list(_attr(span, "grounding.evidence_span_ids"))
     }
+    grounding_failures_by_span = {
+        span.get("span_id", ""): _grounding_failures(span)
+        for span in spans
+    }
+    grounding_failures = {
+        value for values in grounding_failures_by_span.values() for value in values
+    }
     total_cost = sum(_float_attr(span, "cost.estimated_usd") for span in spans)
     total_duration_ms = sum(_span_duration_ms(span) for span in spans)
     retry_count = sum(_span_retry_count(span) for span in spans)
@@ -93,12 +100,25 @@ def evaluate_trace_assertions(
                 {"type": "forbidden_span_type", "span_type": span_type, "span_ids": span_ids}
             )
 
+    for pattern in assertions.get("expected_span_patterns", []):
+        if not any(_span_matches_pattern(span, pattern) for span in spans):
+            failures.append(
+                {
+                    "type": "missing_expected_span_pattern",
+                    "pattern": pattern,
+                    "span_ids": [],
+                }
+            )
+
     if "max_cost" in assertions and total_cost > float(assertions["max_cost"]):
         failures.append(
             {"type": "max_cost_exceeded", "actual": total_cost, "limit": assertions["max_cost"]}
         )
 
-    duration_limit = assertions.get("max_total_duration_ms", assertions.get("max_latency_ms"))
+    duration_limit = assertions.get(
+        "max_total_duration_ms",
+        assertions.get("max_latency_ms", assertions.get("max_latency")),
+    )
     if duration_limit is not None and total_duration_ms > float(duration_limit):
         failures.append(
             {
@@ -108,14 +128,40 @@ def evaluate_trace_assertions(
             }
         )
 
-    if "max_retries" in assertions and retry_count > int(assertions["max_retries"]):
+    retry_limit = assertions.get("max_retries", assertions.get("max_tool_retries"))
+    if retry_limit is not None and retry_count > int(retry_limit):
         failures.append(
             {
                 "type": "max_retries_exceeded",
                 "actual": retry_count,
-                "limit": assertions["max_retries"],
+                "limit": retry_limit,
             }
         )
+
+    for evidence_span_id in assertions.get("required_grounding_evidence", []):
+        if evidence_span_id not in grounding_evidence_ids:
+            failures.append(
+                {
+                    "type": "missing_required_grounding_evidence",
+                    "evidence_span_id": evidence_span_id,
+                    "span_ids": [],
+                }
+            )
+
+    for failure_type in assertions.get("forbidden_grounding_failures", []):
+        if failure_type in grounding_failures:
+            span_ids = [
+                span_id
+                for span_id, observed in grounding_failures_by_span.items()
+                if failure_type in observed
+            ]
+            failures.append(
+                {
+                    "type": "forbidden_grounding_failure",
+                    "failure_type": failure_type,
+                    "span_ids": span_ids,
+                }
+            )
 
     min_grounding = assertions.get("min_grounding_evidence_span_count")
     if min_grounding is not None and len(grounding_evidence_ids) < int(min_grounding):
@@ -135,6 +181,7 @@ def evaluate_trace_assertions(
             "retrieval_sources": sorted(retrieval_sources),
             "behavior_ids": sorted(behavior_ids),
             "span_types": span_types,
+            "grounding_failures": sorted(grounding_failures),
             "total_cost": total_cost,
             "total_duration_ms": total_duration_ms,
             "retry_count": retry_count,
@@ -156,6 +203,37 @@ def _retrieval_sources(span: dict[str, Any]) -> list[str]:
     if source_id:
         values.append(str(source_id))
     return sorted(set(values))
+
+
+def _grounding_failures(span: dict[str, Any]) -> list[str]:
+    values = []
+    values.extend(_as_string_list(_attr(span, "grounding.failure_types")))
+    failure_type = _attr(span, "grounding.failure_type")
+    if failure_type:
+        values.append(str(failure_type))
+    status = _attr(span, "grounding.status")
+    if status in {"unsupported", "contradicted", "insufficient_evidence"}:
+        values.append(str(status))
+    return sorted(set(values))
+
+
+def _span_matches_pattern(span: dict[str, Any], pattern: dict[str, Any]) -> bool:
+    if not isinstance(pattern, dict):
+        return False
+    direct_fields = {
+        "span_id": span.get("span_id"),
+        "span_type": span.get("span_type"),
+        "name": span.get("name"),
+        "status": span.get("status"),
+        "tool_name": _tool_name(span),
+    }
+    for field, expected in direct_fields.items():
+        if field in pattern and pattern[field] != expected:
+            return False
+    expected_attributes = pattern.get("attributes") or {}
+    if not isinstance(expected_attributes, dict):
+        return False
+    return all(_attr(span, key) == expected for key, expected in expected_attributes.items())
 
 
 def _float_attr(span: dict[str, Any], key: str) -> float:

@@ -371,12 +371,16 @@ def test_trajectory_assertions_cite_failing_tool_spans() -> None:
         {
             "span_id": "span_order_lookup",
             "span_type": "tool",
+            "name": "lookup_order",
+            "status": "ok",
             "duration_ms": 800,
             "attributes": {
                 "tool.name": "order_lookup",
                 "cost.estimated_usd": 0.2,
                 "retry.count": 2,
                 "retrieval.source_ids": ["orders_index"],
+                "grounding.evidence_span_ids": ["span_policy_doc"],
+                "grounding.failure_type": "unsupported",
             },
         }
     ]
@@ -386,10 +390,14 @@ def test_trajectory_assertions_cite_failing_tool_spans() -> None:
             "required_tools": ["refund_policy_lookup"],
             "forbidden_tools": ["order_lookup"],
             "forbidden_retrieval_sources": ["orders_index"],
+            "expected_span_patterns": [
+                {"span_type": "tool", "tool_name": "refund_policy_lookup"}
+            ],
             "max_cost": 0.1,
-            "max_total_duration_ms": 500,
-            "max_retries": 1,
-            "min_grounding_evidence_span_count": 1,
+            "max_latency": 500,
+            "max_tool_retries": 1,
+            "required_grounding_evidence": ["span_missing_policy_doc"],
+            "forbidden_grounding_failures": ["unsupported"],
         },
     )
     assert result["status"] == "failed"
@@ -399,6 +407,13 @@ def test_trajectory_assertions_cite_failing_tool_spans() -> None:
         "span_ids": ["span_order_lookup"],
     } in result["failures"]
     assert result["observed"]["retrieval_sources"] == ["orders_index"]
+    assert result["observed"]["grounding_failures"] == ["unsupported"]
+    assert any(failure["type"] == "missing_expected_span_pattern" for failure in result["failures"])
+    assert {
+        "type": "forbidden_grounding_failure",
+        "failure_type": "unsupported",
+        "span_ids": ["span_order_lookup"],
+    } in result["failures"]
 
 
 def test_data_classification_rules_redact_above_access_level() -> None:
