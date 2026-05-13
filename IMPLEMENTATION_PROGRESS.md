@@ -972,6 +972,8 @@ Verified after the latest implementation slices:
 - Impact reports now render affected entities, known behavior labels, and
   suspected root-cause candidates as inspectable drilldown rows with direct
   trace-open actions instead of compressed summary text.
+- Behavior detail now lets reviewers accept, reject, or request more evidence
+  for behavior-candidate review tasks from the behavior workspace itself.
 - Added eval runtime analytics over historical runs: `/v1/evals/analytics`
   groups pass/invalid-output trends by prompt version, agent config version, and
   deployment context, with a compact Datasets/Evals UI summary.
@@ -1019,7 +1021,7 @@ Known remaining gaps before calling the whole spec complete:
   while real OCR, binary/deep document parsing, and vendor-specific chat
   connectors are still future integration work.
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
-  behavior detail and deeper prompt/configuration history; impact-report
+  deeper prompt/configuration history; behavior review actions, impact-report
   drilldowns, eval comparison behavior-shift drilldown, and prompt/config diff
   history summaries are now wired into their workspaces.
 - External IdP/OAuth login, vendor email/SMTP invite delivery, and production

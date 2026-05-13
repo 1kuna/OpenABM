@@ -13,7 +13,8 @@ import {
   Search,
   Shield,
   Split,
-  TimerReset
+  TimerReset,
+  XCircle
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -2824,6 +2825,27 @@ function BehaviorWorkspace(props: {
     }
   }
 
+  async function updateBehaviorReviewTask(
+    task: ReviewTask,
+    status: ReviewTask["status"],
+    decision: string
+  ) {
+    if (connection !== "live") return;
+    try {
+      const updated = await client.updateReviewTask(projectId, task.review_task_id, {
+        status,
+        decision,
+        notes: `Behavior detail decision: ${decision}`
+      });
+      setReviewTasks((current) =>
+        current.map((item) => (item.review_task_id === updated.review_task_id ? updated : item))
+      );
+      setStateText(`review ${updated.status}: ${updated.review_task_id}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "review update failed");
+    }
+  }
+
   return (
     <div className="behaviorGrid">
       <section className="panel behaviorList">
@@ -2985,6 +3007,22 @@ function BehaviorWorkspace(props: {
                       <span>{task.review_task_id} · {task.status} · {formatTime(task.updated_at)}</span>
                       <span>{task.decision_nullable ?? "no decision"}</span>
                       <small>{task.evidence_ids.join(", ") || "no evidence ids"}</small>
+                      {task.status === "open" || task.status === "needs_more_evidence" ? (
+                        <span className="reviewActionRow">
+                          <button onClick={() => void updateBehaviorReviewTask(task, "accepted", "accepted_behavior_label")}>
+                            <CheckCircle2 size={14} />
+                            Accept
+                          </button>
+                          <button onClick={() => void updateBehaviorReviewTask(task, "rejected", "rejected_behavior_label")}>
+                            <XCircle size={14} />
+                            Reject
+                          </button>
+                          <button onClick={() => void updateBehaviorReviewTask(task, "needs_more_evidence", "needs_more_evidence")}>
+                            <AlertTriangle size={14} />
+                            Need evidence
+                          </button>
+                        </span>
+                      ) : null}
                     </div>
                   ))}
                   {!reviewTasks.length ? <p className="systemNote">No behavior review labels</p> : null}
