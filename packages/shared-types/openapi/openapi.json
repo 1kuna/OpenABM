@@ -2307,6 +2307,38 @@
         }
       }
     },
+    "/v1/judges/{judge_id}/calibration-report": {
+      "get": {
+        "operationId": "getJudgeCalibrationReport",
+        "summary": "Summarize judge eval results and human review labels.",
+        "x-required-scopes": [
+          "judges:read"
+        ],
+        "parameters": [
+          {
+            "name": "judge_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Judge calibration report."
+          }
+        }
+      }
+    },
     "/v1/judges/drafts": {
       "post": {
         "operationId": "createJudgeDraft",

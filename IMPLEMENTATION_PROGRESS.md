@@ -382,9 +382,9 @@ Known remaining gaps before calling the whole spec complete:
 - Prompt registry and agent runtime configuration registry now have storage/API
   and MCP-backed lifecycle flows, but the web UI still needs full version
   history, tag movement, and eval-linked comparison views.
-- Judge registry, model-backed judge drafting, local eval launch, and eval
-  comparison now exist; calibration workflows, judge version promotion policy,
-  and UI workspaces are still early.
+- Judge registry, model-backed judge drafting, local eval launch, eval
+  comparison, and judge calibration reporting now exist; judge version promotion
+  policy and UI workspaces are still early.
 - Automation definitions and local run execution include deterministic
   conditions, idempotency, preview notifications, review-task actions, and
   cooldown skips; retries, dead-letter handling, and real external notification
@@ -502,5 +502,9 @@ Implemented in this pass:
   `/v1/evals/compare`, and `/v1/docs/search`, then wired the corresponding MCP
   tool handlers so the agent surface no longer reports those paths as
   unsupported.
+- Added `/v1/judges/{judge_id}/calibration-report` so judge readiness can be
+  inspected from eval score history, invalid-output rate, latency/token
+  summaries, drift-by-eval-run, and human review labels. The report resolves
+  registry judge IDs and immutable-version definition IDs as aliases.
 - Added an Issues/Investigations scaffold view in the web app so the v2 surface
   is visible without pretending the LLM-backed pieces are ready.

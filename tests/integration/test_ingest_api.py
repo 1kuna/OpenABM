@@ -399,6 +399,40 @@ def test_v1_judge_registry_eval_compare_and_docs_search(tmp_path) -> None:
     assert comparison.json()["avg_score_delta"] == 1.0
     assert comparison.json()["fixed_failures"]
 
+    review_tasks = client.get(
+        "/v1/review-tasks",
+        params={"project_id": "proj_demo", "task_type": "judge_output"},
+        headers=auth_headers(),
+    )
+    assert review_tasks.status_code == 200
+    review_task_id = next(
+        task["review_task_id"]
+        for task in review_tasks.json()["data"]
+        if task["source_entity_id"] == judge_id
+    )
+    accepted = client.patch(
+        f"/v1/review-tasks/{review_task_id}",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "status": "accepted",
+            "decision": "accepted",
+            "notes": "Calibration label from registry eval test.",
+        },
+    )
+    assert accepted.status_code == 200
+    report = client.get(
+        f"/v1/judges/{judge_id}/calibration-report",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert report.status_code == 200
+    report_body = report.json()
+    assert report_body["score_count"] == 1
+    assert report_body["verdict_counts"]["fail"] == 1
+    assert report_body["invalid_output_rate"] == 0
+    assert report_body["human_review_labels"]["accepted"] == 1
+
     docs = client.post(
         "/v1/docs/search",
         headers=auth_headers(),

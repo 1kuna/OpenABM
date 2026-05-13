@@ -91,6 +91,13 @@ def _average_score(results: Iterable[dict[str, Any]]) -> float | None:
     return sum(scores) / len(scores)
 
 
+def _average_numbers(values: Iterable[int | float | None]) -> float | None:
+    numbers = [float(value) for value in values if isinstance(value, int | float)]
+    if not numbers:
+        return None
+    return sum(numbers) / len(numbers)
+
+
 def _sum_latency(results: Iterable[dict[str, Any]]) -> int:
     return sum(int(result.get("latency_ms") or 0) for result in results)
 
@@ -106,6 +113,40 @@ def _sum_token_usage(results: Iterable[dict[str, Any]]) -> int | None:
                 saw_usage = True
                 total += int(tokens)
     return total if saw_usage else None
+
+
+def _score_verdict_counts(scores: Iterable[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for score in scores:
+        verdict = str((score.get("value") or {}).get("verdict") or "unknown")
+        counts[verdict] = counts.get(verdict, 0) + 1
+    return counts
+
+
+def _score_status_counts(scores: Iterable[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for score in scores:
+        status = str(score.get("status") or "unknown")
+        counts[status] = counts.get(status, 0) + 1
+    return counts
+
+
+def _score_status_rate(scores: list[dict[str, Any]], status: str) -> float | None:
+    if not scores:
+        return None
+    return _score_status_counts(scores).get(status, 0) / len(scores)
+
+
+def _review_label_counts(tasks: Iterable[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for task in tasks:
+        decision = str(task.get("decision_nullable") or task.get("status") or "unknown")
+        counts[decision] = counts.get(decision, 0) + 1
+    return counts
+
+
+def _review_decision_count(tasks: Iterable[dict[str, Any]], decision: str) -> int:
+    return sum(1 for task in tasks if task.get("decision_nullable") == decision)
 
 
 class SQLiteStore:
@@ -1060,6 +1101,81 @@ class SQLiteStore:
             if baseline_tokens is None or candidate_tokens is None
             else candidate_tokens - baseline_tokens,
             "behavior_distribution_shift": {},
+        }
+
+    def build_judge_calibration_report(
+        self,
+        project_id: str,
+        judge_id: str,
+    ) -> dict[str, Any]:
+        judge = self.get_judge(project_id, judge_id)
+        if judge is None:
+            raise KeyError(f"judge not found: {judge_id}")
+        judge_aliases = {
+            judge_id,
+            *[
+                version.get("definition", {}).get("judge_id")
+                for version in judge.get("versions", [])
+                if version.get("definition", {}).get("judge_id")
+            ],
+        }
+
+        matching_scores = []
+        eval_run_ids = set()
+        per_run: dict[str, list[dict[str, Any]]] = {}
+        for run in self.list_eval_runs(project_id):
+            run_scores = []
+            for result in self.list_eval_results(project_id, run["eval_run_id"]):
+                for score in result.get("scores", []):
+                    if score.get("judge_id") not in judge_aliases:
+                        continue
+                    scored = {
+                        **score,
+                        "registry_judge_id": judge_id,
+                        "eval_run_id": run["eval_run_id"],
+                        "dataset_example_id": result["dataset_example_id"],
+                    }
+                    matching_scores.append(scored)
+                    run_scores.append(scored)
+                    eval_run_ids.add(run["eval_run_id"])
+            if run_scores:
+                per_run[run["eval_run_id"]] = run_scores
+
+        review_labels = [
+            task
+            for task in self.list_review_tasks(project_id, task_type="judge_output")
+            if task["source_entity_id"] == judge_id
+            or (
+                task["source_entity_type"] == "judge"
+                and task["source_entity_id"] == judge_id
+            )
+        ]
+        return {
+            "judge_id": judge_id,
+            "project_id": project_id,
+            "score_count": len(matching_scores),
+            "eval_run_ids": sorted(eval_run_ids),
+            "verdict_counts": _score_verdict_counts(matching_scores),
+            "status_counts": _score_status_counts(matching_scores),
+            "invalid_output_rate": _score_status_rate(matching_scores, "invalid_output"),
+            "avg_score": _average_score([{"scores": matching_scores}]),
+            "latency_ms": {
+                "avg": _average_numbers(score.get("latency_ms") for score in matching_scores),
+                "total": sum(int(score.get("latency_ms") or 0) for score in matching_scores),
+            },
+            "token_usage": _sum_token_usage([{"scores": matching_scores}]),
+            "human_review_labels": _review_label_counts(review_labels),
+            "false_positive_reports": _review_decision_count(review_labels, "false_positive"),
+            "false_negative_reports": _review_decision_count(review_labels, "false_negative"),
+            "drift_report": [
+                {
+                    "eval_run_id": eval_run_id,
+                    "score_count": len(scores),
+                    "verdict_counts": _score_verdict_counts(scores),
+                    "invalid_output_rate": _score_status_rate(scores, "invalid_output"),
+                }
+                for eval_run_id, scores in sorted(per_run.items())
+            ],
         }
 
     def add_trace_dimension(

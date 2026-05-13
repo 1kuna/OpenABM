@@ -504,6 +504,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=_error("not_found", "Judge not found."))
         return judge
 
+    @app.get("/api/judges/{judge_id}/calibration-report")
+    def get_judge_calibration_report(
+        judge_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["judges:read"])),
+    ) -> dict[str, object]:
+        del actor
+        try:
+            return store.build_judge_calibration_report(project_id, judge_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
+
     @app.post("/api/judges/drafts", status_code=201)
     async def create_judge_draft(
         request: dict[str, Any],
