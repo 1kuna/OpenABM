@@ -963,6 +963,9 @@ Verified after the latest implementation slices:
 - Eval behavior-shift regression passed: eval run comparison now computes
   baseline/candidate behavior-label distributions from offline eval traces and
   reports match-count, status-count, trace-id, severity, and name deltas.
+- The Datasets/Evals comparison UI now renders behavior-shift deltas with
+  direct trace-open actions so behavior regressions can be inspected from the
+  comparison workspace.
 - Added eval runtime analytics over historical runs: `/v1/evals/analytics`
   groups pass/invalid-output trends by prompt version, agent config version, and
   deployment context, with a compact Datasets/Evals UI summary.
@@ -1011,7 +1014,8 @@ Known remaining gaps before calling the whole spec complete:
   connectors are still future integration work.
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
   behavior detail, deeper impact-report UI drilldowns, and deeper
-  prompt/configuration history.
+  prompt/configuration history; eval comparison behavior-shift drilldown is now
+  wired in the Datasets/Evals workspace.
 - External IdP/OAuth login, vendor email/SMTP invite delivery, and production
   secret-manager provider adapters remain beyond the local reference scaffold.
 - Production-grade observability exporters, log aggregation, external

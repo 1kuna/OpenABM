@@ -3832,6 +3832,10 @@ function DatasetEvalWorkspace(props: {
                     <span>{formatEvalProvenanceComparison(comparison.provenance_comparison)}</span>
                     <span>Baseline {formatEvalSummary(comparison.baseline_summary)}</span>
                     <span>Candidate {formatEvalSummary(comparison.candidate_summary)}</span>
+                    <EvalBehaviorShiftRows
+                      shift={comparison.behavior_distribution_shift}
+                      onOpenTrace={props.onOpenTrace}
+                    />
                     <EvalFailureRows
                       title="New failures"
                       exampleIds={comparison.new_failures}
@@ -3865,6 +3869,46 @@ function DatasetEvalWorkspace(props: {
           <div className="emptyState">{stateText}</div>
         )}
       </section>
+    </div>
+  );
+}
+
+function EvalBehaviorShiftRows(props: {
+  shift: EvalComparison["behavior_distribution_shift"];
+  onOpenTrace: (traceId: string) => void;
+}) {
+  const deltas = props.shift.deltas ?? [];
+  return (
+    <div className="comparisonShiftRows">
+      <strong>Behavior shift</strong>
+      {deltas.map((delta) => {
+        const traceIds = [...delta.baseline_trace_ids, ...delta.candidate_trace_ids];
+        return (
+          <div key={delta.behavior_id}>
+            <div className="comparisonShiftHeader">
+              <strong>{delta.name || delta.behavior_id}</strong>
+              {delta.severity ? (
+                <span className={`severityBadge ${delta.severity}`}>{delta.severity}</span>
+              ) : null}
+            </div>
+            <span>
+              Baseline {delta.baseline_match_count} · candidate {delta.candidate_match_count} · delta {formatSignedInteger(delta.match_count_delta)}
+            </span>
+            <span>Status delta {formatCounts(delta.status_count_delta)}</span>
+            {traceIds.length ? (
+              <div className="traceButtonRow">
+                {traceIds.map((traceId) => (
+                  <button key={traceId} onClick={() => props.onOpenTrace(traceId)}>
+                    <FileSearch size={14} />
+                    {shortIdentifier(traceId)}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+      {!deltas.length ? <span>No labeled behavior changes</span> : null}
     </div>
   );
 }

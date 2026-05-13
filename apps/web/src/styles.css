@@ -1922,6 +1922,46 @@ pre {
   margin-top: 8px;
 }
 
+.comparisonShiftRows {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  border-top: 1px solid #edf0f4;
+  padding-top: 8px;
+}
+
+.comparisonShiftRows > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.comparisonShiftHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.traceButtonRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.traceButtonRow button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  padding: 0 9px;
+}
+
 .comparisonFailureRows div {
   display: grid;
   gap: 4px;
@@ -1961,6 +2001,8 @@ pre {
 .resultRows span,
 .comparisonBox span,
 .comparisonBox small,
+.comparisonShiftRows span,
+.comparisonShiftRows small,
 .comparisonFailureRows span,
 .comparisonFailureRows small {
   color: #6b7280;

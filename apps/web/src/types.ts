@@ -802,6 +802,34 @@ export interface EvalResult {
   created_at: string;
 }
 
+export interface EvalBehaviorDistributionEntry {
+  behavior_id: string;
+  name: string;
+  severity: string | null;
+  match_count: number;
+  status_counts: Record<string, number>;
+  trace_ids: string[];
+  evidence_span_ids: string[];
+}
+
+export interface EvalBehaviorShiftDelta {
+  behavior_id: string;
+  name: string;
+  severity: string | null;
+  baseline_match_count: number;
+  candidate_match_count: number;
+  match_count_delta: number;
+  baseline_trace_ids: string[];
+  candidate_trace_ids: string[];
+  status_count_delta: Record<string, number>;
+}
+
+export interface EvalBehaviorDistributionShift {
+  baseline: Record<string, EvalBehaviorDistributionEntry>;
+  candidate: Record<string, EvalBehaviorDistributionEntry>;
+  deltas: EvalBehaviorShiftDelta[];
+}
+
 export interface EvalComparison {
   baseline_eval_run_id: string;
   candidate_eval_run_id: string;
@@ -816,7 +844,7 @@ export interface EvalComparison {
   cost_delta: number | null;
   latency_delta: number;
   token_delta: number | null;
-  behavior_distribution_shift: Record<string, unknown>;
+  behavior_distribution_shift: EvalBehaviorDistributionShift;
   provenance_comparison: Record<string, unknown>;
 }
 
