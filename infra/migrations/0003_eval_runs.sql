@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS eval_results (
   offline_trace_id TEXT,
   status TEXT NOT NULL,
   scores_json TEXT NOT NULL,
+  assertion_results_json TEXT NOT NULL DEFAULT '{}',
   cost_json TEXT,
   latency_ms INTEGER,
   created_at TEXT NOT NULL

@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 from openabm_api.storage import SQLiteStore
 
+from openabm_worker.eval_assertions import evaluate_trace_assertions
 from openabm_worker.judges import run_deterministic_rule_judge, run_rubric_judge
 
 
@@ -73,16 +74,21 @@ def run_deterministic_eval(
                 unsupported_judge_ids.append(judge.get("judge_id", "unknown"))
                 continue
             scores.append(run_deterministic_rule_judge(trace, spans, judge))
+        assertion_results = _evaluate_example_assertions(example, spans)
+        result_status = "failed" if _assertions_failed(assertion_results) else (
+            "succeeded" if scores or assertion_results else "skipped"
+        )
 
         results.append(
             store.record_eval_result(
                 project_id,
                 run["eval_run_id"],
                 example["dataset_example_id"],
-                status="succeeded" if scores else "skipped",
+                status=result_status,
                 scores=scores,
                 offline_trace_id=trace_id,
                 latency_ms=sum(score.get("latency_ms") or 0 for score in scores),
+                assertion_results=assertion_results,
             )
         )
 
@@ -174,17 +180,22 @@ async def run_eval(
                 llm_calls += 1
             else:
                 unsupported_judge_ids.append(judge.get("judge_id", "unknown"))
+        assertion_results = _evaluate_example_assertions(example, spans)
+        result_status = "failed" if _assertions_failed(assertion_results) else (
+            "succeeded" if scores or assertion_results else "skipped"
+        )
 
         results.append(
             store.record_eval_result(
                 project_id,
                 run["eval_run_id"],
                 example["dataset_example_id"],
-                status="succeeded" if scores else "skipped",
+                status=result_status,
                 scores=scores,
                 offline_trace_id=trace_id,
                 latency_ms=(resolved.get("latency_ms") or 0)
                 + sum(score.get("latency_ms") or 0 for score in scores),
+                assertion_results=assertion_results,
             )
         )
 
@@ -342,9 +353,15 @@ def _summarize_results(
 ) -> dict[str, Any]:
     result_status_counts: dict[str, int] = {}
     verdict_counts: dict[str, int] = {}
+    assertion_status_counts: dict[str, int] = {}
     for result in results:
         status = str(result["status"])
         result_status_counts[status] = result_status_counts.get(status, 0) + 1
+        assertion_status = (result.get("assertion_results") or {}).get("status")
+        if assertion_status:
+            assertion_status_counts[str(assertion_status)] = (
+                assertion_status_counts.get(str(assertion_status), 0) + 1
+            )
         for score in result["scores"]:
             verdict = str((score.get("value") or {}).get("verdict", "unknown"))
             verdict_counts[verdict] = verdict_counts.get(verdict, 0) + 1
@@ -353,6 +370,21 @@ def _summarize_results(
         "total_examples": len(results),
         "result_status_counts": result_status_counts,
         "score_verdict_counts": verdict_counts,
+        "assertion_status_counts": assertion_status_counts,
         "unsupported_judge_ids": sorted(set(unsupported_judge_ids)),
         "llm_calls": 0,
     }
+
+
+def _evaluate_example_assertions(
+    example: dict[str, Any],
+    spans: list[dict[str, Any]],
+) -> dict[str, Any]:
+    assertions = example.get("expected_trace_assertions") or {}
+    if not assertions:
+        return {}
+    return evaluate_trace_assertions(spans, assertions)
+
+
+def _assertions_failed(assertion_results: dict[str, Any]) -> bool:
+    return bool(assertion_results) and assertion_results.get("status") == "failed"

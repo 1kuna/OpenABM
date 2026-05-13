@@ -167,6 +167,33 @@ def _first_eval_verdict(result: dict[str, Any] | None) -> str | None:
     return (result["scores"][0].get("value") or {}).get("verdict")
 
 
+def _assertions_failed(result: dict[str, Any] | None) -> bool:
+    if not result:
+        return False
+    assertion_results = result.get("assertion_results") or {}
+    return assertion_results.get("status") == "failed"
+
+
+def _new_assertion_failures(
+    baseline_results: dict[str, dict[str, Any]],
+    candidate_results: dict[str, dict[str, Any]],
+    *,
+    mode: str,
+) -> list[str]:
+    example_ids = sorted(set(baseline_results) | set(candidate_results))
+    failures = []
+    for example_id in example_ids:
+        baseline_failed = _assertions_failed(baseline_results.get(example_id))
+        candidate_failed = _assertions_failed(candidate_results.get(example_id))
+        if mode == "new" and not baseline_failed and candidate_failed:
+            failures.append(example_id)
+        elif mode == "fixed" and baseline_failed and not candidate_failed:
+            failures.append(example_id)
+        elif mode == "unchanged" and baseline_failed and candidate_failed:
+            failures.append(example_id)
+    return failures
+
+
 def _pass_rate(summary: dict[str, Any]) -> float:
     verdicts = summary.get("score_verdict_counts", {})
     total = sum(int(count) for count in verdicts.values())
@@ -570,6 +597,8 @@ class SQLiteStore:
             self._ensure_mcp_tool_observation_payload_columns(conn)
             self._ensure_trace_span_resource_column(conn)
             self._ensure_score_failure_reason_column(conn)
+            self._ensure_dataset_trace_assertions_column(conn)
+            self._ensure_eval_result_assertion_results_column(conn)
             self.ensure_project("proj_demo", "Demo Project")
 
     @staticmethod
@@ -675,6 +704,30 @@ class SQLiteStore:
         }
         if "failure_reason" not in columns:
             conn.execute("ALTER TABLE scores ADD COLUMN failure_reason TEXT")
+
+    @staticmethod
+    def _ensure_dataset_trace_assertions_column(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(dataset_examples)").fetchall()
+        }
+        if "expected_trace_assertions_json" not in columns:
+            conn.execute(
+                "ALTER TABLE dataset_examples "
+                "ADD COLUMN expected_trace_assertions_json TEXT NOT NULL DEFAULT '{}'"
+            )
+
+    @staticmethod
+    def _ensure_eval_result_assertion_results_column(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(eval_results)").fetchall()
+        }
+        if "assertion_results_json" not in columns:
+            conn.execute(
+                "ALTER TABLE eval_results "
+                "ADD COLUMN assertion_results_json TEXT NOT NULL DEFAULT '{}'"
+            )
 
     def ensure_project(self, project_id: str, name: str | None = None) -> None:
         now = utc_now()
@@ -2616,6 +2669,7 @@ class SQLiteStore:
         dataset_id: str,
         trace_id: str,
         labels: list[str] | None = None,
+        expected_trace_assertions: dict[str, Any] | None = None,
         created_from: str = "manual",
     ) -> dict[str, Any]:
         trace = self.get_trace(project_id, trace_id)
@@ -2646,6 +2700,7 @@ class SQLiteStore:
                 "input": None,
                 "expected_output": None,
                 "expected_scores": [],
+                "expected_trace_assertions": expected_trace_assertions or {},
                 "labels": labels or [],
                 "metadata": {"trace_summary": trace.get("summary")},
                 "split": "unspecified",
@@ -2657,10 +2712,10 @@ class SQLiteStore:
                 INSERT INTO dataset_examples(
                   dataset_example_id, project_id, dataset_id, dataset_version_id,
                   source_trace_id, source_span_id, input_json, expected_output_json,
-                  expected_scores_json, labels_json, metadata_json, split,
-                  created_from, created_at
+                  expected_scores_json, expected_trace_assertions_json, labels_json,
+                  metadata_json, split, created_from, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     example_id,
@@ -2672,6 +2727,7 @@ class SQLiteStore:
                     encode_json(None),
                     encode_json(None),
                     encode_json([]),
+                    encode_json(example["expected_trace_assertions"]),
                     encode_json(labels or []),
                     encode_json(example["metadata"]),
                     "unspecified",
@@ -2804,6 +2860,7 @@ class SQLiteStore:
         offline_trace_id: str | None = None,
         cost: dict[str, Any] | None = None,
         latency_ms: int | None = None,
+        assertion_results: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         now = utc_now()
         item = {
@@ -2814,6 +2871,7 @@ class SQLiteStore:
             "offline_trace_id": offline_trace_id,
             "status": status,
             "scores": scores,
+            "assertion_results": assertion_results or {},
             "cost": cost,
             "latency_ms": latency_ms,
             "created_at": now,
@@ -2823,10 +2881,10 @@ class SQLiteStore:
                 """
                 INSERT INTO eval_results(
                   eval_result_id, project_id, eval_run_id, dataset_example_id,
-                  offline_trace_id, status, scores_json, cost_json, latency_ms,
-                  created_at
+                  offline_trace_id, status, scores_json, assertion_results_json,
+                  cost_json, latency_ms, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item["eval_result_id"],
@@ -2836,6 +2894,7 @@ class SQLiteStore:
                     offline_trace_id,
                     status,
                     encode_json(scores),
+                    encode_json(item["assertion_results"]),
                     encode_json(cost),
                     latency_ms,
                     now,
@@ -2971,6 +3030,21 @@ class SQLiteStore:
             "token_delta": None
             if baseline_tokens is None or candidate_tokens is None
             else candidate_tokens - baseline_tokens,
+            "new_assertion_failures": _new_assertion_failures(
+                baseline_results,
+                candidate_results,
+                mode="new",
+            ),
+            "fixed_assertion_failures": _new_assertion_failures(
+                baseline_results,
+                candidate_results,
+                mode="fixed",
+            ),
+            "unchanged_assertion_failures": _new_assertion_failures(
+                baseline_results,
+                candidate_results,
+                mode="unchanged",
+            ),
             "behavior_distribution_shift": {},
             "provenance_comparison": _runtime_provenance_comparison(baseline, candidate),
         }
@@ -6282,6 +6356,10 @@ class SQLiteStore:
             "input": decode_json(row["input_json"], None),
             "expected_output": decode_json(row["expected_output_json"], None),
             "expected_scores": decode_json(row["expected_scores_json"], []),
+            "expected_trace_assertions": decode_json(
+                row["expected_trace_assertions_json"],
+                {},
+            ),
             "labels": decode_json(row["labels_json"], []),
             "metadata": decode_json(row["metadata_json"], {}),
             "split": row["split"],
@@ -6317,6 +6395,7 @@ class SQLiteStore:
             "offline_trace_id": row["offline_trace_id"],
             "status": row["status"],
             "scores": decode_json(row["scores_json"], []),
+            "assertion_results": decode_json(row["assertion_results_json"], {}),
             "cost": decode_json(row["cost_json"], None),
             "latency_ms": row["latency_ms"],
             "created_at": row["created_at"],

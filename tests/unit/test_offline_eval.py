@@ -21,6 +21,10 @@ def test_deterministic_offline_eval_persists_run_and_results(tmp_path) -> None:
         dataset["dataset_id"],
         "trace_wrong_tool",
         labels=["wrong_tool_for_refund"],
+        expected_trace_assertions={
+            "required_tools": ["order_lookup"],
+            "forbidden_grounding_failures": ["unsupported"],
+        },
     )
 
     run = run_deterministic_eval(
@@ -52,9 +56,13 @@ def test_deterministic_offline_eval_persists_run_and_results(tmp_path) -> None:
     assert run["status"] == "completed"
     assert run["summary"]["total_examples"] == 1
     assert run["summary"]["score_verdict_counts"] == {"fail": 1}
+    assert run["summary"]["assertion_status_counts"] == {"passed": 1}
     assert run["results"][0]["dataset_example_id"] == example["dataset_example_id"]
+    assert run["results"][0]["assertion_results"]["status"] == "passed"
     assert store.list_eval_runs("proj_demo")[0]["eval_run_id"] == run["eval_run_id"]
-    assert store.list_eval_results("proj_demo", run["eval_run_id"])[0]["scores"][0][
+    persisted_result = store.list_eval_results("proj_demo", run["eval_run_id"])[0]
+    assert persisted_result["assertion_results"]["observed"]["tool_names"] == ["order_lookup"]
+    assert persisted_result["scores"][0][
         "failure_mode"
     ] == "wrong_tool_for_refund"
 
@@ -137,3 +145,57 @@ print(json.dumps({"trace": trace, "spans": spans}))
         "span_command_runner_root",
         "span_command_runner_order_lookup",
     }
+
+
+def test_eval_comparison_reports_assertion_failure_changes(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "openabm.sqlite3")
+    store.init_db()
+    corpus = json.loads(FIXTURE_PATH.read_text())
+    ingest_fixture(store, [corpus["fixtures"][1]])
+    dataset = store.create_dataset("proj_demo", "Assertion comparison eval")
+    example = store.add_trace_to_dataset(
+        "proj_demo",
+        dataset["dataset_id"],
+        "trace_wrong_tool",
+        expected_trace_assertions={"forbidden_tools": ["order_lookup"]},
+    )
+    baseline = store.create_eval_run(
+        "proj_demo",
+        dataset["latest_version_id"],
+        runner={"type": "in_process_function"},
+        judges=[],
+    )
+    candidate = store.create_eval_run(
+        "proj_demo",
+        dataset["latest_version_id"],
+        runner={"type": "in_process_function"},
+        judges=[],
+        baseline_eval_run_id=baseline["eval_run_id"],
+    )
+    store.record_eval_result(
+        "proj_demo",
+        baseline["eval_run_id"],
+        example["dataset_example_id"],
+        status="failed",
+        scores=[],
+        assertion_results={"status": "failed", "failures": [{"type": "forbidden_tool_used"}]},
+    )
+    store.record_eval_result(
+        "proj_demo",
+        candidate["eval_run_id"],
+        example["dataset_example_id"],
+        status="succeeded",
+        scores=[],
+        assertion_results={"status": "passed", "failures": []},
+    )
+    store.complete_eval_run("proj_demo", baseline["eval_run_id"], {"total_examples": 1})
+    store.complete_eval_run("proj_demo", candidate["eval_run_id"], {"total_examples": 1})
+
+    comparison = store.compare_eval_runs(
+        "proj_demo",
+        baseline["eval_run_id"],
+        candidate["eval_run_id"],
+    )
+
+    assert comparison["fixed_assertion_failures"] == [example["dataset_example_id"]]
+    assert comparison["new_assertion_failures"] == []

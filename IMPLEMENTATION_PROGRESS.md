@@ -431,6 +431,9 @@ Done:
 - Added persisted local offline eval runs/results and `make demo-eval`, which
   seeds fixtures, creates a dataset from a trace, runs one deterministic judge,
   and records the eval artifact without LLM calls.
+- Dataset examples now persist `expected_trace_assertions`; offline eval results
+  store deterministic assertion results, summarize assertion pass/fail counts,
+  and eval comparison reports new/fixed/unchanged assertion failures.
 - Added `/v1/evals/run`, `/v1/evals/{eval_run_id}`, and `/v1/evals/compare`.
   The local runner can execute deterministic rule judges and rubric judges via
   the configured local model provider, then compare pass-rate, average-score,

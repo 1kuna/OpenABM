@@ -994,7 +994,12 @@ def test_v1_eval_runs_are_queryable(tmp_path) -> None:
     )
     store = client.app.state.store
     dataset = store.create_dataset("proj_demo", "Refund eval")
-    store.add_trace_to_dataset("proj_demo", dataset["dataset_id"], fixture["trace"]["trace_id"])
+    store.add_trace_to_dataset(
+        "proj_demo",
+        dataset["dataset_id"],
+        fixture["trace"]["trace_id"],
+        expected_trace_assertions={"required_tools": ["order_lookup"]},
+    )
     run = run_deterministic_eval(
         store,
         project_id="proj_demo",
@@ -1014,6 +1019,7 @@ def test_v1_eval_runs_are_queryable(tmp_path) -> None:
     assert results.status_code == 200
     assert results.json()["data"][0]["scores"][0]["failure_mode"] == "wrong_tool_for_refund"
     assert results.json()["data"][0]["scores"][0]["failure_reason"] is None
+    assert results.json()["data"][0]["assertion_results"]["status"] == "passed"
 
 
 def test_v1_judge_registry_eval_compare_and_docs_search(tmp_path) -> None:

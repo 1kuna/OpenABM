@@ -158,6 +158,7 @@ CREATE TABLE IF NOT EXISTS dataset_examples (
   input_json TEXT,
   expected_output_json TEXT,
   expected_scores_json TEXT NOT NULL,
+  expected_trace_assertions_json TEXT NOT NULL DEFAULT '{}',
   labels_json TEXT NOT NULL,
   metadata_json TEXT NOT NULL,
   split TEXT NOT NULL,

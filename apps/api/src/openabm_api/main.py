@@ -1843,13 +1843,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             dataset_id,
             request["trace_id"],
             labels=request.get("labels") or [],
+            expected_trace_assertions=request.get("expected_trace_assertions") or {},
         )
         store.append_audit(
             "add_trace_to_dataset",
             "dataset_example",
             request["project_id"],
             example["dataset_example_id"],
-            {"dataset_id": dataset_id, "trace_id": request["trace_id"]},
+            {
+                "dataset_id": dataset_id,
+                "trace_id": request["trace_id"],
+                "has_expected_trace_assertions": bool(
+                    request.get("expected_trace_assertions")
+                ),
+            },
         )
         issue_link = link_issue_artifact_or_404(
             project_id=request["project_id"],
