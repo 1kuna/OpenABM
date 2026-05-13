@@ -1936,6 +1936,21 @@ pre {
   min-width: 0;
 }
 
+.diffSummaryRows,
+.linkedEvalRows,
+.tagMovementRows {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  border-top: 1px solid #edf0f4;
+  padding-top: 8px;
+}
+
+.linkedEvalRows,
+.tagMovementRows {
+  margin-top: 4px;
+}
+
 .comparisonShiftHeader {
   display: flex;
   flex-wrap: wrap;
@@ -2003,6 +2018,12 @@ pre {
 .comparisonBox small,
 .comparisonShiftRows span,
 .comparisonShiftRows small,
+.diffSummaryRows span,
+.diffSummaryRows small,
+.linkedEvalRows span,
+.linkedEvalRows small,
+.tagMovementRows span,
+.tagMovementRows small,
 .comparisonFailureRows span,
 .comparisonFailureRows small {
   color: #6b7280;

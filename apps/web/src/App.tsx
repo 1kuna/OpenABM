@@ -587,16 +587,7 @@ function AgentConfigWorkspace(props: {
                   </button>
                 </div>
                 {comparison ? <pre>{comparison.content_diff || "No content changes"}</pre> : null}
-                {comparison ? (
-                  <pre>{JSON.stringify({
-                    metadata_diff: comparison.metadata_diff,
-                    structured_diff: comparison.structured_diff,
-                    linked_eval_result_diff: comparison.linked_eval_result_diff
-                  }, null, 2)}</pre>
-                ) : null}
-                {comparison?.tag_movement_history.length ? (
-                  <pre>{JSON.stringify(comparison.tag_movement_history, null, 2)}</pre>
-                ) : null}
+                {comparison ? <AgentConfigDiffSummary comparison={comparison} /> : null}
               </section>
             </div>
           </>
@@ -2232,6 +2223,26 @@ function IssueInvestigationWorkspace(props: {
   );
 }
 
+function AgentConfigDiffSummary(props: { comparison: AgentConfigCompareResult }) {
+  const structured = props.comparison.structured_diff;
+  const metadata = props.comparison.metadata_diff;
+  const toolChanges = asRecord(structured.tool_changes);
+  const changedSections = Object.entries(structured)
+    .filter(([key, value]) => key.endsWith("_changes") && key !== "tool_changes" && Array.isArray(value) && value.length)
+    .map(([key, value]) => `${key.replaceAll("_", " ")}: ${(value as unknown[]).length}`);
+  return (
+    <div className="diffSummaryRows">
+      <strong>Structured change summary</strong>
+      <span>Metadata changed {props.comparison.metadata_changed ? "yes" : "no"} · fields {formatStringList(stringsFromUnknown(metadata.changed_fields))}</span>
+      <span>Content fields {formatStringList(stringsFromUnknown(structured.changed_fields))}</span>
+      <span>Tools added {formatStringList(stringsFromUnknown(toolChanges.added))} · removed {formatStringList(stringsFromUnknown(toolChanges.removed))} · changed {formatStringList(stringsFromUnknown(toolChanges.changed))}</span>
+      {changedSections.length ? <span>{changedSections.join(" · ")}</span> : null}
+      <LinkedEvalDiffRows diff={props.comparison.linked_eval_result_diff} />
+      <TagMovementRows events={props.comparison.tag_movement_history} />
+    </div>
+  );
+}
+
 function PromptRegistryWorkspace(props: {
   client: OpenAbmClient;
   connection: ConnectionState;
@@ -2532,11 +2543,7 @@ function PromptRegistryWorkspace(props: {
                   </button>
                 </div>
                 {diff ? <pre>{diff.text_diff || "No text changes"}</pre> : null}
-                {diff ? <pre>{JSON.stringify(diff.message_level_diff, null, 2)}</pre> : null}
-                {diff?.tag_movement_history.length ? (
-                  <pre>{JSON.stringify(diff.tag_movement_history, null, 2)}</pre>
-                ) : null}
-                {diff ? <pre>{JSON.stringify(diff.linked_eval_result_diff, null, 2)}</pre> : null}
+                {diff ? <PromptDiffSummary diff={diff} /> : null}
               </section>
             </div>
           </>
@@ -3328,6 +3335,64 @@ function AutomationWorkspace(props: {
           <div className="emptyState">{stateText}</div>
         )}
       </section>
+    </div>
+  );
+}
+
+function PromptDiffSummary(props: { diff: PromptDiffResult }) {
+  const messageDiff = asRecord(props.diff.message_level_diff);
+  const messageChanges = recordsFrom(messageDiff.changes);
+  return (
+    <div className="diffSummaryRows">
+      <strong>Diff summary</strong>
+      <span>Variables schema changed {props.diff.variables_schema_changed ? "yes" : "no"}</span>
+      <span>
+        Messages {String(messageDiff.status ?? "unknown")} · count delta {formatSignedInteger(numberFromUnknown(messageDiff.message_count_delta))} · changed {String(messageDiff.changed_message_count ?? 0)}
+      </span>
+      {messageChanges.slice(0, 4).map((change, index) => (
+        <small key={`${String(change.index ?? index)}-${String(change.change_type ?? "change")}`}>
+          {String(change.change_type ?? "changed")} message {String(change.index ?? index)}
+        </small>
+      ))}
+      <LinkedEvalDiffRows diff={props.diff.linked_eval_result_diff} />
+      <TagMovementRows events={props.diff.tag_movement_history} />
+    </div>
+  );
+}
+
+function LinkedEvalDiffRows(props: { diff: Record<string, unknown> }) {
+  const oldSummary = asRecord(props.diff.old);
+  const newSummary = asRecord(props.diff.new);
+  return (
+    <div className="linkedEvalRows">
+      <strong>Linked evals</strong>
+      <span>Pass {formatSignedPercent(numberFromUnknown(props.diff.pass_rate_delta))} · invalid outputs {formatSignedInteger(numberFromUnknown(props.diff.invalid_output_count_delta))} · runs {formatSignedInteger(numberFromUnknown(props.diff.run_count_delta))}</span>
+      <span>Old {formatLinkedEvalSummary(oldSummary)}</span>
+      <span>New {formatLinkedEvalSummary(newSummary)}</span>
+    </div>
+  );
+}
+
+function TagMovementRows(props: { events: Array<Record<string, unknown>> }) {
+  return (
+    <div className="tagMovementRows">
+      <strong>Tag movement</strong>
+      {props.events.slice(0, 6).map((event, index) => (
+        <span
+          key={[
+            String(event.tag ?? "tag"),
+            String(event.previous_commit_id ?? "none"),
+            String(event.new_commit_id ?? "none"),
+            String(event.created_at ?? index),
+            String(index)
+          ].join("-")}
+        >
+          {String(event.tag ?? "tag")} {shortIdentifier(String(event.previous_commit_id ?? "none"))}
+          {" -> "}
+          {shortIdentifier(String(event.new_commit_id ?? "none"))}
+        </span>
+      ))}
+      {!props.events.length ? <span>No tag movements</span> : null}
     </div>
   );
 }
@@ -6005,6 +6070,24 @@ function shortIdentifier(value: string) {
 function formatCounts(counts: Record<string, unknown>) {
   const entries = Object.entries(counts).filter(([, value]) => Number(value) !== 0);
   return entries.map(([key, value]) => `${key}: ${String(value)}`).join(", ") || "none";
+}
+
+function formatStringList(values: string[]) {
+  return values.length ? values.map(shortIdentifier).join(", ") : "none";
+}
+
+function formatLinkedEvalSummary(summary: Record<string, unknown>) {
+  const runCount = summary.run_count ?? 0;
+  const passRate = numberFromUnknown(summary.avg_pass_rate);
+  const invalid = summary.invalid_output_count ?? 0;
+  const ids = stringsFromUnknown(summary.eval_run_ids).map(shortIdentifier);
+  const parts = [
+    `${String(runCount)} runs`,
+    passRate == null ? null : `${Math.round(passRate * 1000) / 10}% pass`,
+    `${String(invalid)} invalid`,
+    ids.length ? ids.join(", ") : null
+  ].filter(Boolean);
+  return parts.join(" · ");
 }
 
 function formatNestedCounts(counts: Record<string, unknown>) {
