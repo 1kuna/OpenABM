@@ -3146,6 +3146,43 @@ def test_reported_incident_investigation_acceptance_links_artifacts(
             )
             assert response.status_code == 201
 
+    behavior = client.post(
+        "/v1/behaviors",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "name": "wrong_tool_for_refund",
+            "description": "Refund workflow uses an unrelated order lookup.",
+            "severity": "high",
+            "detector": {
+                "type": "rule",
+                "scope": "span",
+                "conditions": {
+                    "combine": "all",
+                    "items": [
+                        {
+                            "field": "attributes.tool.name",
+                            "op": "eq",
+                            "value": "order_lookup",
+                        }
+                    ],
+                },
+            },
+        },
+    )
+    assert behavior.status_code == 201
+    behavior_id = behavior.json()["behavior_id"]
+    label = client.post(
+        "/v1/traces/trace_wrong_tool/behavior-labels",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "behavior_id": behavior_id,
+            "span_id_nullable": "span_wrong_tool_order_lookup",
+        },
+    )
+    assert label.status_code == 201
+
     issue = client.post(
         "/v1/issues",
         headers=auth_headers(),
@@ -3181,6 +3218,10 @@ def test_reported_incident_investigation_acceptance_links_artifacts(
     assert impact["matching_trace_count"] == 2
     assert impact["task_type_distribution"] == {"refund": 2}
     assert impact["dimension_distribution"]["workflow"] == {"refund_commitment": 2}
+    assert impact["behavior_distribution"][behavior_id]["name"] == "wrong_tool_for_refund"
+    assert impact["behavior_distribution"][behavior_id]["match_count"] == 1
+    assert impact["behavior_distribution"][behavior_id]["status_counts"] == {"confirmed": 1}
+    assert impact["behavior_distribution"][behavior_id]["trace_ids"] == ["trace_wrong_tool"]
     assert impact["affected_entity_count"] == 1
     assert impact["affected_entities"][0]["entity_id"] == "acct_enterprise_1"
     affected_entities = client.get(

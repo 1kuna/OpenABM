@@ -5698,6 +5698,21 @@ class SQLiteStore:
                     "confidence_or_uncertainty": "deterministic_correlation_only",
                 }
             )
+        behavior_distribution = self._behavior_distribution_for_traces(project_id, trace_ids)
+        if behavior_distribution:
+            suspected.append(
+                {
+                    "candidate_id": new_id("root_cause_candidate"),
+                    "hypothesis": "Trace cohort is associated with known behavior labels.",
+                    "evidence_summary": {
+                        "behavior_distribution": behavior_distribution,
+                    },
+                    "representative_trace_ids": trace_ids[:5],
+                    "confidence_or_uncertainty": (
+                        "deterministic_behavior_match_signal_only_not_causal"
+                    ),
+                }
+            )
         suspected.extend(
             self._differential_root_cause_candidates(
                 project_id,
@@ -5719,7 +5734,7 @@ class SQLiteStore:
             "affected_entities": list(affected_entities.values()),
             "task_type_distribution": dimension_distribution.get("task_type", {}),
             "dimension_distribution": dimension_distribution,
-            "behavior_distribution": {},
+            "behavior_distribution": behavior_distribution,
             "deployment_distribution": runtime_distribution,
             "suspected_root_causes": suspected,
             "representative_trace_ids": trace_ids[:10],
@@ -5729,6 +5744,51 @@ class SQLiteStore:
             ),
             "created_at": now,
         }
+
+    def _behavior_distribution_for_traces(
+        self,
+        project_id: str,
+        trace_ids: list[str],
+    ) -> dict[str, dict[str, Any]]:
+        trace_id_set = set(trace_ids)
+        if not trace_id_set:
+            return {}
+        behaviors_by_id = {
+            behavior["behavior_id"]: behavior
+            for behavior in self.list_behaviors(project_id)
+        }
+        distribution: dict[str, dict[str, Any]] = {}
+        for match in self.list_behavior_matches(project_id):
+            trace_id = match["trace_id"]
+            if trace_id not in trace_id_set:
+                continue
+            behavior_id = match["behavior_id"]
+            behavior = behaviors_by_id.get(behavior_id, {})
+            entry = distribution.setdefault(
+                behavior_id,
+                {
+                    "behavior_id": behavior_id,
+                    "name": behavior.get("name") or behavior_id,
+                    "severity": behavior.get("severity"),
+                    "match_count": 0,
+                    "status_counts": {},
+                    "trace_ids": [],
+                    "evidence_span_ids": [],
+                },
+            )
+            entry["match_count"] += 1
+            status = str(match.get("status") or "unknown")
+            entry["status_counts"][status] = entry["status_counts"].get(status, 0) + 1
+            if trace_id not in entry["trace_ids"]:
+                entry["trace_ids"].append(trace_id)
+            for span_id in match.get("evidence_span_ids", []):
+                if span_id not in entry["evidence_span_ids"]:
+                    entry["evidence_span_ids"].append(span_id)
+        ordered = sorted(
+            distribution.values(),
+            key=lambda item: (-int(item["match_count"]), item["behavior_id"]),
+        )
+        return {item["behavior_id"]: item for item in ordered}
 
     def _differential_root_cause_candidates(
         self,

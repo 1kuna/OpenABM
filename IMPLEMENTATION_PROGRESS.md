@@ -928,6 +928,10 @@ Verified after the latest implementation slices:
   failing cohort against a baseline cohort across status, dimensions, runtime
   provenance, tool usage, span status, and error types, with failing/baseline
   metrics, deltas, and representative trace/span IDs on each candidate.
+- Impact reports now include behavior-match drilldowns for the investigated
+  trace cohort: matched behavior names, severities, match counts, status counts,
+  trace IDs, and evidence span IDs are persisted as deterministic report
+  evidence and surfaced as a root-cause candidate when present.
 - Code-sandbox conformance regression passed: the dev sandbox scrubs secrets,
   denies blocked network imports, restricts file reads/writes to the input/output
   bundle and temporary artifact directory, maps timeouts and invalid results to
@@ -976,7 +980,7 @@ Known remaining gaps before calling the whole spec complete:
   while real OCR, binary/deep document parsing, and vendor-specific chat
   connectors are still future integration work.
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
-  behavior detail, deeper impact-report analysis, and deeper
+  behavior detail, deeper impact-report UI drilldowns, and deeper
   prompt/configuration history.
 - External IdP/OAuth login, vendor email/SMTP invite delivery, and production
   secret-manager provider adapters remain beyond the local reference scaffold.
