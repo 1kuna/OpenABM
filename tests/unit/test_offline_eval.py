@@ -147,17 +147,39 @@ print(json.dumps({"trace": trace, "spans": spans}))
     }
 
 
-def test_eval_comparison_reports_assertion_failure_changes(tmp_path) -> None:
+def test_eval_comparison_reports_assertion_and_behavior_distribution_changes(tmp_path) -> None:
     store = SQLiteStore(tmp_path / "openabm.sqlite3")
     store.init_db()
     corpus = json.loads(FIXTURE_PATH.read_text())
-    ingest_fixture(store, [corpus["fixtures"][1]])
+    ingest_fixture(store, [corpus["fixtures"][0], corpus["fixtures"][1]])
     dataset = store.create_dataset("proj_demo", "Assertion comparison eval")
-    example = store.add_trace_to_dataset(
+    happy_example = store.add_trace_to_dataset(
+        "proj_demo",
+        dataset["dataset_id"],
+        "trace_happy_support",
+    )
+    wrong_tool_example = store.add_trace_to_dataset(
         "proj_demo",
         dataset["dataset_id"],
         "trace_wrong_tool",
         expected_trace_assertions={"forbidden_tools": ["order_lookup"]},
+    )
+    behavior = store.create_behavior(
+        {
+            "project_id": "proj_demo",
+            "behavior_id": "behavior_wrong_tool",
+            "name": "wrong_tool_for_refund",
+            "description": "Refund workflow uses order lookup.",
+            "severity": "high",
+            "detector": {"type": "manual_label"},
+            "status": "active",
+        }
+    )
+    store.label_trace_behavior(
+        "proj_demo",
+        "trace_wrong_tool",
+        behavior["behavior_id"],
+        span_id="span_wrong_tool_order_lookup",
     )
     baseline = store.create_eval_run(
         "proj_demo",
@@ -175,18 +197,20 @@ def test_eval_comparison_reports_assertion_failure_changes(tmp_path) -> None:
     store.record_eval_result(
         "proj_demo",
         baseline["eval_run_id"],
-        example["dataset_example_id"],
-        status="failed",
+        happy_example["dataset_example_id"],
+        status="succeeded",
         scores=[],
-        assertion_results={"status": "failed", "failures": [{"type": "forbidden_tool_used"}]},
+        offline_trace_id="trace_happy_support",
+        assertion_results={"status": "passed", "failures": []},
     )
     store.record_eval_result(
         "proj_demo",
         candidate["eval_run_id"],
-        example["dataset_example_id"],
-        status="succeeded",
+        wrong_tool_example["dataset_example_id"],
+        status="failed",
         scores=[],
-        assertion_results={"status": "passed", "failures": []},
+        offline_trace_id="trace_wrong_tool",
+        assertion_results={"status": "failed", "failures": [{"type": "forbidden_tool_used"}]},
     )
     store.complete_eval_run("proj_demo", baseline["eval_run_id"], {"total_examples": 1})
     store.complete_eval_run("proj_demo", candidate["eval_run_id"], {"total_examples": 1})
@@ -197,5 +221,22 @@ def test_eval_comparison_reports_assertion_failure_changes(tmp_path) -> None:
         candidate["eval_run_id"],
     )
 
-    assert comparison["fixed_assertion_failures"] == [example["dataset_example_id"]]
-    assert comparison["new_assertion_failures"] == []
+    assert comparison["new_assertion_failures"] == [wrong_tool_example["dataset_example_id"]]
+    assert comparison["fixed_assertion_failures"] == []
+    shift = comparison["behavior_distribution_shift"]
+    assert shift["baseline"] == {}
+    assert shift["candidate"]["behavior_wrong_tool"]["match_count"] == 1
+    assert shift["candidate"]["behavior_wrong_tool"]["trace_ids"] == ["trace_wrong_tool"]
+    assert shift["deltas"] == [
+        {
+            "behavior_id": "behavior_wrong_tool",
+            "name": "wrong_tool_for_refund",
+            "severity": "high",
+            "baseline_match_count": 0,
+            "candidate_match_count": 1,
+            "match_count_delta": 1,
+            "baseline_trace_ids": [],
+            "candidate_trace_ids": ["trace_wrong_tool"],
+            "status_count_delta": {"confirmed": 1},
+        }
+    ]

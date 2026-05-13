@@ -684,6 +684,27 @@ def _item_identity(item: Any) -> str:
     return encode_json(item)
 
 
+def _count_delta(
+    baseline_counts: dict[str, Any],
+    candidate_counts: dict[str, Any],
+) -> dict[str, int]:
+    deltas: dict[str, int] = {}
+    for key in sorted(set(baseline_counts) | set(candidate_counts)):
+        delta = int(candidate_counts.get(key) or 0) - int(baseline_counts.get(key) or 0)
+        if delta != 0:
+            deltas[key] = delta
+    return deltas
+
+
+def _eval_result_trace_ids(results: Iterable[dict[str, Any]]) -> list[str]:
+    trace_ids: list[str] = []
+    for result in results:
+        trace_id = result.get("offline_trace_id")
+        if isinstance(trace_id, str) and trace_id and trace_id not in trace_ids:
+            trace_ids.append(trace_id)
+    return trace_ids
+
+
 def _runtime_provenance_distribution(traces: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
     distribution: dict[str, dict[str, int]] = {
         "prompt_version_id": {},
@@ -3207,6 +3228,11 @@ class SQLiteStore:
         candidate_score = _average_score(candidate_results.values())
         baseline_tokens = _sum_token_usage(baseline_results.values())
         candidate_tokens = _sum_token_usage(candidate_results.values())
+        behavior_distribution_shift = self._eval_behavior_distribution_shift(
+            project_id,
+            baseline_results.values(),
+            candidate_results.values(),
+        )
         return {
             "baseline_eval_run_id": baseline_eval_run_id,
             "candidate_eval_run_id": candidate_eval_run_id,
@@ -3241,8 +3267,54 @@ class SQLiteStore:
                 candidate_results,
                 mode="unchanged",
             ),
-            "behavior_distribution_shift": {},
+            "behavior_distribution_shift": behavior_distribution_shift,
             "provenance_comparison": _runtime_provenance_comparison(baseline, candidate),
+        }
+
+    def _eval_behavior_distribution_shift(
+        self,
+        project_id: str,
+        baseline_results: Iterable[dict[str, Any]],
+        candidate_results: Iterable[dict[str, Any]],
+    ) -> dict[str, Any]:
+        baseline_distribution = self._behavior_distribution_for_traces(
+            project_id,
+            _eval_result_trace_ids(baseline_results),
+        )
+        candidate_distribution = self._behavior_distribution_for_traces(
+            project_id,
+            _eval_result_trace_ids(candidate_results),
+        )
+        behavior_ids = sorted(set(baseline_distribution) | set(candidate_distribution))
+        deltas = []
+        for behavior_id in behavior_ids:
+            baseline = baseline_distribution.get(behavior_id, {})
+            candidate = candidate_distribution.get(behavior_id, {})
+            baseline_count = int(baseline.get("match_count") or 0)
+            candidate_count = int(candidate.get("match_count") or 0)
+            deltas.append(
+                {
+                    "behavior_id": behavior_id,
+                    "name": candidate.get("name") or baseline.get("name") or behavior_id,
+                    "severity": candidate.get("severity") or baseline.get("severity"),
+                    "baseline_match_count": baseline_count,
+                    "candidate_match_count": candidate_count,
+                    "match_count_delta": candidate_count - baseline_count,
+                    "baseline_trace_ids": baseline.get("trace_ids") or [],
+                    "candidate_trace_ids": candidate.get("trace_ids") or [],
+                    "status_count_delta": _count_delta(
+                        baseline.get("status_counts") or {},
+                        candidate.get("status_counts") or {},
+                    ),
+                }
+            )
+        return {
+            "baseline": baseline_distribution,
+            "candidate": candidate_distribution,
+            "deltas": sorted(
+                deltas,
+                key=lambda item: (-abs(int(item["match_count_delta"])), item["behavior_id"]),
+            ),
         }
 
     def build_judge_calibration_report(
