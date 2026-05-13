@@ -193,7 +193,8 @@ Target for this pass:
 
 LLM-dependent deferrals:
 
-- Trace summarization by model.
+- Richer model-authored trace summaries beyond cited context packs and
+  deterministic context-packet summaries.
 - Embeddings and reranking.
 - Larger calibration studies against model outputs.
 
@@ -210,6 +211,10 @@ Done:
 - Added model-backed rubric judge execution with context packets, preserved-span
   citation validation, provider/model metadata, score persistence, and `/v1`
   API coverage.
+- Upgraded judge trace context packets to deterministic `ctx_2` packets with
+  reproducible hashes, estimated token counts, payload/event summaries,
+  truncation notes, omitted-span IDs, and provider metadata that records the
+  packet hash and summary/truncation surface for audit.
 - Added judge registry storage/API for draft judges and immutable judge
   versions, including explicit-definition drafts and local-model natural
   language judge drafting that always creates human review work before use.
@@ -617,6 +622,10 @@ Verified after the latest implementation slices:
   traces still ingest under pressure, batch ingest accepts events/feedback/
   payload metadata, and SDK buffering remains bounded while preserving
   high-priority items.
+- Context-packet regression passed: judge context packets now summarize long
+  payloads, preserve high-priority evidence spans before low-signal spans under
+  budget pressure, record omitted spans/truncation notes, and persist a
+  reproducible context-packet hash in score provider metadata.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:

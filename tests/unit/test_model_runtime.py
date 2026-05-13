@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 import httpx
+from openabm_worker.context_packets import build_trace_context_packet
 from openabm_worker.investigation import assist_investigation
 from openabm_worker.judges import run_rubric_judge
 from openabm_worker.model_benchmark import (
@@ -172,6 +173,99 @@ def test_rubric_judge_requires_preserved_span_citations() -> None:
     assert score["status"] == "succeeded"
     assert score["evidence_span_ids"] == ["span_tool"]
     assert score["cost"]["model"] == "stub-model"
+    assert score["cost"]["context_packet_hash"]
+    assert score["cost"]["context_version"] == "ctx_2"
+
+
+def test_trace_context_packet_summarizes_long_payloads_and_records_hash() -> None:
+    packet = build_trace_context_packet(
+        {"trace_id": "trace_1", "status": "ok", "summary": "Long payload trace."},
+        [
+            {
+                "span_id": "span_root",
+                "parent_span_id": None,
+                "name": "agent",
+                "span_type": "agent",
+                "status": "ok",
+                "started_at": "2026-05-12T00:00:00Z",
+                "ended_at": "2026-05-12T00:00:01Z",
+                "input": {
+                    "mode": "inline",
+                    "value": {"text": "x" * 5000},
+                    "redaction_state": "raw",
+                },
+                "output": {
+                    "mode": "inline",
+                    "value": {"answer": "y" * 5000},
+                    "redaction_state": "raw",
+                },
+                "events": [],
+                "attributes": {},
+            }
+        ],
+        token_budget=32768,
+    )
+
+    assert packet["context_version"] == "ctx_2"
+    assert packet["context_packet_hash"]
+    assert packet["span_tree"][0]["input"]["omission_reason"] == "context_payload_summary"
+    assert packet["span_tree"][0]["output"]["omission_reason"] == "context_payload_summary"
+    assert {summary["field"] for summary in packet["summaries"]} == {"input", "output"}
+    assert packet["preserved_span_ids"] == ["span_root"]
+
+
+def test_trace_context_packet_truncates_low_priority_spans_before_evidence_spans() -> None:
+    spans = [
+        {
+            "span_id": "span_root",
+            "parent_span_id": None,
+            "name": "agent",
+            "span_type": "agent",
+            "status": "ok",
+            "started_at": "2026-05-12T00:00:00Z",
+            "ended_at": "2026-05-12T00:00:01Z",
+            "input": None,
+            "output": {"mode": "inline", "value": "root"},
+            "events": [],
+            "attributes": {"blob": "r" * 50000},
+        },
+        {
+            "span_id": "span_tool",
+            "parent_span_id": "span_root",
+            "name": "tool",
+            "span_type": "tool",
+            "status": "ok",
+            "started_at": "2026-05-12T00:00:02Z",
+            "ended_at": "2026-05-12T00:00:03Z",
+            "input": {"mode": "inline", "value": "tool"},
+            "output": {"mode": "inline", "value": "tool"},
+            "events": [],
+            "attributes": {"blob": "t" * 50000},
+        },
+        {
+            "span_id": "span_low_signal",
+            "parent_span_id": "span_root",
+            "name": "scratchpad",
+            "span_type": "other",
+            "status": "ok",
+            "started_at": "2026-05-12T00:00:04Z",
+            "ended_at": "2026-05-12T00:00:05Z",
+            "input": {"mode": "inline", "value": "scratch"},
+            "output": {"mode": "inline", "value": "scratch"},
+            "events": [],
+            "attributes": {"blob": "l" * 50000},
+        },
+    ]
+    packet = build_trace_context_packet(
+        {"trace_id": "trace_budget", "status": "ok"},
+        spans,
+        token_budget=32768,
+    )
+
+    assert "span_root" in packet["preserved_span_ids"]
+    assert "span_tool" in packet["preserved_span_ids"]
+    assert "span_low_signal" in packet["omitted_span_ids"]
+    assert packet["truncation_notes"][0]["reason"] == "context_budget_exceeded"
 
 
 def test_investigation_assistance_drops_invented_citations() -> None:

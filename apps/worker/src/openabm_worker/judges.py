@@ -200,6 +200,10 @@ def _provider_metadata(
         "usage": completion.get("usage"),
         "repaired": completion.get("repaired", False),
         "context_version": context_packet["context_version"],
+        "context_packet_hash": context_packet.get("context_packet_hash"),
+        "estimated_context_tokens": context_packet.get("estimated_tokens"),
+        "truncation_notes": context_packet["truncation_notes"],
+        "context_summaries": context_packet["summaries"],
         "preserved_span_ids": context_packet["preserved_span_ids"],
         "omitted_span_ids": context_packet["omitted_span_ids"],
     }
