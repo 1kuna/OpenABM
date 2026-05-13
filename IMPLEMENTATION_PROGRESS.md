@@ -67,6 +67,24 @@ Current validation gate:
 - Latest pushed commits are being validated by GitHub Actions as each slice is
   pushed.
 
+Prompt-to-artifact checklist:
+
+| Requirement | Evidence | Status |
+| --- | --- | --- |
+| Preserve ignored implementation spec as SSOT | `.gitignore` excludes `openabm_implementation_spec.md`; progress doc records the guardrail; no spec file is staged or committed. | Complete |
+| Make coherent commits as progress lands | `git log` shows focused slices for MCP confirmations/resources, LangGraph event provenance, root-cause comparison, model runtime ADR, completion audit, and decision records. | Complete |
+| Document progress and blockers | This `IMPLEMENTATION_PROGRESS.md` tracks phases, completed slices, validation, blockers, and deferrals. | Complete |
+| Use local LM Studio/qwen lane for semantic work | Model runtime ADR accepts OpenAI-compatible local providers; live canary notes cover `qwen3.5-9b-mlx`; settings/docs preserve no-timeout/high-context rules. | Complete for local reference |
+| Prefer OSS orchestration over reinvention | `docs/decisions/0006-agent-orchestration-framework.md`; LangGraph investigation adapter in `apps/worker/src/openabm_worker/investigation_workflow.py`; MCP remains the audited tool boundary. | Complete for current scaffold |
+| Keep semantic judgment in model/runtime, mechanical guarantees in code | Grounding, investigation, novelty, and similarity flows persist model metadata while deterministic code validates schemas, citations, membership, review gates, and provenance. | Complete for implemented flows |
+| Public API/data contracts exist | JSON Schemas in `packages/shared-types/schemas/`; OpenAPI in `packages/shared-types/openapi/openapi.json`; contract tests under `tests/contracts/`. | Complete |
+| Core loop works end to end | Integration tests cover trace ingest/detail, judges, behavior/dataset/eval loop, MCP trace/context-pack access, and reported incident investigation acceptance. | Complete for local fixtures |
+| Security/privacy/ops scaffold exists | RBAC/API keys, sessions, invite outbox, encrypted secrets, retention/export/delete, worker heartbeats, MCP observability, ops status, and deployment contract are implemented. | Complete for local reference |
+| Required decision records exist | Governance records now cover license boundary, storage, search, model runtime, sandbox, local stack, similarity experiments, production deployment, and orchestration. | Complete |
+| Final license file | `governance/decisions/008-license-selection.md` records owner-review-required status. | Blocked on owner choice |
+| Real-world pilot and revisit decisions | Phase 9 requires 5-10 pilots, performance/quality reports, and post-pilot revisits. | Blocked on real users/workloads |
+| External integrations beyond local reference | External IdP/OAuth, SMTP/vendor invite delivery, production secret managers, vendor ChatOps, production observability exporters, and deployment supervision are adapter boundaries. | Deferred until concrete integration target |
+
 ## Phase 0: Product, Legal, And Decision Infrastructure
 
 Status: in progress
