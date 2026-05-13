@@ -28,6 +28,7 @@
         "investigation_run",
         "impact_report",
         "affected_entity",
+        "deployment_context",
         "behavior",
         "judge",
         "dataset",

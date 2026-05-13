@@ -98,6 +98,7 @@ ISSUE_LINK_TARGET_TYPES = {
     "investigation_run",
     "impact_report",
     "affected_entity",
+    "deployment_context",
     "behavior",
     "judge",
     "dataset",
@@ -110,6 +111,7 @@ ISSUE_LINK_TARGET_TYPES = {
     "automation",
     "payload_object",
 }
+REMEDIATION_TARGET_TYPES = {"eval_run", "deployment_context"}
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -3597,6 +3599,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "project_id is required",
                 "/project_id",
             )
+        remediation_target_type = request.get("remediation_target_type")
+        remediation_target_id = request.get("remediation_target_id")
+        remediation_relation = request.get("remediation_relation") or "remediated_by"
+        should_link_remediation = any(
+            request.get(key) is not None
+            for key in [
+                "remediation_target_type",
+                "remediation_target_id",
+                "remediation_relation",
+            ]
+        )
+        if should_link_remediation:
+            if not remediation_target_type:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    "remediation_target_type is required",
+                    "/remediation_target_type",
+                )
+            if not remediation_target_id:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    "remediation_target_id is required",
+                    "/remediation_target_id",
+                )
+            if remediation_target_type not in REMEDIATION_TARGET_TYPES:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    "remediation_target_type is invalid",
+                    "/remediation_target_type",
+                )
+            if remediation_target_type == "eval_run" and store.get_eval_run(
+                project_id,
+                remediation_target_id,
+            ) is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=_error("not_found", "Eval run not found."),
+                )
         try:
             entity = store.update_affected_entity(project_id, affected_entity_id, request)
         except KeyError as exc:
@@ -3607,6 +3647,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 str(exc),
                 "/status",
             ) from exc
+        if should_link_remediation:
+            store.create_issue_link(
+                {
+                    "project_id": project_id,
+                    "issue_id": entity["issue_id"],
+                    "target_type": remediation_target_type,
+                    "target_id": remediation_target_id,
+                    "relation": remediation_relation,
+                    "source": "affected_entity_remediation",
+                    "evidence_trace_ids": entity["trace_ids"],
+                    "evidence_span_ids": [],
+                    "metadata": {
+                        "affected_entity_id": affected_entity_id,
+                        "affected_entity_status": entity["status"],
+                    },
+                }
+            )
         store.append_audit(
             "update_affected_entity",
             "affected_entity",

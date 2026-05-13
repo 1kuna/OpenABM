@@ -2743,6 +2743,22 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "remediation_target_type": {
+                    "type": "string",
+                    "enum": [
+                      "eval_run",
+                      "deployment_context"
+                    ],
+                    "description": "Optional target type for the eval run or deployment context that remediated the affected entity."
+                  },
+                  "remediation_target_id": {
+                    "type": "string",
+                    "description": "Optional eval run id or deployment context id that remediated the affected entity."
+                  },
+                  "remediation_relation": {
+                    "type": "string",
+                    "default": "remediated_by"
                   }
                 }
               }

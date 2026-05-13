@@ -1167,6 +1167,9 @@ Implemented in this pass:
   `/v1/affected-entities/{id}`, the web client, MCP `get_affected_entity`, and
   `affected-entity://...` resources so issue links can cite remediation records
   without relying on project-wide list scans.
+- Added affected-entity remediation target links: updates can now cite the eval
+  run or deployment context that remediated an entity, persisted as
+  `remediated_by` issue links with affected-entity metadata and trace evidence.
 - Notification target creation now rejects plaintext config blobs and validates
   `config_secret_refs`; active targets require at least one secret ref, while
   paused placeholders can be created without mounting secrets.

@@ -3806,6 +3806,8 @@ def test_reported_incident_investigation_acceptance_links_artifacts(
             "status": "contacted",
             "owner_nullable": "support-ops",
             "notes_nullable": "MCP remediation update.",
+            "remediation_target_type": "deployment_context",
+            "remediation_target_id": "deploy_refund_runtime_v2",
             "confirmed": True,
         },
         client=_TestClientMcpAdapter(client),
@@ -3951,6 +3953,27 @@ def test_reported_incident_investigation_acceptance_links_artifacts(
     )
     assert baseline.status_code == 201
     assert candidate.status_code == 201
+    fixed_by_eval = client.patch(
+        f"/v1/affected-entities/{affected_entity['affected_entity_id']}",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "status": "fixed",
+            "remediation_target_type": "eval_run",
+            "remediation_target_id": candidate.json()["eval_run_id"],
+        },
+    )
+    assert fixed_by_eval.status_code == 200
+    invalid_remediation_target = client.patch(
+        f"/v1/affected-entities/{affected_entity['affected_entity_id']}",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "remediation_target_type": "prompt_version",
+            "remediation_target_id": "prompt_version_1",
+        },
+    )
+    assert invalid_remediation_target.status_code == 400
     comparison = client.post(
         "/v1/evals/compare",
         headers=auth_headers(),
@@ -3978,7 +4001,23 @@ def test_reported_incident_investigation_acceptance_links_artifacts(
         ("dataset", dataset.json()["dataset_id"]),
         ("eval_run", baseline.json()["eval_run_id"]),
         ("eval_run", candidate.json()["eval_run_id"]),
+        ("deployment_context", "deploy_refund_runtime_v2"),
     } <= linked_targets
+    remediation_links = [
+        link
+        for link in links
+        if link["relation"] == "remediated_by"
+        and link["source"] == "affected_entity_remediation"
+    ]
+    assert {
+        (link["target_type"], link["target_id"]) for link in remediation_links
+    } >= {
+        ("eval_run", candidate.json()["eval_run_id"]),
+        ("deployment_context", "deploy_refund_runtime_v2"),
+    }
+    assert {
+        link["metadata"]["affected_entity_id"] for link in remediation_links
+    } == {affected_entity["affected_entity_id"]}
     assert {
         link["target_type"]
         for link in links

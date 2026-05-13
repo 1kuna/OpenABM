@@ -481,13 +481,19 @@ export class OpenAbmClient {
       status?: AffectedEntity["status"];
       ownerNullable?: string | null;
       notesNullable?: string | null;
+      remediationTargetType?: "eval_run" | "deployment_context";
+      remediationTargetId?: string;
+      remediationRelation?: string;
     }
   ): Promise<AffectedEntity> {
     return this.patch<AffectedEntity>(`/v1/affected-entities/${affectedEntityId}`, {
       project_id: projectId,
       status: request.status ?? null,
       owner_nullable: request.ownerNullable ?? null,
-      notes_nullable: request.notesNullable ?? null
+      notes_nullable: request.notesNullable ?? null,
+      remediation_target_type: request.remediationTargetType ?? null,
+      remediation_target_id: request.remediationTargetId ?? null,
+      remediation_relation: request.remediationRelation ?? null
     });
   }
 
