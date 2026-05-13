@@ -356,10 +356,13 @@ def _call_tool_impl(
             json_body=arguments,
         )
     if name == "get_agent_context_pack":
+        params = {"project_id": arguments["project_id"]}
+        if arguments.get("max_classification"):
+            params["max_classification"] = arguments["max_classification"]
         return client.request(
             "GET",
             f"/v1/context-packs/{arguments['context_pack_id']}",
-            params={"project_id": arguments["project_id"]},
+            params=params,
         )
     if name == "create_agent_context_pack":
         return client.request("POST", "/v1/context-packs", json_body=arguments)

@@ -1150,6 +1150,10 @@ Implemented in this pass:
   investigation responses classify against the project policy, redact returned
   artifacts above the caller's max classification, and expose that state in the
   web ChatOps scaffold.
+- Added max-classification enforcement to context-pack list/get/create
+  responses, including MCP-routable fetches, so restricted or secret agent
+  context packs redact content unless the caller explicitly asks for an allowed
+  classification level.
 - Added default-off SMTP invite delivery: local outbox remains the default,
   operators can explicitly enable `OPENABM_ENABLE_SMTP_INVITES`, successful
   sends mark the invite delivery `smtp/sent`, and failures are persisted as

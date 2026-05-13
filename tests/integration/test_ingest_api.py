@@ -3247,6 +3247,46 @@ def test_v1_context_pack_cites_source_trace_and_span(tmp_path, monkeypatch) -> N
         headers=auth_headers(),
     )
     assert fetched.status_code == 200
+    secret_response = client.post(
+        "/v1/context-packs",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "source_trace_ids": ["trace_wrong_tool"],
+            "classification": "secret",
+            "max_classification": "restricted",
+        },
+    )
+    assert secret_response.status_code == 201
+    assert secret_response.json()["content"]["redacted"] is True
+    default_fetch = client.get(
+        f"/v1/context-packs/{secret_response.json()['context_pack_id']}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert default_fetch.status_code == 200
+    assert default_fetch.json()["content"]["redacted"] is True
+    secret_fetch = client.get(
+        f"/v1/context-packs/{secret_response.json()['context_pack_id']}",
+        params={"project_id": "proj_demo", "max_classification": "secret"},
+        headers=auth_headers(),
+    )
+    assert secret_fetch.status_code == 200
+    assert secret_fetch.json()["content"]["summary"]["key_evidence"][0]["span_ids"] == [
+        "span_wrong_tool_order_lookup"
+    ]
+    secret_list = client.get(
+        "/v1/context-packs",
+        params={"project_id": "proj_demo", "max_classification": "restricted"},
+        headers=auth_headers(),
+    )
+    assert secret_list.status_code == 200
+    secret_list_item = next(
+        item
+        for item in secret_list.json()["data"]
+        if item["context_pack_id"] == secret_response.json()["context_pack_id"]
+    )
+    assert secret_list_item["content"]["redacted"] is True
 
 
 def test_v1_behavior_backtest_persists_matches_and_review_task(tmp_path) -> None:

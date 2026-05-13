@@ -3282,15 +3282,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def list_context_packs(
         project_id: str,
         issue_id: str | None = None,
+        max_classification: str | None = None,
         actor: dict[str, object] = Depends(auth_dependency(["context_packs:read"])),
     ) -> dict[str, object]:
         del actor
-        return {"data": store.list_agent_context_packs(project_id, issue_id=issue_id)}
+        try:
+            items = [
+                _context_pack_for_access(item, max_classification)
+                for item in store.list_agent_context_packs(project_id, issue_id=issue_id)
+            ]
+        except ValueError as exc:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                str(exc),
+                "/max_classification",
+            ) from exc
+        return {"data": items}
 
     @app.get("/api/context-packs/{context_pack_id}")
     def get_context_pack(
         context_pack_id: str,
         project_id: str,
+        max_classification: str | None = None,
         actor: dict[str, object] = Depends(auth_dependency(["context_packs:read"])),
     ) -> dict[str, object]:
         del actor
@@ -3300,7 +3313,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=404,
                 detail=_error("not_found", "Context pack not found."),
             )
-        return item
+        try:
+            return _context_pack_for_access(item, max_classification)
+        except ValueError as exc:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                str(exc),
+                "/max_classification",
+            ) from exc
 
     @app.post("/api/context-packs", status_code=201)
     async def create_context_pack(
@@ -3316,6 +3336,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     f"/{key}",
                 )
         project_id = request["project_id"]
+        try:
+            classification = normalize_classification(request.get("classification"), "internal")
+        except ValueError as exc:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                str(exc),
+                "/classification",
+            ) from exc
         traces = []
         spans_by_trace = {}
         dimensions_by_trace = {}
@@ -3338,7 +3366,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 dimensions_by_trace=dimensions_by_trace,
                 allowed_next_actions=request.get("allowed_next_actions")
                 or ["read", "draft_behavior", "draft_judge", "create_dataset"],
-                classification=request.get("classification", "internal"),
+                classification=classification,
             )
         except (ModelCallsDisabled, ModelConfigurationError):
             content = _deterministic_context_pack_content(
@@ -3352,7 +3380,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             issue_id=issue_id,
             source_trace_ids=request["source_trace_ids"],
             content=content,
-            classification=request.get("classification", "internal"),
+            classification=classification,
         )
         store.append_audit(
             "create_context_pack",
@@ -3361,7 +3389,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             item["context_pack_id"],
             {"source_trace_ids": request["source_trace_ids"]},
         )
-        return item
+        try:
+            return _context_pack_for_access(item, request.get("max_classification"))
+        except ValueError as exc:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                str(exc),
+                "/max_classification",
+            ) from exc
 
     @app.get("/api/investigations")
     def list_investigations(
@@ -4161,6 +4196,21 @@ def _select_data_classification_policy(
         "project_id": project_id,
         "default_classification": "internal",
         "rules": [],
+    }
+
+
+def _context_pack_for_access(
+    item: dict[str, Any],
+    max_classification: str | None,
+) -> dict[str, Any]:
+    max_level = normalize_classification(max_classification, "internal")
+    return {
+        **item,
+        "content": redact_if_needed(
+            item["content"],
+            item["classification"],
+            max_level,
+        ),
     }
 
 

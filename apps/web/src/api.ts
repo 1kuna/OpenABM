@@ -487,9 +487,14 @@ export class OpenAbmClient {
     });
   }
 
-  async listContextPacks(projectId: string, issueId?: string): Promise<AgentContextPack[]> {
+  async listContextPacks(
+    projectId: string,
+    issueId?: string,
+    maxClassification = "internal"
+  ): Promise<AgentContextPack[]> {
     const params = new URLSearchParams({ project_id: projectId });
     if (issueId) params.set("issue_id", issueId);
+    if (maxClassification) params.set("max_classification", maxClassification);
     const body = await this.get<{ data: AgentContextPack[] }>(`/v1/context-packs?${params.toString()}`);
     return body.data;
   }
@@ -501,6 +506,7 @@ export class OpenAbmClient {
       sourceTraceIds: string[];
       allowedNextActions?: string[];
       classification?: string;
+      maxClassification?: string;
     }
   ): Promise<AgentContextPack> {
     return this.post<AgentContextPack>("/v1/context-packs", {
@@ -508,7 +514,8 @@ export class OpenAbmClient {
       issue_id_nullable: request.issueId || null,
       source_trace_ids: request.sourceTraceIds,
       allowed_next_actions: request.allowedNextActions || ["read", "draft_behavior", "draft_judge", "create_dataset"],
-      classification: request.classification || "internal"
+      classification: request.classification || "internal",
+      max_classification: request.maxClassification || "internal"
     });
   }
 

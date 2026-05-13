@@ -941,6 +941,22 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "max_classification",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "public",
+                "internal",
+                "confidential",
+                "restricted",
+                "secret"
+              ],
+              "default": "internal"
+            }
           }
         ],
         "responses": {
@@ -1013,6 +1029,17 @@
                       "restricted",
                       "secret"
                     ]
+                  },
+                  "max_classification": {
+                    "type": "string",
+                    "enum": [
+                      "public",
+                      "internal",
+                      "confidential",
+                      "restricted",
+                      "secret"
+                    ],
+                    "default": "internal"
                   }
                 }
               }
@@ -1075,6 +1102,22 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "max_classification",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "public",
+                "internal",
+                "confidential",
+                "restricted",
+                "secret"
+              ],
+              "default": "internal"
             }
           }
         ],

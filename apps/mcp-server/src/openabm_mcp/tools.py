@@ -519,7 +519,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "get_agent_context_pack",
         "Fetch a bounded context pack suitable for model or coding-agent review.",
         _schema(
-            ["project_id", "context_pack_id"], {"project_id": STRING, "context_pack_id": STRING}
+            ["project_id", "context_pack_id"],
+            {
+                "project_id": STRING,
+                "context_pack_id": STRING,
+                "max_classification": STRING,
+            },
         ),
         scopes=READ_CONTEXT_SCOPE,
         example_request={"project_id": "proj_demo", "context_pack_id": "context_pack_123"},
@@ -536,6 +541,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "issue_id_nullable": NULLABLE_STRING,
                 "allowed_next_actions": ARRAY,
                 "redaction_policy": OBJECT,
+                "classification": STRING,
+                "max_classification": STRING,
             },
         ),
         scopes=WRITE_CONTEXT_SCOPE,

@@ -384,6 +384,17 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
         "/v1/affected-entities/affected_entity_1/review-task"
     )
     assert "confirmed" not in client.calls[-2]["json_body"]
+    context_pack = call_tool(
+        "get_agent_context_pack",
+        {
+            "project_id": "proj_demo",
+            "context_pack_id": "context_pack_1",
+            "max_classification": "restricted",
+        },
+        client=client,
+    )
+    assert context_pack["path"] == "/v1/context-packs/context_pack_1"
+    assert client.calls[-2]["params"]["max_classification"] == "restricted"
     prompt_result = call_tool("list_prompts", {"project_id": "proj_demo"}, client=client)
     assert prompt_result["path"] == "/v1/prompts"
     agent_config_result = call_tool(
