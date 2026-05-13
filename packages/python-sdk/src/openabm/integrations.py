@@ -4,6 +4,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from openabm.tracing import observe
+
 
 @dataclass(frozen=True)
 class IntegrationWrapperContract:
@@ -97,3 +99,72 @@ class IntegrationRegistry:
         config: Mapping[str, Any] | None = None,
     ) -> object:
         return self.get(name).instrument(tracer, target, config or {})
+
+
+class MethodSpanIntegrationPlugin:
+    @property
+    def contract(self) -> IntegrationWrapperContract:
+        return IntegrationWrapperContract(
+            name="generic-method-span",
+            supported_package="any Python callable or object with callable methods",
+            supported_versions="n/a",
+            instrumentation_hooks=("callable", "method"),
+            captured_metadata=("method_name", "span_type", "configured_attributes"),
+            payload_capture_behavior=(
+                "uses the supplied tracer's payload capture and redaction settings"
+            ),
+            redaction_behavior="delegates input/output payload handling to the supplied tracer",
+            known_limitations=(
+                "does not patch class-level special methods",
+                "does not auto-discover framework-specific callback hooks",
+            ),
+            example_code=(
+                "registry.instrument('generic-method-span', tracer, agent, "
+                "{'methods': ['run'], 'span_type': 'agent'})"
+            ),
+            acceptance_tests=(
+                "wraps a callable method and records an OpenABM span",
+                "wraps standalone callables without changing their return value",
+            ),
+        )
+
+    def instrument(
+        self,
+        tracer: Any,
+        target: object,
+        config: Mapping[str, Any] | None = None,
+    ) -> object:
+        settings = dict(config or {})
+        methods = [str(method) for method in settings.get("methods", [])]
+        span_type = str(settings.get("span_type") or "function")
+        attributes = dict(settings.get("attributes") or {})
+        span_name_prefix = str(settings.get("span_name_prefix") or "")
+
+        if callable(target) and not methods:
+            span_name = span_name_prefix + getattr(target, "__name__", target.__class__.__name__)
+            return observe(
+                name=span_name,
+                span_type=span_type,
+                attributes=attributes,
+                tracer=tracer,
+            )(target)
+
+        if not methods:
+            methods = ["run"]
+        for method_name in methods:
+            method = getattr(target, method_name, None)
+            if not callable(method):
+                raise AttributeError(f"Target has no callable method: {method_name}")
+            span_name = span_name_prefix + method_name
+            wrapped = observe(
+                name=span_name,
+                span_type=span_type,
+                attributes={"openabm.integration.method": method_name, **attributes},
+                tracer=tracer,
+            )(method)
+            setattr(target, method_name, wrapped)
+        return target
+
+
+def default_integration_registry() -> IntegrationRegistry:
+    return IntegrationRegistry([MethodSpanIntegrationPlugin()])

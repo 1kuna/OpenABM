@@ -3,8 +3,10 @@ import json
 from openabm import (
     IntegrationRegistry,
     IntegrationWrapperContract,
+    MethodSpanIntegrationPlugin,
     SamplingConfig,
     Tracer,
+    default_integration_registry,
     extract_baggage,
     observe,
 )
@@ -291,6 +293,55 @@ def test_sdk_integration_registry_validates_wrapper_contracts() -> None:
         assert "already registered" in str(exc)
     else:  # pragma: no cover - defensive assertion
         raise AssertionError("duplicate integration registration should fail")
+
+
+def test_sdk_generic_method_integration_records_spans() -> None:
+    class Agent:
+        def run(self, prompt: str) -> str:
+            return f"answer: {prompt}"
+
+    exporter = InMemoryExporter()
+    tracer = Tracer("proj_demo", environment="test", exporter=exporter)
+    registry = default_integration_registry()
+    agent = registry.instrument(
+        "generic-method-span",
+        tracer,
+        Agent(),
+        {
+            "methods": ["run"],
+            "span_type": "agent",
+            "attributes": {"integration": "generic"},
+        },
+    )
+
+    assert agent.run("refund") == "answer: refund"
+
+    span_payload = next(item["payload"] for item in exporter.items if item["type"] == "span")
+    assert span_payload["name"] == "run"
+    assert span_payload["span_type"] == "agent"
+    assert span_payload["output"]["value"] == "answer: refund"
+    assert span_payload["attributes"]["openabm.integration.method"] == "run"
+    assert span_payload["attributes"]["integration"] == "generic"
+
+
+def test_sdk_generic_callable_integration_preserves_return_value() -> None:
+    exporter = InMemoryExporter()
+    tracer = Tracer("proj_demo", environment="test", exporter=exporter)
+    plugin = MethodSpanIntegrationPlugin()
+
+    def lookup_policy() -> dict[str, int]:
+        return {"eligible_days": 30}
+
+    instrumented = plugin.instrument(
+        tracer,
+        lookup_policy,
+        {"span_type": "tool", "span_name_prefix": "sdk_"},
+    )
+
+    assert instrumented() == {"eligible_days": 30}
+    span_payload = next(item["payload"] for item in exporter.items if item["type"] == "span")
+    assert span_payload["name"] == "sdk_lookup_policy"
+    assert span_payload["span_type"] == "tool"
 
 
 def test_sdk_integration_contract_rejects_incomplete_metadata() -> None:

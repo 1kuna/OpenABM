@@ -205,6 +205,9 @@ Done:
   package-specific instrumentation plugins must declare supported versions,
   hooks, captured metadata, payload/redaction behavior, known limitations,
   example code, and acceptance checks before registration.
+- Added a default generic method/callable SDK integration plugin that wraps
+  object methods or standalone callables with OpenABM spans while preserving the
+  tracer's payload capture and redaction settings.
 - Added SDK and API backpressure/sampling controls: deterministic SDK trace
   sampling metadata, SDK payload and model-stream event sampling with visible
   omission markers, bounded HTTP exporter buffering, server-side inline payload
