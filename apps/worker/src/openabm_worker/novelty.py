@@ -49,6 +49,10 @@ def detect_novel_behavior_candidates(
     traces: list[dict[str, Any]],
     spans_by_trace: dict[str, list[dict[str, Any]]],
     known_behaviors: list[dict[str, Any]],
+    *,
+    baseline_traces: list[dict[str, Any]] | None = None,
+    baseline_spans_by_trace: dict[str, list[dict[str, Any]]] | None = None,
+    negative_example_limit: int = 3,
 ) -> dict[str, Any]:
     known_names = {
         behavior["name"]
@@ -82,8 +86,15 @@ def detect_novel_behavior_candidates(
         key=lambda item: item["frequency"],
         reverse=True,
     )
+    negative_selection = _attach_representative_negative_examples(
+        candidates,
+        baseline_traces or [],
+        baseline_spans_by_trace or {},
+        limit=negative_example_limit,
+    )
     return {
         "new_behavior_candidates": candidates,
+        "negative_example_selection": negative_selection,
         "uncertainty": (
             "Deterministic novelty groups exact error/tool signatures; semantic grouping "
             "can be layered behind the model provider."
@@ -255,6 +266,9 @@ def _merge_similarity_group(
                 "source_candidate_names",
                 [candidate["name"]],
             ),
+            "representative_negative_traces": list(
+                candidate.get("representative_negative_traces", [])
+            ),
             "similarity_cluster_threshold": similarity_threshold,
         }
     source_names = [candidate["name"] for candidate in candidates]
@@ -263,6 +277,14 @@ def _merge_similarity_group(
             trace_id
             for candidate in candidates
             for trace_id in candidate.get("representative_positive_traces", [])
+        }
+    )
+    negative_traces = sorted(
+        {
+            trace_id
+            for candidate in candidates
+            for trace_id in candidate.get("representative_negative_traces", [])
+            if trace_id not in traces
         }
     )
     severity_rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
@@ -278,11 +300,63 @@ def _merge_similarity_group(
         ),
         "source_candidate_names": source_names,
         "representative_positive_traces": traces,
-        "representative_negative_traces": [],
+        "representative_negative_traces": negative_traces,
         "severity": severity,
         "frequency": sum(int(candidate.get("frequency", 0)) for candidate in candidates),
         "similarity_cluster_threshold": similarity_threshold,
         "uncertainty": "deterministic grouping over stored embedding vectors",
+    }
+
+
+def _attach_representative_negative_examples(
+    candidates: list[dict[str, Any]],
+    baseline_traces: list[dict[str, Any]],
+    baseline_spans_by_trace: dict[str, list[dict[str, Any]]],
+    *,
+    limit: int,
+) -> dict[str, Any]:
+    if not candidates:
+        return {"status": "skipped", "reason": "no candidates"}
+    if limit <= 0:
+        return {"status": "skipped", "reason": "negative examples disabled"}
+    if not baseline_traces:
+        return {
+            "status": "skipped",
+            "reason": "no baseline traces",
+            "negative_example_limit": limit,
+        }
+
+    candidate_count_with_negatives = 0
+    for candidate in candidates:
+        candidate_signature_names = {
+            candidate["name"],
+            *candidate.get("source_candidate_names", []),
+        }
+        positive_trace_ids = set(candidate.get("representative_positive_traces", []))
+        negatives = []
+        for trace in baseline_traces:
+            trace_id = trace["trace_id"]
+            if trace_id in positive_trace_ids:
+                continue
+            signature = _trace_signature(trace, baseline_spans_by_trace.get(trace_id, []))
+            if signature in candidate_signature_names:
+                continue
+            negatives.append(trace_id)
+            if len(negatives) >= limit:
+                break
+        candidate["representative_negative_traces"] = negatives
+        if negatives:
+            candidate_count_with_negatives += 1
+
+    return {
+        "status": "succeeded",
+        "baseline_trace_count": len(baseline_traces),
+        "negative_example_limit": limit,
+        "candidate_count_with_negatives": candidate_count_with_negatives,
+        "uncertainty": (
+            "Negative examples are deterministic baseline traces that do not share "
+            "the candidate failure signature; human review still decides behavior fit."
+        ),
     }
 
 
@@ -397,7 +471,14 @@ def _model_grouping_success(
                 ).strip(),
                 "source_candidate_names": names,
                 "representative_positive_traces": traces,
-                "representative_negative_traces": [],
+                "representative_negative_traces": sorted(
+                    {
+                        trace_id
+                        for candidate in source_candidates
+                        for trace_id in candidate.get("representative_negative_traces", [])
+                        if trace_id not in traces
+                    }
+                ),
                 "severity": item.get("severity") or "medium",
                 "frequency": sum(
                     int(candidate.get("frequency", 0)) for candidate in source_candidates

@@ -5442,7 +5442,7 @@ function scaffoldRows(view: ViewKey) {
     behaviors: [
       { icon: <GitBranch />, title: "Manual labels", status: "schema and API surface available", phase: "Phase 6" },
       { icon: <Braces />, title: "Rule detectors", status: "condition grammar available", phase: "Phase 6" },
-      { icon: <Network />, title: "Cluster discovery", status: "embedding path ready; clustering deferred", phase: "Phase 6" }
+      { icon: <Network />, title: "Cluster discovery", status: "embedding grouping and review examples ready", phase: "Phase 6" }
     ],
     automations: [
       { icon: <Play />, title: "Definitions", status: "trigger, condition, action, and cooldown records available", phase: "Phase 6" },

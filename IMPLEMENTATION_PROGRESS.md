@@ -591,6 +591,10 @@ Done:
   through human review.
 - Added passive novelty detection runs that group unknown error/tool signatures,
   persist candidate outputs, and create review tasks for behavior candidates.
+- Added deterministic baseline negative-example selection for novelty runs so
+  behavior candidates carry reviewable positive and negative trace examples.
+  Similarity-index and model semantic grouping now preserve those negative
+  examples when deterministic signature candidates are merged.
 - Added optional local-model semantic grouping for novelty runs through tool
   calls. The model can name and merge deterministic signature candidates, but
   trace membership is validated against source candidates before persistence.
@@ -948,10 +952,11 @@ Known remaining gaps before calling the whole spec complete:
   visibility, plus explicit compensation actions and a typed review-task
   rollback helper; rollback adapters for external ticketing/workflow systems
   remain future work.
-- Passive novelty detection has deterministic exact-signature grouping plus
-  optional model semantic grouping/naming with validated membership and optional
-  similarity-index grouping over stored trace vectors; broader clustering
-  experiments and production vector-store choices remain future work.
+- Passive novelty detection has deterministic exact-signature grouping,
+  deterministic baseline negative examples for review, optional model semantic
+  grouping/naming with validated membership, and optional similarity-index
+  grouping over stored trace vectors; broader clustering benchmarks and
+  production vector-store choices remain future work.
 - Grounding/fabricated-value checks support explicit, deterministically split,
   and model-extracted claims with exact evidence matching, plus review-gated
   model contradiction adjudication with validated span citations; broad

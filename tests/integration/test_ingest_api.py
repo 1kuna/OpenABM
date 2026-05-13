@@ -770,7 +770,9 @@ def test_novelty_run_can_group_candidates_with_similarity_index(tmp_path, monkey
         lambda settings: StubEmbeddingProvider(),
     )
     client = make_client(tmp_path)
-    source_fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    corpus = json.loads(FIXTURE_PATH.read_text())
+    happy_fixture = corpus["fixtures"][0]
+    source_fixture = corpus["fixtures"][1]
     second_fixture = copy.deepcopy(source_fixture)
     second_fixture["trace"]["trace_id"] = "trace_policy_loop"
     second_fixture["trace"]["session_id"] = "session_policy_loop"
@@ -791,8 +793,12 @@ def test_novelty_run_can_group_candidates_with_similarity_index(tmp_path, monkey
         "/v1/ingest/batch",
         headers=auth_headers(),
         json={
-            "traces": [source_fixture["trace"], second_fixture["trace"]],
-            "spans": [*source_fixture["spans"], *second_fixture["spans"]],
+            "traces": [happy_fixture["trace"], source_fixture["trace"], second_fixture["trace"]],
+            "spans": [
+                *happy_fixture["spans"],
+                *source_fixture["spans"],
+                *second_fixture["spans"],
+            ],
         },
     )
     rebuild = client.post(
@@ -825,6 +831,8 @@ def test_novelty_run_can_group_candidates_with_similarity_index(tmp_path, monkey
         "trace_wrong_tool",
         "trace_policy_loop",
     }
+    assert candidate["representative_negative_traces"] == [happy_fixture["trace"]["trace_id"]]
+    assert result["negative_example_selection"]["candidate_count_with_negatives"] == 2
 
 
 def test_trace_can_be_added_to_dataset_with_provenance(tmp_path) -> None:
@@ -2050,12 +2058,18 @@ def test_v1_live_webhook_notification_is_secret_backed_and_audited(tmp_path, mon
 
 def test_v1_grounding_checks_and_novelty_runs_are_reviewable(tmp_path) -> None:
     client = make_client(tmp_path)
-    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    corpus = json.loads(FIXTURE_PATH.read_text())
+    happy_fixture = corpus["fixtures"][0]
+    fixture = corpus["fixtures"][1]
     trace_id = fixture["trace"]["trace_id"]
+    negative_trace_id = happy_fixture["trace"]["trace_id"]
     client.post(
         "/v1/ingest/batch",
         headers=auth_headers(),
-        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+        json={
+            "traces": [happy_fixture["trace"], fixture["trace"]],
+            "spans": [*happy_fixture["spans"], *fixture["spans"]],
+        },
     )
     grounding = client.post(
         "/v1/grounding-checks",
@@ -2081,8 +2095,12 @@ def test_v1_grounding_checks_and_novelty_runs_are_reviewable(tmp_path) -> None:
         json={"project_id": "proj_demo", "filters": {"status": "error"}},
     )
     assert novelty.status_code == 201
-    candidates = novelty.json()["result"]["new_behavior_candidates"]
+    result = novelty.json()["result"]
+    candidates = result["new_behavior_candidates"]
     assert candidates[0]["representative_positive_traces"] == [trace_id]
+    assert candidates[0]["representative_negative_traces"] == [negative_trace_id]
+    assert result["negative_example_selection"]["status"] == "succeeded"
+    assert result["negative_example_selection"]["candidate_count_with_negatives"] == 1
     reviews = client.get(
         "/v1/review-tasks",
         params={"project_id": "proj_demo"},

@@ -3419,10 +3419,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             trace["trace_id"]: store.list_spans(project_id, trace["trace_id"])
             for trace in traces
         }
+        default_negative_limit = min(int(request.get("limit", 100)), 100)
+        negative_limit = int(request.get("negative_limit", default_negative_limit))
+        baseline_traces = store.search_traces(
+            project_id,
+            filters=request.get("negative_filters") or {"status": "ok"},
+            full_text_query=request.get("negative_query"),
+            limit=negative_limit,
+        )
+        baseline_spans_by_trace = {
+            trace["trace_id"]: store.list_spans(project_id, trace["trace_id"])
+            for trace in baseline_traces
+        }
         result = detect_novel_behavior_candidates(
             traces,
             spans_by_trace,
             store.list_behaviors(project_id),
+            baseline_traces=baseline_traces,
+            baseline_spans_by_trace=baseline_spans_by_trace,
+            negative_example_limit=int(request.get("negative_example_limit", 3)),
         )
         if request.get("similarity_index_grouping"):
             representation_version = _resolve_similarity_representation_version(
