@@ -264,6 +264,10 @@ Done:
   evidence matching, unsupported-claim review task creation, and export coverage.
 - Added passive novelty detection runs that group unknown error/tool signatures,
   persist candidate outputs, and create review tasks for behavior candidates.
+- Added screenshot issue intake endpoint that stores screenshot-origin issues and
+  returns candidate seed traces with explicit match reasons.
+- Added ChatOps-style investigation endpoint that creates canonical issue and
+  investigation artifacts without binding the product to a chat vendor.
 - Verified a live LM Studio investigation canary with `openabm-qwen35-9b`; the
   prompt revision produced a cited root cause, behavior draft, and rubric draft
   as valid unrepaired JSON with reasoning-token usage.
@@ -344,7 +348,9 @@ Known remaining gaps before calling the whole spec complete:
 - Grounding/fabricated-value checks support explicit/deterministically split
   claims and exact evidence matching; model-backed claim extraction and
   contradiction detection still need implementation.
-- Screenshot issue intake and ChatOps are still contract/scaffold level.
+- Screenshot issue intake and ChatOps-style issue/investigation creation exist;
+  real OCR, attachment text extraction, and vendor-specific chat connectors are
+  still future integration work.
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
   behavior detail, automation builder, impact report, review queue, prompt
   registry, and agent configuration history.
@@ -435,5 +441,7 @@ Implemented in this pass:
   preview-only notification action audits.
 - Added `/v1/grounding-checks` and `/v1/novelty-runs` paths for reviewable
   fabricated-value checks and passive behavior candidate discovery.
+- Added `/v1/issues/from-screenshot` and `/v1/chatops/investigate` entrypoints
+  for weak human reports and chat-originated investigations.
 - Added an Issues/Investigations scaffold view in the web app so the v2 surface
   is visible without pretending the LLM-backed pieces are ready.

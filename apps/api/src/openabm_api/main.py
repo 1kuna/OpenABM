@@ -1109,6 +1109,94 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=_error("not_found", "Issue not found."))
         return issue
 
+    @app.post("/api/issues/from-screenshot", status_code=201)
+    def create_issue_from_screenshot(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["issues:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "title", "screenshot_payload_id_nullable"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        issue = store.create_issue(
+            {
+                **request,
+                "source_type": "screenshot",
+                "description": request.get("description")
+                or request.get("reporter_text")
+                or "Screenshot issue report.",
+            }
+        )
+        candidates = _screenshot_seed_trace_candidates(store, request)
+        store.append_audit(
+            "create_issue_from_screenshot",
+            "issue",
+            request["project_id"],
+            issue["issue_id"],
+            {"candidate_trace_ids": [candidate["trace_id"] for candidate in candidates]},
+        )
+        return {**issue, "candidate_seed_traces": candidates}
+
+    @app.post("/api/chatops/investigate", status_code=201)
+    def chatops_investigate(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["investigations:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "message"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        issue = store.create_issue(
+            {
+                "project_id": request["project_id"],
+                "source_type": "chat",
+                "source_ref_nullable": request.get("source_ref_nullable"),
+                "reporter_nullable": request.get("reporter_nullable"),
+                "title": request.get("title") or request["message"][:80],
+                "description": request["message"],
+                "seed_trace_id_nullable": request.get("seed_trace_id_nullable"),
+                "seed_session_id_nullable": request.get("seed_session_id_nullable"),
+            }
+        )
+        run = store.start_investigation(
+            {
+                "project_id": request["project_id"],
+                "issue_id_nullable": issue["issue_id"],
+                "seed_trace_id_nullable": request.get("seed_trace_id_nullable"),
+                "seed_session_id_nullable": request.get("seed_session_id_nullable"),
+                "natural_language_problem_nullable": request["message"],
+                "filters": request.get("filters") or {},
+            }
+        )
+        store.append_audit(
+            "chatops_investigate",
+            "investigation_run",
+            request["project_id"],
+            run["investigation_run_id"],
+            {"issue_id": issue["issue_id"]},
+        )
+        return {
+            "status": "created",
+            "response": (
+                "Created issue and investigation run. "
+                "Review canonical artifacts in OpenABM."
+            ),
+            "issue": issue,
+            "investigation_run": run,
+            "links": {
+                "issue": f"issue://{issue['issue_id']}",
+                "investigation_run": f"investigation-run://{run['investigation_run_id']}",
+            },
+        }
+
     @app.get("/api/data-classification-policies")
     def list_data_classification_policies(
         project_id: str,
@@ -1773,6 +1861,44 @@ def _behavior_backtest_evidence_ids(result: dict[str, Any]) -> list[str]:
         evidence_ids.append(example["trace_id"])
         evidence_ids.extend(example.get("evidence_span_ids", []))
     return sorted(set(evidence_ids))
+
+
+def _screenshot_seed_trace_candidates(
+    store: SQLiteStore,
+    request: dict[str, Any],
+) -> list[dict[str, object]]:
+    project_id = request["project_id"]
+    query = request.get("extracted_text") or request.get("reporter_text") or request.get("title")
+    filters = request.get("filters") or {}
+    traces = store.search_traces(
+        project_id,
+        filters=filters,
+        full_text_query=query,
+        limit=int(request.get("limit", 5)),
+    )
+    if not traces and request.get("session_id_hint"):
+        traces = store.search_traces(
+            project_id,
+            filters={"session_id": request["session_id_hint"]},
+            limit=int(request.get("limit", 5)),
+        )
+    candidates = []
+    for trace in traces:
+        reasons = []
+        if query:
+            reasons.append("matched extracted text or reporter text")
+        if request.get("session_id_hint") and trace.get("session_id") == request["session_id_hint"]:
+            reasons.append("matched session hint")
+        candidates.append(
+            {
+                "trace_id": trace["trace_id"],
+                "session_id": trace.get("session_id"),
+                "status": trace.get("status"),
+                "confidence": "low" if not reasons else "medium",
+                "reasons": reasons or ["candidate from structured filters"],
+            }
+        )
+    return candidates
 
 
 def _create_investigation_review_tasks(

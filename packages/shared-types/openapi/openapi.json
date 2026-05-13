@@ -1909,6 +1909,34 @@
         }
       }
     },
+    "/v1/issues/from-screenshot": {
+      "post": {
+        "operationId": "createIssueFromScreenshot",
+        "summary": "Create an issue from screenshot intake metadata.",
+        "x-required-scopes": [
+          "issues:write"
+        ],
+        "responses": {
+          "201": {
+            "description": "Screenshot issue and candidate seed traces."
+          }
+        }
+      }
+    },
+    "/v1/chatops/investigate": {
+      "post": {
+        "operationId": "chatopsInvestigate",
+        "summary": "Create issue and investigation artifacts from a chat message.",
+        "x-required-scopes": [
+          "investigations:write"
+        ],
+        "responses": {
+          "201": {
+            "description": "ChatOps investigation artifacts created."
+          }
+        }
+      }
+    },
     "/v1/judges/rubric/run": {
       "post": {
         "operationId": "runRubricJudge",

@@ -576,6 +576,43 @@ def test_v1_grounding_checks_and_novelty_runs_are_reviewable(tmp_path) -> None:
     }
 
 
+def test_v1_screenshot_issue_and_chatops_create_canonical_artifacts(tmp_path) -> None:
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    trace_id = fixture["trace"]["trace_id"]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    screenshot_issue = client.post(
+        "/v1/issues/from-screenshot",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "title": "Screenshot shows damaged order refund failure",
+            "screenshot_payload_id_nullable": "payload_screenshot_1",
+            "extracted_text": "damaged order refund",
+        },
+    )
+    assert screenshot_issue.status_code == 201
+    assert screenshot_issue.json()["source_type"] == "screenshot"
+    assert screenshot_issue.json()["candidate_seed_traces"][0]["trace_id"] == trace_id
+
+    chatops = client.post(
+        "/v1/chatops/investigate",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "message": "Investigate damaged order refund failures",
+            "seed_trace_id_nullable": trace_id,
+        },
+    )
+    assert chatops.status_code == 201
+    assert chatops.json()["issue"]["source_type"] == "chat"
+    assert chatops.json()["links"]["investigation_run"].startswith("investigation-run://")
+
+
 def test_v1_rubric_judge_run_persists_cited_score(tmp_path, monkeypatch) -> None:
     class StubProvider:
         async def structured_completion(self, request, schema):
