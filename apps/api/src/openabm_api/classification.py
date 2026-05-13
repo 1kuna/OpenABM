@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-CLASSIFICATION_LEVELS = ("public", "internal", "confidential", "restricted")
+CLASSIFICATION_LEVELS = ("public", "internal", "confidential", "restricted", "secret")
 CLASSIFICATION_RANK = {level: index for index, level in enumerate(CLASSIFICATION_LEVELS)}
 
 

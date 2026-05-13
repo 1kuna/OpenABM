@@ -439,13 +439,19 @@ export class OpenAbmClient {
     projectId: string,
     message: string,
     seedTraceId?: string,
-    seedSessionId?: string
+    seedSessionId?: string,
+    options: {
+      classificationPolicyId?: string;
+      maxClassification?: string;
+    } = {}
   ): Promise<ChatOpsInvestigationResult> {
     return this.post<ChatOpsInvestigationResult>("/v1/chatops/investigate", {
       project_id: projectId,
       message,
       seed_trace_id_nullable: seedTraceId || null,
-      seed_session_id_nullable: seedSessionId || null
+      seed_session_id_nullable: seedSessionId || null,
+      classification_policy_id_nullable: options.classificationPolicyId || null,
+      max_classification: options.maxClassification || "internal"
     });
   }
 

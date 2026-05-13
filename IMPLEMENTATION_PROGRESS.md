@@ -1026,9 +1026,10 @@ Known remaining gaps before calling the whole spec complete:
 - Screenshot issue intake and ChatOps-style issue/investigation creation exist;
   screenshot/attachment metadata, extracted text, local text-like attachment
   parsing, base64 text decoding, JSON flattening, PDF/DOCX/XLSX/PPTX text
-  extraction, and optional local image OCR output are preserved as evidence,
-  while richer document formats, OCR quality tuning, and vendor-specific chat
-  connectors are still future integration work.
+  extraction, optional local image OCR output, and classification-aware ChatOps
+  response redaction are preserved as evidence, while richer document formats,
+  OCR quality tuning, and vendor-specific chat connectors are still future
+  integration work.
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
   broader usability polish; behavior review actions, impact-report drilldowns,
   eval comparison behavior-shift drilldown, prompt/config diff summaries, and
@@ -1145,6 +1146,10 @@ Implemented in this pass:
 - Added live non-webhook notification adapter outbox records so email/chat/
   issue-tracker/custom targets have an audited local delivery contract while
   vendor transports remain adapter-specific future work.
+- Added `secret` to the data-classification lattice and made ChatOps
+  investigation responses classify against the project policy, redact returned
+  artifacts above the caller's max classification, and expose that state in the
+  web ChatOps scaffold.
 - Added default-off SMTP invite delivery: local outbox remains the default,
   operators can explicitly enable `OPENABM_ENABLE_SMTP_INVITES`, successful
   sends mark the invite delivery `smtp/sent`, and failures are persisted as
@@ -1249,4 +1254,5 @@ Implemented in this pass:
   tests.
 - Added a live Issues/Investigations workspace in the web app so issue intake,
   screenshot intake, ChatOps artifact creation, investigation run selection,
-  and impact report inspection can be exercised from the UI.
+  ChatOps response classification, and impact report inspection can be
+  exercised from the UI.

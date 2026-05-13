@@ -1153,7 +1153,8 @@
                       "public",
                       "internal",
                       "confidential",
-                      "restricted"
+                      "restricted",
+                      "secret"
                     ]
                   },
                   "rules": {
@@ -1352,7 +1353,8 @@
                       "public",
                       "internal",
                       "confidential",
-                      "restricted"
+                      "restricted",
+                      "secret"
                     ]
                   }
                 }
@@ -3779,9 +3781,141 @@
         "x-required-scopes": [
           "investigations:write"
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "message"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "seed_trace_id_nullable": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "seed_session_id_nullable": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source_ref_nullable": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reporter_nullable": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "classification_policy_id_nullable": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "max_classification": {
+                    "type": "string",
+                    "enum": [
+                      "public",
+                      "internal",
+                      "confidential",
+                      "restricted",
+                      "secret"
+                    ],
+                    "default": "internal"
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
-            "description": "ChatOps investigation artifacts created."
+            "description": "ChatOps investigation artifacts created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "response",
+                    "classification",
+                    "max_classification",
+                    "redacted",
+                    "payload"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "response": {
+                      "type": "string"
+                    },
+                    "classification": {
+                      "type": "string",
+                      "enum": [
+                        "public",
+                        "internal",
+                        "confidential",
+                        "restricted",
+                        "secret"
+                      ]
+                    },
+                    "classification_policy_id_nullable": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "matched_classification_rules": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "max_classification": {
+                      "type": "string"
+                    },
+                    "redacted": {
+                      "type": "boolean"
+                    },
+                    "payload": {
+                      "type": "object"
+                    },
+                    "issue": {
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
+                    "investigation_run": {
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
+                    "links": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }

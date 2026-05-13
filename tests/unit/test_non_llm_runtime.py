@@ -613,3 +613,22 @@ def test_data_classification_rules_redact_above_access_level() -> None:
         result["classification"],
         "internal",
     )["redacted"] is True
+
+    secret_result = classify_payload(
+        {"message": "contains launch key"},
+        {
+            "default_classification": "internal",
+            "rules": [{"path": "message", "classification": "secret", "contains": "key"}],
+        },
+    )
+    assert secret_result["classification"] == "secret"
+    assert redact_if_needed(
+        {"message": "contains launch key"},
+        secret_result["classification"],
+        "restricted",
+    )["redacted"] is True
+    assert redact_if_needed(
+        {"message": "contains launch key"},
+        secret_result["classification"],
+        "secret",
+    )["message"] == "contains launch key"

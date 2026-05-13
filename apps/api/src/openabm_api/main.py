@@ -2700,7 +2700,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: dict[str, Any],
         actor: dict[str, object] = Depends(auth_dependency(["investigations:write"])),
     ) -> dict[str, object]:
-        del actor
         for key in ["project_id", "message"]:
             if key not in request:
                 raise SchemaValidationFailure(
@@ -2708,9 +2707,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     f"{key} is required",
                     f"/{key}",
                 )
+        project_id = request["project_id"]
         issue = store.create_issue(
             {
-                "project_id": request["project_id"],
+                "project_id": project_id,
                 "source_type": "chat",
                 "source_ref_nullable": request.get("source_ref_nullable"),
                 "reporter_nullable": request.get("reporter_nullable"),
@@ -2722,7 +2722,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         run = store.start_investigation(
             {
-                "project_id": request["project_id"],
+                "project_id": project_id,
                 "issue_id_nullable": issue["issue_id"],
                 "seed_trace_id_nullable": request.get("seed_trace_id_nullable"),
                 "seed_session_id_nullable": request.get("seed_session_id_nullable"),
@@ -2730,14 +2730,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "filters": request.get("filters") or {},
             }
         )
-        store.append_audit(
-            "chatops_investigate",
-            "investigation_run",
-            request["project_id"],
-            run["investigation_run_id"],
-            {"issue_id": issue["issue_id"]},
-        )
-        return {
+        links = {
+            "issue": f"issue://{issue['issue_id']}",
+            "investigation_run": f"investigation-run://{run['investigation_run_id']}",
+        }
+        response_payload = {
             "status": "created",
             "response": (
                 "Created issue and investigation run. "
@@ -2745,11 +2742,80 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             "issue": issue,
             "investigation_run": run,
-            "links": {
-                "issue": f"issue://{issue['issue_id']}",
-                "investigation_run": f"investigation-run://{run['investigation_run_id']}",
-            },
+            "links": links,
         }
+        policy = _select_data_classification_policy(
+            store,
+            project_id,
+            request.get("classification_policy_id_nullable")
+            or request.get("classification_policy_id"),
+        )
+        try:
+            classification = classify_payload(
+                {
+                    "message": request["message"],
+                    "title": response_payload["issue"]["title"],
+                    "description": response_payload["issue"]["description"],
+                    "source_ref_nullable": request.get("source_ref_nullable"),
+                    "reporter_nullable": request.get("reporter_nullable"),
+                    "seed_trace_id_nullable": request.get("seed_trace_id_nullable"),
+                    "seed_session_id_nullable": request.get("seed_session_id_nullable"),
+                    "filters": request.get("filters") or {},
+                    "links": links,
+                },
+                policy,
+            )
+            max_classification = normalize_classification(
+                request.get("max_classification"),
+                "internal",
+            )
+            payload = redact_if_needed(
+                response_payload,
+                classification["classification"],
+                max_classification,
+            )
+        except ValueError as exc:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                str(exc),
+                "/classification",
+            ) from exc
+        redacted = bool(isinstance(payload, dict) and payload.get("redacted") is True)
+        result = {
+            **response_payload,
+            "classification": classification["classification"],
+            "classification_policy_id_nullable": policy.get("policy_id"),
+            "matched_classification_rules": classification["matched_rules"],
+            "max_classification": max_classification,
+            "redacted": redacted,
+            "payload": payload,
+        }
+        if redacted:
+            result.update(
+                {
+                    "response": (
+                        "Created issue and investigation run, but ChatOps response "
+                        "details are redacted by data classification policy."
+                    ),
+                    "issue": None,
+                    "investigation_run": None,
+                    "links": {},
+                }
+            )
+        store.append_audit(
+            "chatops_investigate",
+            "investigation_run",
+            project_id,
+            run["investigation_run_id"],
+            {
+                "issue_id": issue["issue_id"],
+                "classification": classification["classification"],
+                "classification_policy_id_nullable": policy.get("policy_id"),
+                "redacted": redacted,
+                "actor_id": actor.get("actor_id"),
+            },
+        )
+        return result
 
     @app.get("/api/data-classification-policies")
     def list_data_classification_policies(
@@ -4072,6 +4138,30 @@ def _register_v1_aliases(app: FastAPI) -> None:
             name=f"v1_{route.name}",
             include_in_schema=True,
         )
+
+
+def _select_data_classification_policy(
+    store: SQLiteStore,
+    project_id: str,
+    policy_id: str | None,
+) -> dict[str, Any]:
+    policies = store.list_data_classification_policies(project_id)
+    if policy_id:
+        for policy in policies:
+            if policy["policy_id"] == policy_id:
+                return policy
+        raise HTTPException(
+            status_code=404,
+            detail=_error("not_found", "Data classification policy not found."),
+        )
+    if policies:
+        return policies[0]
+    return {
+        "policy_id": None,
+        "project_id": project_id,
+        "default_classification": "internal",
+        "rules": [],
+    }
 
 
 class _ObservedModelProvider:

@@ -543,8 +543,14 @@ export interface AgentContextPack {
 export interface ChatOpsInvestigationResult {
   status: string;
   response: string;
-  issue: IssueDefinition;
-  investigation_run: InvestigationRun;
+  classification: string;
+  classification_policy_id_nullable: string | null;
+  matched_classification_rules: Array<Record<string, unknown>>;
+  max_classification: string;
+  redacted: boolean;
+  payload: Record<string, unknown>;
+  issue: IssueDefinition | null;
+  investigation_run: InvestigationRun | null;
   links: Record<string, string>;
 }
 

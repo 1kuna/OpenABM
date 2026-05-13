@@ -2928,6 +2928,45 @@ def test_v1_screenshot_issue_and_chatops_create_canonical_artifacts(tmp_path) ->
     assert chatops.status_code == 201
     assert chatops.json()["issue"]["source_type"] == "chat"
     assert chatops.json()["links"]["investigation_run"].startswith("investigation-run://")
+    assert chatops.json()["classification"] == "internal"
+    assert chatops.json()["redacted"] is False
+
+    secret_policy = client.post(
+        "/v1/data-classification-policies",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "default_classification": "internal",
+            "rules": [
+                {
+                    "path": "message",
+                    "classification": "secret",
+                    "contains": "secret escalation",
+                }
+            ],
+        },
+    )
+    assert secret_policy.status_code == 201
+    redacted_chatops = client.post(
+        "/v1/chatops/investigate",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "message": "Investigate secret escalation for damaged order refund",
+            "seed_trace_id_nullable": trace_id,
+            "max_classification": "restricted",
+        },
+    )
+    assert redacted_chatops.status_code == 201
+    redacted_body = redacted_chatops.json()
+    assert redacted_body["classification"] == "secret"
+    assert redacted_body["classification_policy_id_nullable"] == secret_policy.json()["policy_id"]
+    assert redacted_body["redacted"] is True
+    assert redacted_body["issue"] is None
+    assert redacted_body["investigation_run"] is None
+    assert redacted_body["links"] == {}
+    assert redacted_body["payload"]["redacted"] is True
+    assert redacted_body["matched_classification_rules"][0]["path"] == "message"
 
 
 def test_v1_screenshot_issue_uses_configured_image_ocr(tmp_path, monkeypatch) -> None:

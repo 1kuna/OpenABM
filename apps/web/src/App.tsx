@@ -1602,6 +1602,7 @@ function IssueInvestigationWorkspace(props: {
   const [screenshotAttachmentText, setScreenshotAttachmentText] = useState("order lookup refund");
   const [screenshotResult, setScreenshotResult] = useState<ScreenshotIssueResult | null>(null);
   const [chatMessage, setChatMessage] = useState("Investigate damaged order refund failures");
+  const [chatMaxClassification, setChatMaxClassification] = useState("internal");
   const [chatopsResult, setChatopsResult] = useState<ChatOpsInvestigationResult | null>(null);
   const [investigationProblem, setInvestigationProblem] = useState("refund failure");
   const [filterStatus, setFilterStatus] = useState("error");
@@ -1777,18 +1778,24 @@ function IssueInvestigationWorkspace(props: {
         projectId,
         chatMessage.trim(),
         seedTraceId || undefined,
-        seedSessionId || undefined
+        seedSessionId || undefined,
+        { maxClassification: chatMaxClassification.trim() || "internal" }
       );
       setChatopsResult(result);
-      setIssues((current) => [result.issue, ...current.filter((issue) => issue.issue_id !== result.issue.issue_id)]);
-      setInvestigations((current) => [
-        result.investigation_run,
-        ...current.filter((run) => run.investigation_run_id !== result.investigation_run.investigation_run_id)
-      ]);
-      setSelectedIssueId(result.issue.issue_id);
-      setSelectedInvestigationId(result.investigation_run.investigation_run_id);
-      setIssueLinks(await client.listIssueLinks(projectId, result.issue.issue_id));
-      setStateText("ChatOps artifacts created");
+      if (result.issue && result.investigation_run) {
+        setIssues((current) => [
+          result.issue as IssueDefinition,
+          ...current.filter((issue) => issue.issue_id !== result.issue?.issue_id)
+        ]);
+        setInvestigations((current) => [
+          result.investigation_run as InvestigationRun,
+          ...current.filter((run) => run.investigation_run_id !== result.investigation_run?.investigation_run_id)
+        ]);
+        setSelectedIssueId(result.issue.issue_id);
+        setSelectedInvestigationId(result.investigation_run.investigation_run_id);
+        setIssueLinks(await client.listIssueLinks(projectId, result.issue.issue_id));
+      }
+      setStateText(result.redacted ? "ChatOps artifacts created; response redacted" : "ChatOps artifacts created");
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "ChatOps intake failed");
     }
@@ -2065,11 +2072,21 @@ function IssueInvestigationWorkspace(props: {
 
         <div className="issueCreate secondaryCreate">
           <input value={chatMessage} onChange={(event) => setChatMessage(event.target.value)} placeholder="ChatOps message" />
+          <input
+            value={chatMaxClassification}
+            onChange={(event) => setChatMaxClassification(event.target.value)}
+            placeholder="max classification"
+          />
           <button onClick={() => void runChatopsIntake()}>
             <Network size={15} />
             ChatOps investigate
           </button>
-          {chatopsResult ? <p className="systemNote">{chatopsResult.response}</p> : null}
+          {chatopsResult ? (
+            <p className="systemNote">
+              {chatopsResult.response} · {chatopsResult.classification}
+              {chatopsResult.redacted ? " · redacted" : ""}
+            </p>
+          ) : null}
         </div>
 
         <div className="issueRows">
