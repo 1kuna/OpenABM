@@ -354,6 +354,10 @@ Done:
   `on_failure: compensate`, OpenABM executes configured `compensation_actions`
   from the failed action and prior successful actions in reverse order, records
   each compensation result, and keeps the original dead-lettered failure visible.
+- Added a typed automation rollback helper for created review tasks:
+  `rollback_review_task` resolves the review task produced by the compensated
+  action, marks it resolved with a rollback decision, and records the rollback
+  target in the compensation result.
 
 ## Phase 7: Prompt Registry, MCP, And Investigation Agent
 
@@ -712,8 +716,9 @@ Known remaining gaps before calling the whole spec complete:
 - Automation definitions and local run execution include deterministic
   conditions, idempotency, preview notifications, opt-in live webhook delivery,
   review-task actions, cooldown skips, bounded retries, and dead-letter action
-  visibility, plus explicit compensation actions; typed rollback helpers for
-  specific external systems remain future work.
+  visibility, plus explicit compensation actions and a typed review-task
+  rollback helper; rollback adapters for external ticketing/workflow systems
+  remain future work.
 - Passive novelty detection has deterministic exact-signature grouping plus
   optional model semantic grouping/naming with validated membership; larger
   clustering and embedding-backed discovery remain future work.
@@ -832,6 +837,9 @@ Implemented in this pass:
   partial-failure runs.
 - Added configured `on_failure: compensate` behavior with explicit
   `compensation_actions` executed in reverse order from failed/prior actions.
+- Added `rollback_review_task` as the first typed compensation helper so a
+  review task created by an earlier automation action can be resolved if a later
+  action fails.
 - Added `/v1/grounding-checks` and `/v1/novelty-runs` paths for reviewable
   fabricated-value checks and passive behavior candidate discovery.
 - Added model-assisted `/v1/grounding-checks` claim extraction with persisted

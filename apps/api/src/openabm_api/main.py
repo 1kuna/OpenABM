@@ -3782,6 +3782,38 @@ def _execute_automation_action_once(
                 }
             )
             return {**planned, "status": "succeeded", "result": task}
+        if action_type == "rollback_review_task":
+            review_task_id = _rollback_review_task_id(planned)
+            if review_task_id is None:
+                return {
+                    **planned,
+                    "status": "skipped",
+                    "reason": "missing review task to roll back",
+                }
+            task = store.update_review_task(
+                project_id,
+                review_task_id,
+                {
+                    "status": "resolved",
+                    "decision": action.get("decision", "rolled_back_by_automation"),
+                    "notes": action.get("notes")
+                    or (
+                        "Rolled back by automation compensation for "
+                        f"{planned.get('idempotency_key')}."
+                    ),
+                },
+            )
+            return {
+                **planned,
+                "status": "succeeded",
+                "result": task,
+                "rollback": {
+                    "target_type": "review_task",
+                    "target_id": review_task_id,
+                    "status": task["status"],
+                    "decision": task["decision_nullable"],
+                },
+            }
         if action_type == "send_notification":
             return _execute_notification_action(
                 store,
@@ -3837,6 +3869,10 @@ def _planned_compensation_actions(action_results: list[dict[str, Any]]) -> list[
                     ),
                     "action": compensation,
                     "compensates_action_index": source_index,
+                    "compensates_result": {
+                        "status": result.get("status"),
+                        "result": result.get("result"),
+                    },
                 }
             )
     return planned
@@ -3862,6 +3898,21 @@ def _compensation_status(results: list[dict[str, Any]]) -> str:
     if any(_is_action_failure(result) for result in results):
         return "partial_failure"
     return "succeeded"
+
+
+def _rollback_review_task_id(planned: dict[str, Any]) -> str | None:
+    action = planned.get("action") if isinstance(planned.get("action"), dict) else {}
+    explicit = action.get("review_task_id")
+    if isinstance(explicit, str) and explicit:
+        return explicit
+    compensated = planned.get("compensates_result")
+    if not isinstance(compensated, dict):
+        return None
+    result = compensated.get("result")
+    if not isinstance(result, dict):
+        return None
+    review_task_id = result.get("review_task_id")
+    return review_task_id if isinstance(review_task_id, str) and review_task_id else None
 
 
 def _execute_notification_action(

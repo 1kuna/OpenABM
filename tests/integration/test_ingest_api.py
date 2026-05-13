@@ -1365,6 +1365,13 @@ def test_v1_automation_run_creates_review_task_and_notification_preview(tmp_path
                     "task_type": "behavior_candidate",
                     "compensation_actions": [
                         {
+                            "type": "rollback_review_task",
+                            "notes": (
+                                "Review task created by failed automation path "
+                                "was rolled back"
+                            ),
+                        },
+                        {
                             "type": "send_notification",
                             "target_id": target.json()["target_id"],
                             "message": "Review task needs manual cleanup",
@@ -1398,9 +1405,17 @@ def test_v1_automation_run_creates_review_task_and_notification_preview(tmp_path
     assert failed_action["status"] == "dead_lettered"
     assert failed_action["partial_failure_behavior"] == "compensate"
     assert failed_action["compensation_status"] == "succeeded"
-    assert failed_action["compensation_results"][0]["delivery_status"] == "preview_only"
-    assert failed_action["compensation_results"][0]["compensates_action_index"] == 0
-    assert failed_action["compensation_results"][0]["group_key"] == "compensation-review-cleanup"
+    rollback_result = failed_action["compensation_results"][0]
+    notification_result = failed_action["compensation_results"][1]
+    created_task_id = compensation_body["action_results"][0]["result"]["review_task_id"]
+    assert rollback_result["type"] == "rollback_review_task"
+    assert rollback_result["rollback"]["target_id"] == created_task_id
+    assert rollback_result["result"]["status"] == "resolved"
+    assert rollback_result["result"]["decision_nullable"] == "rolled_back_by_automation"
+    assert rollback_result["compensates_action_index"] == 0
+    assert notification_result["delivery_status"] == "preview_only"
+    assert notification_result["compensates_action_index"] == 0
+    assert notification_result["group_key"] == "compensation-review-cleanup"
 
 
 def test_v1_notification_targets_require_secret_refs(tmp_path) -> None:
