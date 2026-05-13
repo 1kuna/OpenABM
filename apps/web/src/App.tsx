@@ -282,7 +282,15 @@ export function App() {
         ) : activeView === "judges" ? (
           <JudgeWorkspace client={client} connection={connection} projectId={projectId} />
         ) : activeView === "datasets" ? (
-          <DatasetEvalWorkspace client={client} connection={connection} projectId={projectId} />
+          <DatasetEvalWorkspace
+            client={client}
+            connection={connection}
+            projectId={projectId}
+            onOpenTrace={(traceId) => {
+              setSelectedTraceId(traceId);
+              setActiveView("traces");
+            }}
+          />
         ) : activeView === "behaviors" ? (
           <BehaviorWorkspace
             client={client}
@@ -2184,12 +2192,15 @@ function DatasetEvalWorkspace(props: {
   client: OpenAbmClient;
   connection: ConnectionState;
   projectId: string;
+  onOpenTrace: (traceId: string) => void;
 }) {
   const { client, connection, projectId } = props;
   const [datasets, setDatasets] = useState<DatasetDefinition[]>([]);
   const [examples, setExamples] = useState<DatasetExample[]>([]);
   const [evalRuns, setEvalRuns] = useState<EvalRun[]>([]);
   const [evalResults, setEvalResults] = useState<EvalResult[]>([]);
+  const [comparisonBaselineResults, setComparisonBaselineResults] = useState<EvalResult[]>([]);
+  const [comparisonCandidateResults, setComparisonCandidateResults] = useState<EvalResult[]>([]);
   const [judges, setJudges] = useState<JudgeDefinition[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState("");
   const [selectedEvalRunId, setSelectedEvalRunId] = useState("");
@@ -2215,6 +2226,8 @@ function DatasetEvalWorkspace(props: {
       setExamples([]);
       setEvalRuns([]);
       setEvalResults([]);
+      setComparisonBaselineResults([]);
+      setComparisonCandidateResults([]);
       setJudges([]);
       setStateText("fixture mode");
       return;
@@ -2332,6 +2345,8 @@ function DatasetEvalWorkspace(props: {
       );
       setEvalRuns((current) => [run, ...current]);
       setSelectedEvalRunId(run.eval_run_id);
+      setCandidateId(run.eval_run_id);
+      setComparison(null);
       setStateText(`eval completed: ${run.eval_run_id}`);
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "eval run failed");
@@ -2341,8 +2356,14 @@ function DatasetEvalWorkspace(props: {
   async function compareRuns() {
     if (connection !== "live" || !baselineId || !candidateId) return;
     try {
-      const result = await client.compareEvalRuns(projectId, baselineId, candidateId);
+      const [result, baselineResults, candidateResults] = await Promise.all([
+        client.compareEvalRuns(projectId, baselineId, candidateId),
+        client.listEvalResults(projectId, baselineId),
+        client.listEvalResults(projectId, candidateId)
+      ]);
       setComparison(result);
+      setComparisonBaselineResults(baselineResults);
+      setComparisonCandidateResults(candidateResults);
       setStateText("comparison ready");
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "compare failed");
@@ -2434,7 +2455,10 @@ function DatasetEvalWorkspace(props: {
                   </label>
                   <label>
                     Baseline
-                    <select value={baselineId} onChange={(event) => setBaselineId(event.target.value)}>
+                    <select value={baselineId} onChange={(event) => {
+                      setBaselineId(event.target.value);
+                      setComparison(null);
+                    }}>
                       <option value="">None</option>
                       {datasetRuns.map((run) => (
                         <option key={run.eval_run_id} value={run.eval_run_id}>{run.eval_run_id}</option>
@@ -2458,6 +2482,7 @@ function DatasetEvalWorkspace(props: {
                       onClick={() => {
                         setSelectedEvalRunId(run.eval_run_id);
                         setCandidateId(run.eval_run_id);
+                        setComparison(null);
                       }}
                     >
                       <span className={`judgeStatus ${run.status}`}>{run.status}</span>
@@ -2502,7 +2527,10 @@ function DatasetEvalWorkspace(props: {
                 <div className="evalForm">
                   <label>
                     Baseline
-                    <select value={baselineId} onChange={(event) => setBaselineId(event.target.value)}>
+                    <select value={baselineId} onChange={(event) => {
+                      setBaselineId(event.target.value);
+                      setComparison(null);
+                    }}>
                       <option value="">Select baseline</option>
                       {datasetRuns.map((run) => (
                         <option key={run.eval_run_id} value={run.eval_run_id}>{run.eval_run_id}</option>
@@ -2511,7 +2539,10 @@ function DatasetEvalWorkspace(props: {
                   </label>
                   <label>
                     Candidate
-                    <select value={candidateId} onChange={(event) => setCandidateId(event.target.value)}>
+                    <select value={candidateId} onChange={(event) => {
+                      setCandidateId(event.target.value);
+                      setComparison(null);
+                    }}>
                       <option value="">Select candidate</option>
                       {datasetRuns.map((run) => (
                         <option key={run.eval_run_id} value={run.eval_run_id}>{run.eval_run_id}</option>
@@ -2525,8 +2556,36 @@ function DatasetEvalWorkspace(props: {
                 </div>
                 {comparison ? (
                   <div className="comparisonBox">
-                    <strong>Pass delta {formatSigned(comparison.pass_rate_delta)}</strong>
+                    <strong>Pass delta {formatSignedPercent(comparison.pass_rate_delta)}</strong>
+                    <span>Score delta {formatSignedNumber(comparison.avg_score_delta)} · invalid outputs {formatSignedInteger(comparison.invalid_judge_output_delta)}</span>
+                    <span>Cost {formatCurrencyDelta(comparison.cost_delta)} · latency {formatDurationDelta(comparison.latency_delta)} · tokens {formatIntegerDelta(comparison.token_delta)}</span>
                     <span>Fixed {comparison.fixed_failures.length} · new {comparison.new_failures.length} · unchanged {comparison.unchanged_failures.length}</span>
+                    <span>Baseline {formatEvalSummary(comparison.baseline_summary)}</span>
+                    <span>Candidate {formatEvalSummary(comparison.candidate_summary)}</span>
+                    <EvalFailureRows
+                      title="New failures"
+                      exampleIds={comparison.new_failures}
+                      examples={examples}
+                      baselineResults={comparisonBaselineResults}
+                      candidateResults={comparisonCandidateResults}
+                      onOpenTrace={props.onOpenTrace}
+                    />
+                    <EvalFailureRows
+                      title="Fixed failures"
+                      exampleIds={comparison.fixed_failures}
+                      examples={examples}
+                      baselineResults={comparisonBaselineResults}
+                      candidateResults={comparisonCandidateResults}
+                      onOpenTrace={props.onOpenTrace}
+                    />
+                    <EvalFailureRows
+                      title="Unchanged failures"
+                      exampleIds={comparison.unchanged_failures}
+                      examples={examples}
+                      baselineResults={comparisonBaselineResults}
+                      candidateResults={comparisonCandidateResults}
+                      onOpenTrace={props.onOpenTrace}
+                    />
                   </div>
                 ) : null}
               </section>
@@ -2536,6 +2595,50 @@ function DatasetEvalWorkspace(props: {
           <div className="emptyState">{stateText}</div>
         )}
       </section>
+    </div>
+  );
+}
+
+function EvalFailureRows(props: {
+  title: string;
+  exampleIds: string[];
+  examples: DatasetExample[];
+  baselineResults: EvalResult[];
+  candidateResults: EvalResult[];
+  onOpenTrace: (traceId: string) => void;
+}) {
+  const baselineByExample = new Map(
+    props.baselineResults.map((result) => [result.dataset_example_id, result])
+  );
+  const candidateByExample = new Map(
+    props.candidateResults.map((result) => [result.dataset_example_id, result])
+  );
+  const exampleById = new Map(props.examples.map((example) => [example.dataset_example_id, example]));
+
+  return (
+    <div className="comparisonFailureRows">
+      <strong>{props.title}</strong>
+      {props.exampleIds.map((exampleId) => {
+        const baseline = baselineByExample.get(exampleId) ?? null;
+        const candidate = candidateByExample.get(exampleId) ?? null;
+        const example = exampleById.get(exampleId) ?? null;
+        const traceId = example?.source_trace_id ?? candidate?.offline_trace_id ?? baseline?.offline_trace_id ?? "";
+        return (
+          <div key={exampleId}>
+            <strong>{exampleId}</strong>
+            <span>Baseline {formatEvalResult(baseline)}</span>
+            <span>Candidate {formatEvalResult(candidate)}</span>
+            <small>{traceId || "no source trace"}</small>
+            {traceId ? (
+              <button onClick={() => props.onOpenTrace(traceId)}>
+                <FileSearch size={14} />
+                Open trace
+              </button>
+            ) : null}
+          </div>
+        );
+      })}
+      {!props.exampleIds.length ? <span>No examples</span> : null}
     </div>
   );
 }
@@ -4583,10 +4686,42 @@ function formatScore(score: Record<string, unknown>) {
     : `${String(verdict)} ${String(value)}${failureMode}`;
 }
 
-function formatSigned(value: number | null | undefined) {
+function formatEvalResult(result: EvalResult | null) {
+  if (!result) return "missing";
+  return `${result.status} · ${result.scores.map(formatScore).join(", ") || "no scores"}`;
+}
+
+function formatSignedPercent(value: number | null | undefined) {
   if (value == null) return "none";
   const rounded = Math.round(value * 1000) / 10;
   return `${rounded > 0 ? "+" : ""}${rounded}%`;
+}
+
+function formatSignedNumber(value: number | null | undefined) {
+  if (value == null) return "none";
+  const rounded = Math.round(value * 1000) / 1000;
+  return `${rounded > 0 ? "+" : ""}${rounded}`;
+}
+
+function formatSignedInteger(value: number | null | undefined) {
+  if (value == null) return "none";
+  return `${value > 0 ? "+" : ""}${value}`;
+}
+
+function formatIntegerDelta(value: number | null | undefined) {
+  return formatSignedInteger(value);
+}
+
+function formatCurrencyDelta(value: number | null | undefined) {
+  if (value == null) return "none";
+  if (value === 0) return "$0";
+  return `${value > 0 ? "+" : "-"}${formatUsd(Math.abs(value))}`;
+}
+
+function formatDurationDelta(value: number | null | undefined) {
+  if (value == null) return "none";
+  if (value === 0) return "0 ms";
+  return `${value > 0 ? "+" : "-"}${formatDuration(Math.abs(value))}`;
 }
 
 function parseJsonObject(value: string): Record<string, unknown> {

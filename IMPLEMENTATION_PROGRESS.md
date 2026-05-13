@@ -253,6 +253,9 @@ Done:
   The local runner can execute deterministic rule judges and rubric judges via
   the configured local model provider, then compare pass-rate, average-score,
   failure set, invalid-output, latency, and token deltas.
+- Expanded the Eval Comparison UI with baseline/candidate selectors, pass and
+  score deltas, invalid-output/cost/latency/token deltas, new/fixed/unchanged
+  failure lists, and trace links back to source examples.
 
 ## Phase 6: Behaviors And Automations
 
@@ -459,9 +462,10 @@ Verified after the latest implementation slices:
   dry-run, export manifest, classification, issue intake, screenshot intake,
   ChatOps investigation, Judge Editor draft creation/version commit, Behavior
   Detail backtest/match/review/action rendering, matched-trace navigation,
-  notification target creation, automation creation, and automation run-once
-  flows completed against the live local API with no console errors or failing
-  API responses.
+  Eval Comparison baseline/candidate selection, delta/failure-list rendering,
+  eval-failure trace navigation, notification target creation, automation
+  creation, and automation run-once flows completed against the live local API
+  with no console errors or failing API responses.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
 - MCP stdio smoke: `tools/list` returned 35 tools and

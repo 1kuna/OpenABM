@@ -1871,13 +1871,41 @@ pre {
   padding: 9px;
 }
 
+.comparisonFailureRows {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.comparisonFailureRows div {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid #edf0f4;
+  min-width: 0;
+  padding-top: 8px;
+}
+
+.comparisonFailureRows button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 32px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  padding: 0 10px;
+}
+
 .compactFacts {
   margin: 0;
 }
 
 .exampleRows strong,
 .resultRows strong,
-.evalRows strong {
+.evalRows strong,
+.comparisonFailureRows strong {
   min-width: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -1886,7 +1914,10 @@ pre {
 .exampleRows span,
 .exampleRows small,
 .resultRows span,
-.comparisonBox span {
+.comparisonBox span,
+.comparisonBox small,
+.comparisonFailureRows span,
+.comparisonFailureRows small {
   color: #6b7280;
   font-size: 12px;
   overflow-wrap: anywhere;
