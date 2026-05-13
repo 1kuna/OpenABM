@@ -12,6 +12,18 @@
     "judge_id": {"type": "string"},
     "judge_version_id": {"type": ["string", "null"]},
     "status": {"enum": ["succeeded", "failed", "timeout", "invalid_output", "skipped"]},
+    "failure_reason": {
+      "enum": [
+        "resource_exceeded",
+        "sandbox_error",
+        "invalid_result",
+        "transport_error",
+        "cost_cap_exceeded",
+        "provider_error",
+        "permission_denied",
+        null
+      ]
+    },
     "value": {},
     "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
     "reasoning": {"type": ["string", "null"]},
@@ -20,6 +32,16 @@
     "cost": {"type": ["object", "null"]},
     "latency_ms": {"type": ["integer", "null"], "minimum": 0},
     "created_at": {"type": "string", "format": "date-time"}
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["status"],
+        "properties": {"status": {"const": "succeeded"}}
+      },
+      "then": {
+        "properties": {"failure_reason": {"type": "null"}}
+      }
+    }
+  ]
 }
-

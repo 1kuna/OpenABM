@@ -190,6 +190,34 @@ def test_trace_fixtures_validate_against_trace_and_span_schemas() -> None:
         assert "expected" in fixture
 
 
+def test_score_result_schema_enforces_failure_reason_contract() -> None:
+    schema = load_json(SCHEMA_DIR / "score-result.schema.json")
+    validator = Draft202012Validator(schema)
+    succeeded_score = {
+        "score_id": "score_1",
+        "trace_id": "trace_1",
+        "judge_id": "judge_1",
+        "status": "succeeded",
+        "failure_reason": None,
+        "value": {"verdict": "pass"},
+    }
+    failed_score = {
+        **succeeded_score,
+        "score_id": "score_2",
+        "status": "failed",
+        "failure_reason": "invalid_result",
+        "value": None,
+    }
+    invalid_succeeded_score = {
+        **succeeded_score,
+        "failure_reason": "provider_error",
+    }
+
+    validator.validate(succeeded_score)
+    validator.validate(failed_score)
+    assert list(validator.iter_errors(invalid_succeeded_score))
+
+
 def test_openapi_has_required_operation_level_contracts() -> None:
     openapi = load_json(OPENAPI_PATH)
     paths = openapi["paths"]

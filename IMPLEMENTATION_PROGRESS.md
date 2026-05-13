@@ -354,6 +354,9 @@ Done:
   machine-readable result is under
   `artifacts/model-benchmarks/qwen3.5-agent-flow-smoke.json`.
 - Added judge output validation for verdicts and span citations.
+- Aligned the `ScoreResult` JSON Schema with the spec's failure-reason
+  contract, including validation that succeeded scores cannot carry a
+  non-null failure reason.
 - Added model-backed rubric judge execution with context packets, preserved-span
   citation validation, provider/model metadata, score persistence, and `/v1`
   API coverage.
