@@ -39,6 +39,10 @@ In this pass:
   instead of reinventing a deep-agent runtime.
 - Source-check the current LangGraph, Deep Agents, and Pi/pi-agent-core project
   surfaces before adding any orchestration dependency.
+- Add GitHub CI scaffolding for Python contracts/runtime tests, web build,
+  dependency review, and Dependabot update tracking, plus a local `make ci`
+  target that runs lint, tests, OpenAPI JSON validation, docs link checks, and
+  the web build.
 - Leave final license choice pending owner review rather than silently committing
   legal terms.
 
@@ -626,6 +630,9 @@ Verified after the latest implementation slices:
   payloads, preserve high-priority evidence spans before low-signal spans under
   budget pressure, record omitted spans/truncation notes, and persist a
   reproducible context-packet hash in score provider metadata.
+- Contributor workflow regression passed locally: `make ci` covers lint, tests,
+  OpenAPI JSON validation, docs link checks, and web build; GitHub Actions
+  mirrors those gates and adds PR dependency review.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:
