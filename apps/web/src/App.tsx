@@ -66,6 +66,8 @@ import type {
   SecretAccessLogEntry,
   SecretBackendStatus,
   SecretRef,
+  SimilarityIndexRebuildResult,
+  SimilarityIndexSummary,
   SimilarTraceSearchResult,
   SpanEnvelope,
   SpanNode,
@@ -593,6 +595,9 @@ function OpsWorkspace(props: {
   const [ready, setReady] = useState<HealthStatus | null>(null);
   const [metricsText, setMetricsText] = useState("");
   const [opsStatus, setOpsStatus] = useState<OpsStatus | null>(null);
+  const [similarityIndex, setSimilarityIndex] = useState<SimilarityIndexSummary | null>(null);
+  const [similarityRebuildLimit, setSimilarityRebuildLimit] = useState("500");
+  const [similarityRebuildResult, setSimilarityRebuildResult] = useState<SimilarityIndexRebuildResult | null>(null);
   const [deadLetterRuns, setDeadLetterRuns] = useState<AutomationRun[]>([]);
   const [authContract, setAuthContract] = useState<AuthContract | null>(null);
   const [authApiKeys, setAuthApiKeys] = useState<AuthApiKey[]>([]);
@@ -656,6 +661,12 @@ function OpsWorkspace(props: {
   const workerHealthById = new Map(workerHealth.map((item) => [item.worker_id, item]));
   const storageRows = Object.values(opsStatus?.storage_growth ?? {}).reduce((sum, count) => sum + count, 0);
   const queueDepth = opsStatus?.queue_depth.worker_jobs ?? 0;
+  const similarityTraceCount =
+    similarityIndex?.representations
+      .filter((item) => item.entity_type === "trace")
+      .reduce((sum, item) => sum + item.count, 0) ?? 0;
+  const latestSimilarityRepresentation =
+    similarityIndex?.representations.find((item) => item.entity_type === "trace") ?? null;
 
   async function loadOps() {
     if (connection !== "live") {
@@ -663,6 +674,8 @@ function OpsWorkspace(props: {
       setReady(null);
       setMetricsText("");
       setOpsStatus(null);
+      setSimilarityIndex(null);
+      setSimilarityRebuildResult(null);
       setDeadLetterRuns([]);
       setAuthContract(null);
       setAuthApiKeys([]);
@@ -683,6 +696,7 @@ function OpsWorkspace(props: {
         readyStatus,
         metrics,
         status,
+        similarity,
         deadLetters,
         contract,
         apiKeys,
@@ -698,6 +712,7 @@ function OpsWorkspace(props: {
         client.getReady(),
         client.getMetricsText(),
         client.getOpsStatus(projectId),
+        client.getSimilarityIndex(projectId),
         client.listDeadLetterRuns(projectId),
         client.getAuthContract(),
         client.listAuthApiKeys(projectId),
@@ -713,6 +728,7 @@ function OpsWorkspace(props: {
       setReady(readyStatus);
       setMetricsText(metrics || "No counters emitted yet");
       setOpsStatus(status);
+      setSimilarityIndex(similarity);
       setDeadLetterRuns(deadLetters);
       setAuthContract(contract);
       setAuthApiKeys(apiKeys);
@@ -783,6 +799,20 @@ function OpsWorkspace(props: {
       setStateText(`heartbeat ${heartbeat.worker_id}`);
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "worker heartbeat failed");
+    }
+  }
+
+  async function rebuildSimilarityIndex() {
+    if (connection !== "live") return;
+    const limit = Math.max(1, Number(similarityRebuildLimit) || 500);
+    try {
+      const result = await client.rebuildSimilarityIndex(projectId, limit);
+      const summary = await client.getSimilarityIndex(projectId);
+      setSimilarityRebuildResult(result);
+      setSimilarityIndex(summary);
+      setStateText(`indexed ${result.indexed_counts.trace ?? 0} traces`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "similarity index rebuild failed");
     }
   }
 
@@ -1098,6 +1128,54 @@ function OpsWorkspace(props: {
               ))}
               {!deadLetterRuns.length ? <div className="emptyState">No dead-letter runs</div> : null}
             </div>
+          </section>
+
+          <section className="opsSection">
+            <h4>Similarity index</h4>
+            <div className="metricsRow compactMetrics">
+              <Metric icon={<Network />} label="Trace vectors" value={String(similarityTraceCount)} />
+              <Metric
+                icon={<Database />}
+                label="Representations"
+                value={String(similarityIndex?.representations.length ?? 0)}
+              />
+              <Metric
+                icon={<Activity />}
+                label="Latest"
+                value={latestSimilarityRepresentation?.representation_version ?? "none"}
+              />
+            </div>
+            <div className="inlineControls">
+              <input
+                value={similarityRebuildLimit}
+                onChange={(event) => setSimilarityRebuildLimit(event.target.value)}
+                placeholder="limit"
+              />
+              <button onClick={() => void rebuildSimilarityIndex()}>
+                <Network size={15} />
+                Rebuild
+              </button>
+            </div>
+            <div className="sectionRows">
+              {(similarityIndex?.representations ?? []).slice(0, 6).map((item) => (
+                <div key={`${item.representation_version}:${item.entity_type}`}>
+                  <strong>{item.entity_type}</strong>
+                  <span>{item.count} vectors · {item.representation_version}</span>
+                  <small>{item.last_updated_at ? formatTime(item.last_updated_at) : "never"}</small>
+                </div>
+              ))}
+              {similarityIndex && !similarityIndex.representations.length ? (
+                <div className="emptyState">No similarity index records</div>
+              ) : null}
+            </div>
+            {similarityRebuildResult ? (
+              <div className="exportSummary">
+                <strong>{similarityRebuildResult.representation_version ?? "index"}</strong>
+                <span>
+                  traces {similarityRebuildResult.indexed_counts.trace ?? 0} · spans {similarityRebuildResult.indexed_counts.span ?? 0}
+                </span>
+              </div>
+            ) : null}
           </section>
 
           <section className="opsSection authSection">
@@ -4994,6 +5072,9 @@ function TraceEvidencePanel(props: {
         <h4>Similar traces</h4>
         <div className="evidenceRows">
           {similarResult?.disabled ? <p className="systemNote">{similarResult.reason ?? "similarity disabled"}</p> : null}
+          {similarResult && !similarResult.disabled ? (
+            <p className="systemNote">{similarResult.representation_version ?? "unknown representation"}</p>
+          ) : null}
           {similarResult?.data.map((match) => (
             <div key={match.trace_id}>
               <strong>{match.trace_id}</strong>

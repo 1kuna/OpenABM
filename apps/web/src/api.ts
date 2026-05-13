@@ -50,6 +50,8 @@ import type {
   SecretAccessLogEntry,
   SecretBackendStatus,
   SecretRef,
+  SimilarityIndexRebuildResult,
+  SimilarityIndexSummary,
   SimilarTraceSearchResult,
   TraceDetail,
   TraceEnvelope,
@@ -251,6 +253,18 @@ export class OpenAbmClient {
       project_id: projectId,
       source_id: sourceId,
       source_type: "trace"
+    });
+  }
+
+  async getSimilarityIndex(projectId: string): Promise<SimilarityIndexSummary> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<SimilarityIndexSummary>(`/v1/similarity-index?${params.toString()}`);
+  }
+
+  async rebuildSimilarityIndex(projectId: string, limit = 500): Promise<SimilarityIndexRebuildResult> {
+    return this.post<SimilarityIndexRebuildResult>("/v1/similarity-index/rebuild", {
+      project_id: projectId,
+      limit
     });
   }
 

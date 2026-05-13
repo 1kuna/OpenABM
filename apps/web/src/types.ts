@@ -73,6 +73,25 @@ export interface SimilarTraceSearchResult {
   page: { limit: number; next_cursor: string | null; has_more: boolean };
 }
 
+export interface SimilarityIndexSummary {
+  project_id: string;
+  representations: Array<{
+    representation_version: string;
+    entity_type: string;
+    count: number;
+    last_updated_at: string | null;
+  }>;
+}
+
+export interface SimilarityIndexRebuildResult {
+  status: string;
+  project_id: string;
+  representation_version: string | null;
+  indexed_counts: Record<string, number>;
+  model_metadata: Record<string, unknown> | null;
+  audit_id?: string;
+}
+
 export interface TraceAssertionResult {
   status: "passed" | "failed";
   failures: Array<Record<string, unknown>>;

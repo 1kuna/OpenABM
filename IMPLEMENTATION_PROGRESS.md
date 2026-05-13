@@ -197,6 +197,9 @@ Done:
   version tracking, provider/model/dimension/source-hash metadata, trace/span
   vector persistence, and `embedding_index` search over stored vectors. This is
   a transparent local reference path, not a production vector-store choice.
+- Added Operations UI coverage for similarity-index inspection and rebuild, plus
+  trace-detail display of the representation version used for similar-trace
+  results.
 - Verified a live LM Studio embedding canary with
   `text-embedding-nomic-embed-text-v1.5`: the local OpenAI-compatible
   `/embeddings` endpoint returned two 768-dimensional vectors through the new
