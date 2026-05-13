@@ -3565,6 +3565,7 @@ def _register_v1_aliases(app: FastAPI) -> None:
     for route in routes:
         if not isinstance(route, APIRoute) or not route.path.startswith("/api/"):
             continue
+        route.include_in_schema = False
         app.add_api_route(
             route.path.replace("/api", "/v1", 1),
             route.endpoint,

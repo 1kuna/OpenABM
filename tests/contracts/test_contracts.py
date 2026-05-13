@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
+from openabm_api.main import create_app
+from openabm_api.settings import Settings
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_DIR = ROOT / "packages" / "shared-types" / "schemas"
@@ -199,3 +201,12 @@ def test_openapi_has_required_operation_level_contracts() -> None:
             assert operation.get("operationId"), f"{method.upper()} {path} missing operationId"
             assert operation.get("summary"), f"{method.upper()} {path} missing summary"
             assert operation.get("responses"), f"{method.upper()} {path} missing responses"
+
+
+def test_live_openapi_exposes_only_public_v1_paths(tmp_path: Path) -> None:
+    app = create_app(Settings(database_url=f"sqlite:///{tmp_path / 'openabm.sqlite3'}"))
+    paths = app.openapi()["paths"]
+
+    assert REQUIRED_INGEST_PATHS <= set(paths)
+    assert REQUIRED_QUERY_PATHS <= set(paths)
+    assert not [path for path in paths if path.startswith("/api/")]

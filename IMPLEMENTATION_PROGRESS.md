@@ -977,6 +977,8 @@ Implemented in this pass:
   of git.
 - Switched public API contracts, SDK export, web client, and integration tests
   to `/v1/...`.
+- Hid temporary `/api/...` compatibility aliases from the live generated
+  OpenAPI schema so runtime API docs expose only stable `/v1/...` contracts.
 - Added v2 storage tables and JSON schemas for dimensions, saved searches,
   review/notification/classification/config entities, issues, investigations,
   impact reports, context packs, grounding checks, and novelty runs.
