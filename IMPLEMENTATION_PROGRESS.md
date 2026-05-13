@@ -145,6 +145,11 @@ Done:
   scores, and behavior list APIs.
 - Added initial synthetic trace fixtures for happy path, wrong tool, missing
   parent, and clock skew cases.
+- Expanded the golden fixture corpus to cover all section 38 minimum fixture
+  names with synthetic, schema-valid traces, including escalation, looping,
+  retrieval, hallucination, fabricated-value, unsupported numeric claim,
+  partial/late/duplicate ingest, payload/privacy, offline eval, external
+  feedback, issue/investigation/impact, and multi-root cases.
 - Added contract tests and verified them with `make contracts`.
 - Added a worker adapter contract module that turns the spec's conceptual
   adapter signatures for model, embedding, stores, indexes, queues, sandbox,

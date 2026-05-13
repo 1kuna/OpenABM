@@ -1,5 +1,5 @@
 {
-  "fixture_version": "2026-05-12.initial",
+  "fixture_version": "2026-05-13.expanded",
   "fixtures": [
     {
       "name": "happy_path_support_trace",
@@ -215,6 +215,922 @@
         "payload_states": ["redacted"],
         "behavior_labels": []
       }
+    },
+    {
+      "name": "missed_escalation_trace",
+      "trace": {
+        "trace_id": "trace_missed_escalation",
+        "project_id": "proj_demo",
+        "session_id": "session_005",
+        "user_external_id": "user_synthetic_005",
+        "root_span_id": "span_missed_escalation_root",
+        "environment": "fixture",
+        "status": "error",
+        "started_at": "2026-05-12T10:20:00Z",
+        "ended_at": "2026-05-12T10:20:12Z",
+        "tags": ["support", "fixture", "failure"],
+        "attributes": {"channel": "chat", "customer_tier": "enterprise"},
+        "summary": "Agent failed to escalate a high-priority enterprise support request."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_missed_escalation",
+          "span_id": "span_missed_escalation_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "support_agent",
+          "span_type": "agent",
+          "status": "error",
+          "started_at": "2026-05-12T10:20:00Z",
+          "ended_at": "2026-05-12T10:20:12Z",
+          "input": {"mode": "inline", "value": "Production checkout is down for our enterprise account.", "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": "Please try again later.", "redaction_state": "raw"},
+          "attributes": {"severity": "critical", "customer_tier": "enterprise"},
+          "events": [{"name": "guardrail.escalation_required", "time": "2026-05-12T10:20:02Z", "attributes": {"required": true}}],
+          "links": []
+        },
+        {
+          "trace_id": "trace_missed_escalation",
+          "span_id": "span_missed_escalation_guardrail",
+          "parent_span_id": "span_missed_escalation_root",
+          "project_id": "proj_demo",
+          "name": "check_escalation_policy",
+          "span_type": "guardrail",
+          "status": "ok",
+          "started_at": "2026-05-12T10:20:01Z",
+          "ended_at": "2026-05-12T10:20:02Z",
+          "input": {"mode": "inline", "value": {"tier": "enterprise", "severity": "critical"}, "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": {"escalate": true}, "redaction_state": "raw"},
+          "attributes": {"policy.name": "enterprise_escalation"},
+          "events": [],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_missed_escalation_root"],
+        "warnings": [],
+        "searchable_fields": {"severity": "critical", "customer_tier": "enterprise"},
+        "payload_states": ["raw"],
+        "behavior_labels": ["missed_escalation"]
+      }
+    },
+    {
+      "name": "tool_loop_trace",
+      "trace": {
+        "trace_id": "trace_tool_loop",
+        "project_id": "proj_demo",
+        "session_id": "session_006",
+        "user_external_id": "user_synthetic_006",
+        "root_span_id": "span_tool_loop_root",
+        "environment": "fixture",
+        "status": "timeout",
+        "started_at": "2026-05-12T10:25:00Z",
+        "ended_at": "2026-05-12T10:25:30Z",
+        "tags": ["support", "fixture", "failure"],
+        "attributes": {"workflow": "refund_lookup"},
+        "summary": "Agent repeatedly called the same lookup tool until timeout."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_tool_loop",
+          "span_id": "span_tool_loop_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "refund_agent",
+          "span_type": "agent",
+          "status": "timeout",
+          "started_at": "2026-05-12T10:25:00Z",
+          "ended_at": "2026-05-12T10:25:30Z",
+          "input": {"mode": "inline", "value": "Find my refund status.", "redaction_state": "raw"},
+          "output": {"mode": "omitted", "redaction_state": "omitted"},
+          "attributes": {"loop.count": 3},
+          "events": [{"name": "runtime.timeout", "time": "2026-05-12T10:25:30Z", "attributes": {"limit_seconds": 30}}],
+          "links": []
+        },
+        {
+          "trace_id": "trace_tool_loop",
+          "span_id": "span_tool_loop_lookup_1",
+          "parent_span_id": "span_tool_loop_root",
+          "project_id": "proj_demo",
+          "name": "lookup_refund_status",
+          "span_type": "tool",
+          "status": "ok",
+          "started_at": "2026-05-12T10:25:02Z",
+          "ended_at": "2026-05-12T10:25:03Z",
+          "input": {"mode": "inline", "value": {"case_id": "synthetic-case"}, "redaction_state": "masked"},
+          "output": {"mode": "inline", "value": {"status": "pending"}, "redaction_state": "raw"},
+          "attributes": {"tool.name": "refund_status_lookup", "loop.sequence": 1},
+          "events": [],
+          "links": []
+        },
+        {
+          "trace_id": "trace_tool_loop",
+          "span_id": "span_tool_loop_lookup_2",
+          "parent_span_id": "span_tool_loop_root",
+          "project_id": "proj_demo",
+          "name": "lookup_refund_status",
+          "span_type": "tool",
+          "status": "ok",
+          "started_at": "2026-05-12T10:25:05Z",
+          "ended_at": "2026-05-12T10:25:06Z",
+          "input": {"mode": "inline", "value": {"case_id": "synthetic-case"}, "redaction_state": "masked"},
+          "output": {"mode": "inline", "value": {"status": "pending"}, "redaction_state": "raw"},
+          "attributes": {"tool.name": "refund_status_lookup", "loop.sequence": 2},
+          "events": [],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_tool_loop_root"],
+        "warnings": [],
+        "searchable_fields": {"tool_name": "refund_status_lookup", "has_timeout": true},
+        "payload_states": ["raw", "masked", "omitted"],
+        "behavior_labels": ["tool_loop"]
+      }
+    },
+    {
+      "name": "retrieval_miss_trace",
+      "trace": {
+        "trace_id": "trace_retrieval_miss",
+        "project_id": "proj_demo",
+        "session_id": "session_007",
+        "user_external_id": "user_synthetic_007",
+        "root_span_id": "span_retrieval_miss_root",
+        "environment": "fixture",
+        "status": "error",
+        "started_at": "2026-05-12T10:30:00Z",
+        "ended_at": "2026-05-12T10:30:09Z",
+        "tags": ["support", "fixture", "failure"],
+        "attributes": {"task_type": "policy_question"},
+        "summary": "Retriever returned shipping policy instead of refund policy evidence."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_retrieval_miss",
+          "span_id": "span_retrieval_miss_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "policy_agent",
+          "span_type": "agent",
+          "status": "error",
+          "started_at": "2026-05-12T10:30:00Z",
+          "ended_at": "2026-05-12T10:30:09Z",
+          "input": {"mode": "inline", "value": "What refund window applies?", "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": "Shipping windows are usually five days.", "redaction_state": "raw"},
+          "attributes": {"error.type": "retrieval_miss"},
+          "events": [],
+          "links": []
+        },
+        {
+          "trace_id": "trace_retrieval_miss",
+          "span_id": "span_retrieval_miss_retriever",
+          "parent_span_id": "span_retrieval_miss_root",
+          "project_id": "proj_demo",
+          "name": "retrieve_policy_docs",
+          "span_type": "retriever",
+          "status": "ok",
+          "started_at": "2026-05-12T10:30:01Z",
+          "ended_at": "2026-05-12T10:30:02Z",
+          "input": {"mode": "inline", "value": {"query": "refund window"}, "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": {"documents": ["shipping_policy_v1"]}, "redaction_state": "raw"},
+          "attributes": {"retrieval.expected_topic": "refunds", "retrieval.actual_topic": "shipping"},
+          "events": [],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_retrieval_miss_root"],
+        "warnings": [],
+        "searchable_fields": {"retrieval.expected_topic": "refunds", "retrieval.actual_topic": "shipping"},
+        "payload_states": ["raw"],
+        "behavior_labels": ["retrieval_miss"]
+      }
+    },
+    {
+      "name": "hallucinated_final_answer_trace",
+      "trace": {
+        "trace_id": "trace_hallucinated_final_answer",
+        "project_id": "proj_demo",
+        "session_id": "session_008",
+        "user_external_id": "user_synthetic_008",
+        "root_span_id": "span_hallucinated_answer_root",
+        "environment": "fixture",
+        "status": "error",
+        "started_at": "2026-05-12T10:35:00Z",
+        "ended_at": "2026-05-12T10:35:08Z",
+        "tags": ["support", "fixture", "failure"],
+        "attributes": {"task_type": "policy_question"},
+        "summary": "Agent gave a final answer not supported by retrieved evidence."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_hallucinated_final_answer",
+          "span_id": "span_hallucinated_answer_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "policy_agent",
+          "span_type": "agent",
+          "status": "error",
+          "started_at": "2026-05-12T10:35:00Z",
+          "ended_at": "2026-05-12T10:35:08Z",
+          "input": {"mode": "inline", "value": "Can I get a cash refund after 90 days?", "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": "Yes, cash refunds are allowed after 90 days.", "redaction_state": "raw"},
+          "attributes": {"error.type": "unsupported_answer"},
+          "events": [],
+          "links": []
+        },
+        {
+          "trace_id": "trace_hallucinated_final_answer",
+          "span_id": "span_hallucinated_answer_model",
+          "parent_span_id": "span_hallucinated_answer_root",
+          "project_id": "proj_demo",
+          "name": "generate_final_answer",
+          "span_type": "model_call",
+          "status": "ok",
+          "started_at": "2026-05-12T10:35:04Z",
+          "ended_at": "2026-05-12T10:35:07Z",
+          "input": {"mode": "inline", "value": {"evidence": "Refunds limited to 30 days."}, "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": {"answer": "Cash refund after 90 days is allowed."}, "redaction_state": "raw"},
+          "attributes": {"model.name": "synthetic-model"},
+          "events": [],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_hallucinated_answer_root"],
+        "warnings": [],
+        "searchable_fields": {"error.type": "unsupported_answer"},
+        "payload_states": ["raw"],
+        "behavior_labels": ["hallucinated_final_answer"]
+      }
+    },
+    {
+      "name": "fabricated_business_value_trace",
+      "trace": {
+        "trace_id": "trace_fabricated_business_value",
+        "project_id": "proj_demo",
+        "session_id": "session_009",
+        "user_external_id": "user_synthetic_009",
+        "root_span_id": "span_fabricated_business_value_root",
+        "environment": "fixture",
+        "status": "error",
+        "started_at": "2026-05-12T10:40:00Z",
+        "ended_at": "2026-05-12T10:40:10Z",
+        "tags": ["support", "fixture", "failure"],
+        "attributes": {"account_id": "acct_synthetic_001", "workflow": "account_update"},
+        "summary": "Agent fabricated a customer commitment value not present in source records."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_fabricated_business_value",
+          "span_id": "span_fabricated_business_value_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "account_agent",
+          "span_type": "agent",
+          "status": "error",
+          "started_at": "2026-05-12T10:40:00Z",
+          "ended_at": "2026-05-12T10:40:10Z",
+          "input": {"mode": "inline", "value": "Summarize the account commitment.", "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": "Customer committed to $25,000 renewal.", "redaction_state": "raw"},
+          "attributes": {"error.type": "fabricated_business_value", "account_id": "acct_synthetic_001"},
+          "events": [],
+          "links": []
+        },
+        {
+          "trace_id": "trace_fabricated_business_value",
+          "span_id": "span_fabricated_business_value_lookup",
+          "parent_span_id": "span_fabricated_business_value_root",
+          "project_id": "proj_demo",
+          "name": "lookup_account_commitments",
+          "span_type": "tool",
+          "status": "ok",
+          "started_at": "2026-05-12T10:40:02Z",
+          "ended_at": "2026-05-12T10:40:03Z",
+          "input": {"mode": "inline", "value": {"account_id": "acct_synthetic_001"}, "redaction_state": "masked"},
+          "output": {"mode": "inline", "value": {"commitment": null}, "redaction_state": "raw"},
+          "attributes": {"tool.name": "account_commitment_lookup"},
+          "events": [],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_fabricated_business_value_root"],
+        "warnings": [],
+        "searchable_fields": {"account_id": "acct_synthetic_001", "error.type": "fabricated_business_value"},
+        "payload_states": ["raw", "masked"],
+        "behavior_labels": ["fabricated_business_value"]
+      }
+    },
+    {
+      "name": "unsupported_numeric_claim_trace",
+      "trace": {
+        "trace_id": "trace_unsupported_numeric_claim",
+        "project_id": "proj_demo",
+        "session_id": "session_010",
+        "user_external_id": "user_synthetic_010",
+        "root_span_id": "span_unsupported_numeric_claim_root",
+        "environment": "fixture",
+        "status": "error",
+        "started_at": "2026-05-12T10:45:00Z",
+        "ended_at": "2026-05-12T10:45:09Z",
+        "tags": ["support", "fixture", "failure"],
+        "attributes": {"claim_type": "numeric"},
+        "summary": "Agent made a numeric claim that contradicted available evidence."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_unsupported_numeric_claim",
+          "span_id": "span_unsupported_numeric_claim_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "billing_agent",
+          "span_type": "agent",
+          "status": "error",
+          "started_at": "2026-05-12T10:45:00Z",
+          "ended_at": "2026-05-12T10:45:09Z",
+          "input": {"mode": "inline", "value": "How many credits remain?", "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": "You have 120 credits remaining.", "redaction_state": "raw"},
+          "attributes": {"error.type": "unsupported_numeric_claim"},
+          "events": [],
+          "links": []
+        },
+        {
+          "trace_id": "trace_unsupported_numeric_claim",
+          "span_id": "span_unsupported_numeric_claim_lookup",
+          "parent_span_id": "span_unsupported_numeric_claim_root",
+          "project_id": "proj_demo",
+          "name": "lookup_credit_balance",
+          "span_type": "tool",
+          "status": "ok",
+          "started_at": "2026-05-12T10:45:01Z",
+          "ended_at": "2026-05-12T10:45:02Z",
+          "input": {"mode": "inline", "value": {"account_id": "acct_synthetic_002"}, "redaction_state": "masked"},
+          "output": {"mode": "inline", "value": {"credits_remaining": 12}, "redaction_state": "raw"},
+          "attributes": {"tool.name": "credit_balance_lookup"},
+          "events": [],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_unsupported_numeric_claim_root"],
+        "warnings": [],
+        "searchable_fields": {"claim_type": "numeric", "error.type": "unsupported_numeric_claim"},
+        "payload_states": ["raw", "masked"],
+        "behavior_labels": ["unsupported_numeric_claim"]
+      }
+    },
+    {
+      "name": "malformed_partial_trace",
+      "trace": {
+        "trace_id": "trace_malformed_partial",
+        "project_id": "proj_demo",
+        "session_id": "session_011",
+        "user_external_id": null,
+        "root_span_id": "span_malformed_partial_root",
+        "environment": "fixture",
+        "status": "incomplete",
+        "started_at": "2026-05-12T10:50:00Z",
+        "ended_at": null,
+        "tags": ["fixture", "malformed"],
+        "attributes": {},
+        "summary": "A trace was partially flushed while the root span was still open."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_malformed_partial",
+          "span_id": "span_malformed_partial_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "partial_agent",
+          "span_type": "agent",
+          "status": "incomplete",
+          "started_at": "2026-05-12T10:50:00Z",
+          "ended_at": null,
+          "input": {"mode": "inline", "value": "Partial request.", "redaction_state": "raw"},
+          "output": {"mode": "unavailable", "redaction_state": "omitted"},
+          "attributes": {"openabm.partial_flush": true},
+          "events": [{"name": "openabm.partial_flush", "time": "2026-05-12T10:50:03Z", "attributes": {"span_is_open": true}}],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_malformed_partial_root"],
+        "warnings": [],
+        "searchable_fields": {"openabm.partial_flush": true},
+        "payload_states": ["raw", "omitted"],
+        "behavior_labels": []
+      }
+    },
+    {
+      "name": "late_arriving_span_trace",
+      "trace": {
+        "trace_id": "trace_late_arriving_span",
+        "project_id": "proj_demo",
+        "session_id": "session_012",
+        "user_external_id": null,
+        "root_span_id": "span_late_arriving_root",
+        "environment": "fixture",
+        "status": "ok",
+        "started_at": "2026-05-12T10:55:00Z",
+        "ended_at": "2026-05-12T10:55:05Z",
+        "tags": ["fixture"],
+        "attributes": {"ingest.case": "late_arrival"},
+        "summary": "A tool span arrived after the trace had already completed."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_late_arriving_span",
+          "span_id": "span_late_arriving_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "late_arrival_agent",
+          "span_type": "agent",
+          "status": "ok",
+          "started_at": "2026-05-12T10:55:00Z",
+          "ended_at": "2026-05-12T10:55:05Z",
+          "input": {"mode": "inline", "value": "Check policy.", "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": "Policy check complete.", "redaction_state": "raw"},
+          "attributes": {},
+          "events": [],
+          "links": []
+        },
+        {
+          "trace_id": "trace_late_arriving_span",
+          "span_id": "span_late_arriving_tool",
+          "parent_span_id": "span_late_arriving_root",
+          "project_id": "proj_demo",
+          "name": "lookup_policy",
+          "span_type": "tool",
+          "status": "ok",
+          "started_at": "2026-05-12T10:55:01Z",
+          "ended_at": "2026-05-12T10:55:02Z",
+          "input": {"mode": "inline", "value": {"policy": "refunds"}, "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": {"eligible_days": 30}, "redaction_state": "raw"},
+          "attributes": {"tool.name": "policy_lookup"},
+          "events": [],
+          "links": [],
+          "server_received_at": "2026-05-12T10:58:00Z"
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_late_arriving_root"],
+        "warnings": [],
+        "searchable_fields": {"ingest.case": "late_arrival"},
+        "payload_states": ["raw"],
+        "behavior_labels": []
+      }
+    },
+    {
+      "name": "duplicate_span_update_trace",
+      "trace": {
+        "trace_id": "trace_duplicate_span_update",
+        "project_id": "proj_demo",
+        "session_id": "session_013",
+        "user_external_id": null,
+        "root_span_id": "span_duplicate_update_root",
+        "environment": "fixture",
+        "status": "error",
+        "started_at": "2026-05-12T11:00:00Z",
+        "ended_at": "2026-05-12T11:00:07Z",
+        "tags": ["fixture", "malformed"],
+        "attributes": {"ingest.case": "duplicate_span_update"},
+        "summary": "A duplicate span update overwrote the same span ID."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_duplicate_span_update",
+          "span_id": "span_duplicate_update_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "duplicate_update_agent",
+          "span_type": "agent",
+          "status": "ok",
+          "started_at": "2026-05-12T11:00:00Z",
+          "ended_at": "2026-05-12T11:00:07Z",
+          "input": {"mode": "inline", "value": "Run lookup.", "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": "Lookup returned an updated result.", "redaction_state": "raw"},
+          "attributes": {},
+          "events": [],
+          "links": []
+        },
+        {
+          "trace_id": "trace_duplicate_span_update",
+          "span_id": "span_duplicate_update_tool",
+          "parent_span_id": "span_duplicate_update_root",
+          "project_id": "proj_demo",
+          "name": "lookup_policy",
+          "span_type": "tool",
+          "status": "ok",
+          "started_at": "2026-05-12T11:00:01Z",
+          "ended_at": "2026-05-12T11:00:02Z",
+          "input": {"mode": "inline", "value": {"policy": "refunds"}, "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": {"eligible_days": 30}, "redaction_state": "raw"},
+          "attributes": {"tool.name": "policy_lookup", "update.sequence": 1},
+          "events": [],
+          "links": []
+        },
+        {
+          "trace_id": "trace_duplicate_span_update",
+          "span_id": "span_duplicate_update_tool",
+          "parent_span_id": "span_duplicate_update_root",
+          "project_id": "proj_demo",
+          "name": "lookup_policy",
+          "span_type": "tool",
+          "status": "error",
+          "started_at": "2026-05-12T11:00:01Z",
+          "ended_at": "2026-05-12T11:00:03Z",
+          "input": {"mode": "inline", "value": {"policy": "refunds"}, "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": {"error": "updated after retry"}, "redaction_state": "raw"},
+          "attributes": {"tool.name": "policy_lookup", "update.sequence": 2},
+          "events": [{"name": "ingest.duplicate_span_update", "time": "2026-05-12T11:00:04Z", "attributes": {"previous_status": "ok"}}],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_duplicate_update_root"],
+        "warnings": ["duplicate_span_update"],
+        "searchable_fields": {"ingest.case": "duplicate_span_update"},
+        "payload_states": ["raw"],
+        "behavior_labels": []
+      }
+    },
+    {
+      "name": "large_payload_trace",
+      "trace": {
+        "trace_id": "trace_large_payload",
+        "project_id": "proj_demo",
+        "session_id": "session_014",
+        "user_external_id": null,
+        "root_span_id": "span_large_payload_root",
+        "environment": "fixture",
+        "status": "ok",
+        "started_at": "2026-05-12T11:05:00Z",
+        "ended_at": "2026-05-12T11:05:06Z",
+        "tags": ["fixture", "payload"],
+        "attributes": {"payload.size_class": "large"},
+        "summary": "A large inline payload exercises payload summarization and omission behavior."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_large_payload",
+          "span_id": "span_large_payload_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "large_payload_agent",
+          "span_type": "agent",
+          "status": "ok",
+          "started_at": "2026-05-12T11:05:00Z",
+          "ended_at": "2026-05-12T11:05:06Z",
+          "input": {"mode": "inline", "value": {"text": "Large synthetic payload block used for deterministic fixture validation. Large synthetic payload block used for deterministic fixture validation. Large synthetic payload block used for deterministic fixture validation."}, "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": {"summary": "Payload summarized successfully."}, "redaction_state": "raw"},
+          "attributes": {"payload.size_class": "large"},
+          "events": [],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_large_payload_root"],
+        "warnings": [],
+        "searchable_fields": {"payload.size_class": "large"},
+        "payload_states": ["raw"],
+        "behavior_labels": []
+      }
+    },
+    {
+      "name": "redacted_payload_trace",
+      "trace": {
+        "trace_id": "trace_redacted_payload",
+        "project_id": "proj_demo",
+        "session_id": "session_015",
+        "user_external_id": null,
+        "root_span_id": "span_redacted_payload_root",
+        "environment": "fixture",
+        "status": "ok",
+        "started_at": "2026-05-12T11:10:00Z",
+        "ended_at": "2026-05-12T11:10:04Z",
+        "tags": ["fixture", "privacy"],
+        "attributes": {"privacy.case": "redacted_payload"},
+        "summary": "Trace contains redacted payload references only."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_redacted_payload",
+          "span_id": "span_redacted_payload_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "privacy_agent",
+          "span_type": "agent",
+          "status": "ok",
+          "started_at": "2026-05-12T11:10:00Z",
+          "ended_at": "2026-05-12T11:10:04Z",
+          "input": {"mode": "redacted", "redaction_state": "redacted"},
+          "output": {"mode": "redacted", "redaction_state": "redacted"},
+          "attributes": {"privacy.case": "redacted_payload"},
+          "events": [],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_redacted_payload_root"],
+        "warnings": [],
+        "searchable_fields": {"privacy.case": "redacted_payload"},
+        "payload_states": ["redacted"],
+        "behavior_labels": []
+      }
+    },
+    {
+      "name": "offline_eval_trace",
+      "trace": {
+        "trace_id": "trace_offline_eval",
+        "project_id": "proj_demo",
+        "session_id": "session_016",
+        "user_external_id": null,
+        "root_span_id": "span_offline_eval_root",
+        "environment": "fixture",
+        "status": "ok",
+        "started_at": "2026-05-12T11:15:00Z",
+        "ended_at": "2026-05-12T11:15:08Z",
+        "tags": ["fixture", "offline_eval"],
+        "attributes": {"dataset_id": "dataset_synthetic_refund", "runner": "command"},
+        "summary": "Offline eval runner produced a candidate trace for comparison."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_offline_eval",
+          "span_id": "span_offline_eval_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "offline_eval_runner",
+          "span_type": "workflow",
+          "status": "ok",
+          "started_at": "2026-05-12T11:15:00Z",
+          "ended_at": "2026-05-12T11:15:08Z",
+          "input": {"mode": "inline", "value": {"dataset_example_id": "example_synthetic_refund"}, "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": {"candidate_trace_id": "trace_offline_eval"}, "redaction_state": "raw"},
+          "attributes": {"runner.type": "command"},
+          "events": [],
+          "links": [{"dataset_version_id": "dataset_version_synthetic"}]
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_offline_eval_root"],
+        "warnings": [],
+        "searchable_fields": {"runner.type": "command", "dataset_id": "dataset_synthetic_refund"},
+        "payload_states": ["raw"],
+        "behavior_labels": []
+      }
+    },
+    {
+      "name": "external_feedback_trace",
+      "trace": {
+        "trace_id": "trace_external_feedback",
+        "project_id": "proj_demo",
+        "session_id": "session_017",
+        "user_external_id": "user_synthetic_017",
+        "root_span_id": "span_external_feedback_root",
+        "environment": "fixture",
+        "status": "ok",
+        "started_at": "2026-05-12T11:20:00Z",
+        "ended_at": "2026-05-12T11:20:05Z",
+        "tags": ["fixture", "feedback"],
+        "attributes": {"feedback.source": "external_ticket"},
+        "summary": "External feedback was attached after the trace completed."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_external_feedback",
+          "span_id": "span_external_feedback_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "feedback_agent",
+          "span_type": "agent",
+          "status": "ok",
+          "started_at": "2026-05-12T11:20:00Z",
+          "ended_at": "2026-05-12T11:20:05Z",
+          "input": {"mode": "inline", "value": "Summarize the ticket.", "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": "Ticket summary sent.", "redaction_state": "raw"},
+          "attributes": {"feedback.source": "external_ticket"},
+          "events": [{"name": "feedback.external", "time": "2026-05-12T11:21:00Z", "attributes": {"rating": "negative", "source": "ticket"}}],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_external_feedback_root"],
+        "warnings": [],
+        "searchable_fields": {"feedback.source": "external_ticket"},
+        "payload_states": ["raw"],
+        "behavior_labels": []
+      }
+    },
+    {
+      "name": "manual_issue_from_screenshot",
+      "trace": {
+        "trace_id": "trace_manual_issue_from_screenshot",
+        "project_id": "proj_demo",
+        "session_id": "session_018",
+        "user_external_id": null,
+        "root_span_id": "span_manual_issue_screenshot_root",
+        "environment": "fixture",
+        "status": "error",
+        "started_at": "2026-05-12T11:25:00Z",
+        "ended_at": "2026-05-12T11:25:04Z",
+        "tags": ["fixture", "issue", "screenshot"],
+        "attributes": {"issue.source": "screenshot"},
+        "summary": "Manual issue was created from a screenshot with extracted text."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_manual_issue_from_screenshot",
+          "span_id": "span_manual_issue_screenshot_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "screenshot_issue_intake",
+          "span_type": "workflow",
+          "status": "ok",
+          "started_at": "2026-05-12T11:25:00Z",
+          "ended_at": "2026-05-12T11:25:04Z",
+          "input": {"mode": "ref", "payload_id": "payload_screenshot_issue_001", "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": {"extracted_text": "Agent promised an unsupported discount."}, "redaction_state": "raw"},
+          "attributes": {"issue.source": "screenshot", "attachment.kind": "screenshot"},
+          "events": [],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_manual_issue_screenshot_root"],
+        "warnings": [],
+        "searchable_fields": {"issue.source": "screenshot"},
+        "payload_states": ["raw"],
+        "behavior_labels": []
+      }
+    },
+    {
+      "name": "issue_with_unknown_seed_trace",
+      "trace": {
+        "trace_id": "trace_issue_unknown_seed",
+        "project_id": "proj_demo",
+        "session_id": "session_019",
+        "user_external_id": null,
+        "root_span_id": null,
+        "environment": "fixture",
+        "status": "unknown",
+        "started_at": "2026-05-12T11:30:00Z",
+        "ended_at": null,
+        "tags": ["fixture", "issue"],
+        "attributes": {"issue.seed_trace": "unknown"},
+        "summary": "Issue intake exists without a known seed trace."
+      },
+      "spans": [],
+      "expected": {
+        "root_ids": [],
+        "warnings": [],
+        "searchable_fields": {"issue.seed_trace": "unknown"},
+        "payload_states": [],
+        "behavior_labels": []
+      }
+    },
+    {
+      "name": "investigation_run_with_matching_cohort",
+      "trace": {
+        "trace_id": "trace_investigation_matching_cohort",
+        "project_id": "proj_demo",
+        "session_id": "session_020",
+        "user_external_id": null,
+        "root_span_id": "span_investigation_matching_cohort_root",
+        "environment": "fixture",
+        "status": "ok",
+        "started_at": "2026-05-12T11:35:00Z",
+        "ended_at": "2026-05-12T11:35:07Z",
+        "tags": ["fixture", "investigation"],
+        "attributes": {"investigation.cohort_size": 2},
+        "summary": "Investigation run found a matching cohort for a reported issue."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_investigation_matching_cohort",
+          "span_id": "span_investigation_matching_cohort_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "investigation_workflow",
+          "span_type": "workflow",
+          "status": "ok",
+          "started_at": "2026-05-12T11:35:00Z",
+          "ended_at": "2026-05-12T11:35:07Z",
+          "input": {"mode": "inline", "value": {"seed_trace_id": "trace_wrong_tool"}, "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": {"matching_trace_ids": ["trace_wrong_tool", "trace_fabricated_business_value"]}, "redaction_state": "raw"},
+          "attributes": {"investigation.cohort_size": 2},
+          "events": [{"name": "investigation.matching_cohort_found", "time": "2026-05-12T11:35:05Z", "attributes": {"count": 2}}],
+          "links": [{"trace_id": "trace_wrong_tool"}, {"trace_id": "trace_fabricated_business_value"}]
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_investigation_matching_cohort_root"],
+        "warnings": [],
+        "searchable_fields": {"investigation.cohort_size": 2},
+        "payload_states": ["raw"],
+        "behavior_labels": []
+      }
+    },
+    {
+      "name": "impact_report_with_affected_entities",
+      "trace": {
+        "trace_id": "trace_impact_report_affected_entities",
+        "project_id": "proj_demo",
+        "session_id": "session_021",
+        "user_external_id": null,
+        "root_span_id": "span_impact_report_affected_entities_root",
+        "environment": "fixture",
+        "status": "ok",
+        "started_at": "2026-05-12T11:40:00Z",
+        "ended_at": "2026-05-12T11:40:06Z",
+        "tags": ["fixture", "impact_report"],
+        "attributes": {"affected_entity_count": 2},
+        "summary": "Impact report scoped affected account and ticket entities."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_impact_report_affected_entities",
+          "span_id": "span_impact_report_affected_entities_root",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "impact_report_builder",
+          "span_type": "workflow",
+          "status": "ok",
+          "started_at": "2026-05-12T11:40:00Z",
+          "ended_at": "2026-05-12T11:40:06Z",
+          "input": {"mode": "inline", "value": {"investigation_run_id": "inv_synthetic_001"}, "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": {"affected_entities": [{"type": "account", "id": "acct_synthetic_001"}, {"type": "ticket", "id": "ticket_synthetic_001"}]}, "redaction_state": "raw"},
+          "attributes": {"affected_entity_count": 2},
+          "events": [],
+          "links": [{"account_id": "acct_synthetic_001"}, {"ticket_id": "ticket_synthetic_001"}]
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_impact_report_affected_entities_root"],
+        "warnings": [],
+        "searchable_fields": {"affected_entity_count": 2},
+        "payload_states": ["raw"],
+        "behavior_labels": []
+      }
+    },
+    {
+      "name": "multi_root_trace",
+      "trace": {
+        "trace_id": "trace_multi_root",
+        "project_id": "proj_demo",
+        "session_id": "session_022",
+        "user_external_id": null,
+        "root_span_id": null,
+        "environment": "fixture",
+        "status": "ok",
+        "started_at": "2026-05-12T11:45:00Z",
+        "ended_at": "2026-05-12T11:45:08Z",
+        "tags": ["fixture", "malformed"],
+        "attributes": {"trace.shape": "multi_root"},
+        "summary": "Trace contains two root spans from a shared session."
+      },
+      "spans": [
+        {
+          "trace_id": "trace_multi_root",
+          "span_id": "span_multi_root_agent_a",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "agent_a",
+          "span_type": "agent",
+          "status": "ok",
+          "started_at": "2026-05-12T11:45:00Z",
+          "ended_at": "2026-05-12T11:45:03Z",
+          "input": {"mode": "inline", "value": "First root.", "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": "First root done.", "redaction_state": "raw"},
+          "attributes": {},
+          "events": [],
+          "links": []
+        },
+        {
+          "trace_id": "trace_multi_root",
+          "span_id": "span_multi_root_agent_b",
+          "parent_span_id": null,
+          "project_id": "proj_demo",
+          "name": "agent_b",
+          "span_type": "agent",
+          "status": "ok",
+          "started_at": "2026-05-12T11:45:04Z",
+          "ended_at": "2026-05-12T11:45:08Z",
+          "input": {"mode": "inline", "value": "Second root.", "redaction_state": "raw"},
+          "output": {"mode": "inline", "value": "Second root done.", "redaction_state": "raw"},
+          "attributes": {},
+          "events": [],
+          "links": []
+        }
+      ],
+      "expected": {
+        "root_ids": ["span_multi_root_agent_a", "span_multi_root_agent_b"],
+        "warnings": ["multiple_roots"],
+        "searchable_fields": {"trace.shape": "multi_root"},
+        "payload_states": ["raw"],
+        "behavior_labels": []
+      }
     }
   ],
   "required_fixture_names": [
@@ -224,6 +1140,8 @@
     "tool_loop_trace",
     "retrieval_miss_trace",
     "hallucinated_final_answer_trace",
+    "fabricated_business_value_trace",
+    "unsupported_numeric_claim_trace",
     "malformed_partial_trace",
     "late_arriving_span_trace",
     "duplicate_span_update_trace",
@@ -231,23 +1149,13 @@
     "redacted_payload_trace",
     "offline_eval_trace",
     "external_feedback_trace",
+    "manual_issue_from_screenshot",
+    "issue_with_unknown_seed_trace",
+    "investigation_run_with_matching_cohort",
+    "impact_report_with_affected_entities",
     "multi_root_trace",
     "missing_parent_trace",
     "clock_skew_trace"
   ],
-  "deferred_fixture_names": [
-    "missed_escalation_trace",
-    "tool_loop_trace",
-    "retrieval_miss_trace",
-    "hallucinated_final_answer_trace",
-    "malformed_partial_trace",
-    "late_arriving_span_trace",
-    "duplicate_span_update_trace",
-    "large_payload_trace",
-    "redacted_payload_trace",
-    "offline_eval_trace",
-    "external_feedback_trace",
-    "multi_root_trace"
-  ]
+  "deferred_fixture_names": []
 }
-

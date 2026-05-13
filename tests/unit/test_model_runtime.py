@@ -560,14 +560,22 @@ def test_model_runtime_benchmark_reports_quality_and_promotion_gate() -> None:
         async def structured_completion(self, request, schema):
             del schema
             text = json.dumps(request)
-            if "trace_wrong_tool" in text:
+            trace_id = text.split("'trace_id': '", 1)[1].split("'", 1)[0]
+            unsure_trace_ids = {
+                "trace_missing_parent",
+                "trace_clock_skew",
+                "trace_malformed_partial",
+                "trace_duplicate_span_update",
+                "trace_multi_root",
+            }
+            if trace_id == "trace_wrong_tool":
                 verdict = "fail"
                 evidence_span_ids = ["span_wrong_tool_order_lookup"]
-            elif "trace_happy_support" in text:
-                verdict = "pass"
-                evidence_span_ids = ["span_happy_tool"]
-            else:
+            elif trace_id in unsure_trace_ids:
                 verdict = "unsure"
+                evidence_span_ids = []
+            else:
+                verdict = "pass"
                 evidence_span_ids = []
             return {
                 "status": "succeeded",

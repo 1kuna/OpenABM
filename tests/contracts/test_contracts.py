@@ -178,8 +178,15 @@ def test_trace_fixtures_validate_against_trace_and_span_schemas() -> None:
     assert corpus["fixtures"]
 
     names = {fixture["name"] for fixture in corpus["fixtures"]}
-    assert {"happy_path_support_trace", "wrong_tool_failure_trace", "missing_parent_trace"} <= names
+    assert {
+        "happy_path_support_trace",
+        "wrong_tool_failure_trace",
+        "fabricated_business_value_trace",
+        "impact_report_with_affected_entities",
+        "missing_parent_trace",
+    } <= names
     assert set(corpus["required_fixture_names"]) == names | set(corpus["deferred_fixture_names"])
+    assert corpus["deferred_fixture_names"] == []
 
     for fixture in corpus["fixtures"]:
         trace_validator.validate(fixture["trace"])
