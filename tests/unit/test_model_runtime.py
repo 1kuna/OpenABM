@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
+from openabm_api.settings import Settings
 from openabm_worker.context_packets import build_trace_context_packet
 from openabm_worker.investigation import assist_investigation
 from openabm_worker.judges import run_rubric_judge
@@ -11,8 +13,10 @@ from openabm_worker.model_benchmark import (
     run_model_runtime_benchmark,
 )
 from openabm_worker.model_runtime import (
+    ModelResourceGuardError,
     OpenAICompatibleEmbeddingProvider,
     OpenAICompatibleModelProvider,
+    model_provider_from_settings,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -164,6 +168,41 @@ def test_embedding_provider_parses_openai_compatible_embeddings_without_timeout(
     assert result["model"] == "local-embed"
     assert result["embeddings"][0]["document_id"] == "trace_refund"
     assert result["embeddings"][0]["embedding"] == [1.0, 0.0]
+
+
+def test_model_provider_from_settings_configures_memory_guard() -> None:
+    provider = model_provider_from_settings(
+        Settings(
+            model_mode="local",
+            chat_model="local-test",
+            model_min_available_memory_mb=12345,
+        )
+    )
+
+    health = provider.health_check()
+
+    assert health.details["min_available_memory_mb"] == 12345
+    assert health.details["memory_guard_status"] in {"ready", "blocked", "unknown"}
+
+
+def test_chat_provider_blocks_new_calls_when_memory_guard_fails() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("model call should be skipped before transport")
+
+    provider = OpenAICompatibleModelProvider(
+        base_url="http://test/v1",
+        chat_model="local-test",
+        min_available_memory_mb=8192,
+        available_memory_mb=lambda: 1024.0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(ModelResourceGuardError, match="Available system memory"):
+        asyncio.run(
+            provider.chat_completion(
+                {"messages": [{"role": "user", "content": "judge"}]},
+            )
+        )
 
 
 def test_rubric_judge_requires_preserved_span_citations() -> None:

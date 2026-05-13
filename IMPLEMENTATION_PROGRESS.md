@@ -32,7 +32,8 @@ Scaffold-complete local surfaces:
   paths are implemented with tests.
 - Local model lane: LM Studio/OpenAI-compatible chat, structured/tool-call, and
   embedding providers are wired with disabled-mode fail-closed behavior,
-  deterministic validation, and live canary notes for `qwen3.5-9b-mlx`.
+  deterministic validation, live canary notes for `qwen3.5-9b-mlx`, and a
+  configurable available-memory preflight guard for new local model calls.
 - Agent orchestration lane: OpenABM owns the contracts/provenance/review gates;
   LangGraph is used as a thin investigation adapter, and MCP resources/tools now
   expose trace/eval/investigation context for deep-agent runners.
@@ -74,7 +75,7 @@ Prompt-to-artifact checklist:
 | Preserve ignored implementation spec as SSOT | `.gitignore` excludes `openabm_implementation_spec.md`; progress doc records the guardrail; no spec file is staged or committed. | Complete |
 | Make coherent commits as progress lands | `git log` shows focused slices for MCP confirmations/resources, LangGraph event provenance, root-cause comparison, model runtime ADR, completion audit, and decision records. | Complete |
 | Document progress and blockers | This `IMPLEMENTATION_PROGRESS.md` tracks phases, completed slices, validation, blockers, and deferrals. | Complete |
-| Use local LM Studio/qwen lane for semantic work | Model runtime ADR accepts OpenAI-compatible local providers; live canary notes cover `qwen3.5-9b-mlx`; settings/docs preserve no-timeout/high-context rules. | Complete for local reference |
+| Use local LM Studio/qwen lane for semantic work | Model runtime ADR accepts OpenAI-compatible local providers; live canary notes cover `qwen3.5-9b-mlx`; settings/docs preserve no-timeout/high-context rules and `OPENABM_MODEL_MIN_AVAILABLE_MEMORY_MB`. | Complete for local reference |
 | Prefer OSS orchestration over reinvention | `docs/decisions/0006-agent-orchestration-framework.md`; LangGraph investigation adapter in `apps/worker/src/openabm_worker/investigation_workflow.py`; MCP remains the audited tool boundary. | Complete for current scaffold |
 | Keep semantic judgment in model/runtime, mechanical guarantees in code | Grounding, investigation, novelty, and similarity flows persist model metadata while deterministic code validates schemas, citations, membership, review gates, and provenance. | Complete for implemented flows |
 | Public API/data contracts exist | JSON Schemas in `packages/shared-types/schemas/`; OpenAPI in `packages/shared-types/openapi/openapi.json`; contract tests under `tests/contracts/`. | Complete |
@@ -312,6 +313,10 @@ Done:
 - Added disabled chat/structured/embedding provider adapters that fail closed.
 - Added OpenAI-compatible local model provider with strict JSON parsing,
   bounded repair, no generation timeout, and a minimum 32k context guard.
+- Added a configurable available-memory preflight guard for OpenAI-compatible
+  chat and embedding calls so local LM Studio/qwen work skips new generations
+  when the host is already under memory pressure, without reducing context or
+  adding generation timeouts.
 - Added OpenAI-compatible embedding provider support for local/self-hosted
   `/embeddings` endpoints, with no generation timeout, provider metadata, usage
   passthrough, dimension validation, and fail-closed disabled mode when no

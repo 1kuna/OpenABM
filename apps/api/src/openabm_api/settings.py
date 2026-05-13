@@ -22,6 +22,7 @@ class Settings:
     chat_model: str | None = None
     embedding_model: str | None = None
     model_context_length: int = 262144
+    model_min_available_memory_mb: int = 8192
     allow_external_model_calls: bool = False
     judge_concurrency: int = 1
     embedding_concurrency: int = 1
@@ -54,6 +55,15 @@ class Settings:
             model_context_length=max(
                 32768,
                 int(os.getenv("OPENABM_MODEL_CONTEXT_LENGTH", str(cls.model_context_length))),
+            ),
+            model_min_available_memory_mb=max(
+                0,
+                int(
+                    os.getenv(
+                        "OPENABM_MODEL_MIN_AVAILABLE_MEMORY_MB",
+                        str(cls.model_min_available_memory_mb),
+                    )
+                ),
             ),
             allow_external_model_calls=os.getenv(
                 "OPENABM_ALLOW_EXTERNAL_MODEL_CALLS", "false"

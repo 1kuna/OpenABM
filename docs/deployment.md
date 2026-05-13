@@ -51,8 +51,12 @@ OPENABM_MODEL_BASE_URL=http://host.docker.internal:1234/v1
 OPENABM_CHAT_MODEL=qwen3.5-9b-mlx
 OPENABM_MODEL_CONTEXT_LENGTH=262144
 OPENABM_MAX_TRACE_TOKENS_FOR_JUDGE=262144
+OPENABM_MODEL_MIN_AVAILABLE_MEMORY_MB=8192
 ```
 
 Model mode can remain `disabled` until you intentionally enable model-backed
 features. When enabling local model features, keep context at or above `32768`
-and do not add generation timeouts.
+and do not add generation timeouts. The memory guard checks available host
+memory before starting a new chat or embedding request and skips the model call
+when available memory is below `OPENABM_MODEL_MIN_AVAILABLE_MEMORY_MB`; it does
+not cap context length or interrupt an in-flight generation.

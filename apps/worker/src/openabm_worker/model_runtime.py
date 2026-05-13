@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import json
+import re
+import subprocess
+import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from json import JSONDecodeError
 from typing import Any
@@ -15,6 +19,10 @@ class ModelCallsDisabled(RuntimeError):
 
 
 class ModelConfigurationError(RuntimeError):
+    pass
+
+
+class ModelResourceGuardError(ModelConfigurationError):
     pass
 
 
@@ -124,6 +132,8 @@ class OpenAICompatibleModelProvider:
         chat_model: str,
         api_key: str | None = None,
         context_length: int = 262144,
+        min_available_memory_mb: int = 0,
+        available_memory_mb: Callable[[], float | None] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         if context_length < 32768:
@@ -132,9 +142,12 @@ class OpenAICompatibleModelProvider:
         self.chat_model = chat_model
         self.api_key = api_key
         self.context_length = context_length
+        self.min_available_memory_mb = max(0, int(min_available_memory_mb))
+        self._available_memory_mb = available_memory_mb or system_available_memory_mb
         self._transport = transport
 
     def health_check(self) -> ProviderHealth:
+        available_memory_mb = _safe_available_memory_mb(self._available_memory_mb)
         return ProviderHealth(
             adapter_name=self.adapter_name,
             status="configured",
@@ -143,6 +156,12 @@ class OpenAICompatibleModelProvider:
                 "base_url": self.base_url,
                 "chat_model": self.chat_model,
                 "context_length": self.context_length,
+                "min_available_memory_mb": self.min_available_memory_mb,
+                "available_memory_mb": available_memory_mb,
+                "memory_guard_status": _memory_guard_status(
+                    available_memory_mb,
+                    self.min_available_memory_mb,
+                ),
                 "timeout_behavior": self.timeout_behavior,
             },
         )
@@ -297,6 +316,10 @@ class OpenAICompatibleModelProvider:
         )
 
     async def _post_chat(self, payload: dict[str, Any]) -> dict[str, Any]:
+        _enforce_memory_guard(
+            available_memory_mb=self._available_memory_mb,
+            min_available_memory_mb=self.min_available_memory_mb,
+        )
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -340,14 +363,19 @@ class OpenAICompatibleEmbeddingProvider:
         base_url: str,
         embedding_model: str,
         api_key: str | None = None,
+        min_available_memory_mb: int = 0,
+        available_memory_mb: Callable[[], float | None] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.embedding_model = embedding_model
         self.api_key = api_key
+        self.min_available_memory_mb = max(0, int(min_available_memory_mb))
+        self._available_memory_mb = available_memory_mb or system_available_memory_mb
         self._transport = transport
 
     def health_check(self) -> ProviderHealth:
+        available_memory_mb = _safe_available_memory_mb(self._available_memory_mb)
         return ProviderHealth(
             adapter_name=self.adapter_name,
             status="configured",
@@ -355,6 +383,12 @@ class OpenAICompatibleEmbeddingProvider:
             details={
                 "base_url": self.base_url,
                 "embedding_model": self.embedding_model,
+                "min_available_memory_mb": self.min_available_memory_mb,
+                "available_memory_mb": available_memory_mb,
+                "memory_guard_status": _memory_guard_status(
+                    available_memory_mb,
+                    self.min_available_memory_mb,
+                ),
                 "timeout_behavior": self.timeout_behavior,
             },
         )
@@ -389,6 +423,10 @@ class OpenAICompatibleEmbeddingProvider:
         }
 
     async def _post_embeddings(self, payload: dict[str, Any]) -> dict[str, Any]:
+        _enforce_memory_guard(
+            available_memory_mb=self._available_memory_mb,
+            min_available_memory_mb=self.min_available_memory_mb,
+        )
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -420,6 +458,7 @@ def model_provider_from_settings(
         chat_model=settings.chat_model,
         api_key=settings.model_api_key,
         context_length=settings.model_context_length,
+        min_available_memory_mb=settings.model_min_available_memory_mb,
     )
 
 
@@ -440,7 +479,99 @@ def embedding_provider_from_settings(
         base_url=settings.model_base_url,
         embedding_model=settings.embedding_model,
         api_key=settings.model_api_key,
+        min_available_memory_mb=settings.model_min_available_memory_mb,
     )
+
+
+def system_available_memory_mb() -> float | None:
+    if sys.platform == "darwin":
+        return _darwin_available_memory_mb()
+    if sys.platform.startswith("linux"):
+        return _linux_available_memory_mb()
+    return None
+
+
+def _enforce_memory_guard(
+    *,
+    available_memory_mb: Callable[[], float | None],
+    min_available_memory_mb: int,
+) -> None:
+    if min_available_memory_mb <= 0:
+        return
+    available = available_memory_mb()
+    if available is None:
+        return
+    if available < min_available_memory_mb:
+        raise ModelResourceGuardError(
+            "Available system memory "
+            f"({available:.0f} MB) is below OPENABM_MODEL_MIN_AVAILABLE_MEMORY_MB "
+            f"({min_available_memory_mb} MB); skipping the model call."
+        )
+
+
+def _safe_available_memory_mb(
+    available_memory_mb: Callable[[], float | None],
+) -> float | None:
+    try:
+        return available_memory_mb()
+    except Exception:
+        return None
+
+
+def _memory_guard_status(
+    available_memory_mb: float | None,
+    min_available_memory_mb: int,
+) -> str:
+    if min_available_memory_mb <= 0:
+        return "disabled"
+    if available_memory_mb is None:
+        return "unknown"
+    if available_memory_mb < min_available_memory_mb:
+        return "blocked"
+    return "ready"
+
+
+def _darwin_available_memory_mb() -> float | None:
+    try:
+        result = subprocess.run(
+            ["vm_stat"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    page_size_match = re.search(r"page size of (\d+) bytes", result.stdout)
+    if page_size_match is None:
+        return None
+    page_size = int(page_size_match.group(1))
+    page_counts: dict[str, int] = {}
+    for line in result.stdout.splitlines():
+        name, separator, value = line.partition(":")
+        if not separator:
+            continue
+        if name not in {"Pages free", "Pages inactive", "Pages speculative", "Pages purgeable"}:
+            continue
+        cleaned = re.sub(r"[^0-9]", "", value)
+        if cleaned.isdigit():
+            page_counts[name] = int(cleaned)
+    available_pages = sum(page_counts.values())
+    return available_pages * page_size / 1024 / 1024
+
+
+def _linux_available_memory_mb() -> float | None:
+    try:
+        with open("/proc/meminfo") as meminfo:
+            for line in meminfo:
+                if line.startswith("MemAvailable:"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return int(parts[1]) / 1024
+    except OSError:
+        return None
+    return None
 
 
 def _with_structured_output_instruction(
