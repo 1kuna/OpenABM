@@ -24,17 +24,23 @@ import type {
   AgentConfigDefinition,
   BehaviorBacktestResult,
   BehaviorDefinition,
+  ClassificationResult,
+  DataClassificationPolicy,
   DatasetDefinition,
   DatasetExample,
   EvalComparison,
   EvalResult,
   EvalRun,
+  HealthStatus,
   JudgeCalibrationReport,
   JudgeDefinition,
   JudgePromotionResult,
   Project,
+  ProjectExportBundle,
   PromptDefinition,
   PromptDiffResult,
+  RetentionApplyResult,
+  RetentionPolicy,
   ReviewTask,
   SpanEnvelope,
   TimelineRow,
@@ -240,6 +246,8 @@ export function App() {
           <PromptRegistryWorkspace client={client} connection={connection} projectId={projectId} />
         ) : activeView === "configs" ? (
           <AgentConfigWorkspace client={client} connection={connection} projectId={projectId} />
+        ) : activeView === "ops" ? (
+          <OpsWorkspace client={client} connection={connection} projectId={projectId} />
         ) : (
           <ScaffoldView
             activeView={activeView}
@@ -483,6 +491,378 @@ function AgentConfigWorkspace(props: {
         ) : (
           <div className="emptyState">{stateText}</div>
         )}
+      </section>
+    </div>
+  );
+}
+
+function OpsWorkspace(props: {
+  client: OpenAbmClient;
+  connection: ConnectionState;
+  projectId: string;
+}) {
+  const { client, connection, projectId } = props;
+  const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [ready, setReady] = useState<HealthStatus | null>(null);
+  const [metricsText, setMetricsText] = useState("");
+  const [retentionPolicies, setRetentionPolicies] = useState<RetentionPolicy[]>([]);
+  const [selectedRetentionId, setSelectedRetentionId] = useState("");
+  const [retentionName, setRetentionName] = useState("Short lived traces");
+  const [retentionTtlDays, setRetentionTtlDays] = useState("0");
+  const [retentionStatus, setRetentionStatus] = useState<RetentionPolicy["status"]>("active");
+  const [retentionResult, setRetentionResult] = useState<RetentionApplyResult | null>(null);
+  const [includePayloads, setIncludePayloads] = useState(false);
+  const [exportBundle, setExportBundle] = useState<ProjectExportBundle | null>(null);
+  const [classificationPolicies, setClassificationPolicies] = useState<DataClassificationPolicy[]>([]);
+  const [selectedClassificationId, setSelectedClassificationId] = useState("");
+  const [defaultClassification, setDefaultClassification] = useState("internal");
+  const [rulePath, setRulePath] = useState("customer.email");
+  const [ruleClassification, setRuleClassification] = useState("confidential");
+  const [payloadText, setPayloadText] = useState(
+    JSON.stringify({ customer: { email: "zach@example.com" }, message: "Need refund status." }, null, 2)
+  );
+  const [maxClassification, setMaxClassification] = useState("internal");
+  const [classificationResult, setClassificationResult] = useState<ClassificationResult | null>(null);
+  const [stateText, setStateText] = useState("Operations need a live API");
+
+  const selectedRetentionPolicy =
+    retentionPolicies.find((policy) => policy.retention_policy_id === selectedRetentionId) ??
+    retentionPolicies[0] ??
+    null;
+  const selectedClassificationPolicy =
+    classificationPolicies.find((policy) => policy.policy_id === selectedClassificationId) ??
+    classificationPolicies[0] ??
+    null;
+  const exportSections = Object.entries(exportBundle?.manifest.sections ?? {});
+
+  async function loadOps() {
+    if (connection !== "live") {
+      setHealth(null);
+      setReady(null);
+      setMetricsText("");
+      setRetentionPolicies([]);
+      setClassificationPolicies([]);
+      setStateText("fixture mode");
+      return;
+    }
+    try {
+      const [healthStatus, readyStatus, metrics, retention, classifications] = await Promise.all([
+        client.getHealth(),
+        client.getReady(),
+        client.getMetricsText(),
+        client.listRetentionPolicies(projectId),
+        client.listDataClassificationPolicies(projectId)
+      ]);
+      setHealth(healthStatus);
+      setReady(readyStatus);
+      setMetricsText(metrics || "No counters emitted yet");
+      setRetentionPolicies(retention);
+      setSelectedRetentionId((current) =>
+        retention.some((policy) => policy.retention_policy_id === current)
+          ? current
+          : retention[0]?.retention_policy_id ?? ""
+      );
+      setClassificationPolicies(classifications);
+      setSelectedClassificationId((current) =>
+        classifications.some((policy) => policy.policy_id === current)
+          ? current
+          : classifications[0]?.policy_id ?? ""
+      );
+      setStateText("operations refreshed");
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "operations refresh failed");
+    }
+  }
+
+  useEffect(() => {
+    void loadOps();
+  }, [client, connection, projectId]);
+
+  async function createRetentionPolicy() {
+    if (connection !== "live" || !retentionName.trim()) return;
+    const ttlDays = Number.parseInt(retentionTtlDays, 10);
+    if (!Number.isFinite(ttlDays) || ttlDays < 0) {
+      setStateText("ttl_days must be a non-negative integer");
+      return;
+    }
+    try {
+      const created = await client.createRetentionPolicy(
+        projectId,
+        retentionName.trim(),
+        [{ entity: "traces", ttl_days: ttlDays }],
+        retentionStatus
+      );
+      const nextPolicies = [created, ...retentionPolicies.filter((policy) => policy.retention_policy_id !== created.retention_policy_id)];
+      setRetentionPolicies(nextPolicies);
+      setSelectedRetentionId(created.retention_policy_id);
+      setRetentionResult(null);
+      setStateText(`created ${created.name}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "retention policy creation failed");
+    }
+  }
+
+  async function applyRetentionPolicy(dryRun: boolean) {
+    if (connection !== "live" || !selectedRetentionPolicy) return;
+    if (!dryRun && !window.confirm(`Apply ${selectedRetentionPolicy.name} and tombstone matching traces?`)) {
+      return;
+    }
+    try {
+      const result = await client.applyRetentionPolicy(projectId, selectedRetentionPolicy.retention_policy_id, dryRun);
+      setRetentionResult(result);
+      setStateText(
+        dryRun
+          ? `planned ${result.candidate_trace_ids.length} candidates`
+          : `deleted ${result.deleted_trace_ids.length} traces`
+      );
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "retention apply failed");
+    }
+  }
+
+  async function exportProject() {
+    if (connection !== "live") return;
+    try {
+      const bundle = await client.exportProject(projectId, includePayloads);
+      setExportBundle(bundle);
+      setStateText(`export ${bundle.manifest.export_id}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "project export failed");
+    }
+  }
+
+  async function createClassificationPolicy() {
+    if (connection !== "live") return;
+    if (!rulePath.trim() || !ruleClassification.trim()) {
+      setStateText("classification rule path and value are required");
+      return;
+    }
+    try {
+      const created = await client.createDataClassificationPolicy(projectId, defaultClassification, [
+        { path: rulePath.trim(), classification: ruleClassification.trim() }
+      ]);
+      const nextPolicies = [
+        created,
+        ...classificationPolicies.filter((policy) => policy.policy_id !== created.policy_id)
+      ];
+      setClassificationPolicies(nextPolicies);
+      setSelectedClassificationId(created.policy_id);
+      setClassificationResult(null);
+      setStateText(`created classification policy ${created.policy_id}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "classification policy creation failed");
+    }
+  }
+
+  async function classifyPayload() {
+    if (connection !== "live" || !selectedClassificationPolicy) return;
+    let payload: Record<string, unknown>;
+    try {
+      payload = parseJsonObject(payloadText);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "invalid payload JSON");
+      return;
+    }
+    try {
+      const result = await client.classifyPayload(payload, selectedClassificationPolicy, maxClassification.trim() || undefined);
+      setClassificationResult(result);
+      setStateText(`classified as ${result.classification}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "classification failed");
+    }
+  }
+
+  return (
+    <div className="opsGrid">
+      <section className="panel opsDetail">
+        <div className="detailHeader">
+          <div>
+            <p className="sectionLabel">runtime</p>
+            <h3>Health, metrics, and export</h3>
+          </div>
+          <button className="iconButton" onClick={() => void loadOps()} aria-label="Refresh operations">
+            <TimerReset size={16} />
+          </button>
+        </div>
+        <div className="metricsRow opsMetrics">
+          <Metric icon={<Activity />} label="Health" value={health?.status ?? connectionLabel(connection)} />
+          <Metric icon={<CheckCircle2 />} label="Ready" value={ready?.status ?? "unknown"} />
+          <Metric icon={<Database />} label="Counters" value={String(countMetricLines(metricsText))} />
+        </div>
+        <p className="systemNote">{stateText}</p>
+
+        <div className="opsSections">
+          <section className="opsSection">
+            <h4>Readiness</h4>
+            <dl className="reviewFacts">
+              <div>
+                <dt>Service</dt>
+                <dd>{health?.service ?? "not connected"}</dd>
+              </div>
+              <div>
+                <dt>Environment</dt>
+                <dd>{String(health?.details?.env ?? "unknown")}</dd>
+              </div>
+              <div>
+                <dt>Store</dt>
+                <dd>{String(ready?.details?.store ?? "unknown")}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="opsSection">
+            <h4>Metrics</h4>
+            <pre>{metricsText || "No metrics loaded"}</pre>
+          </section>
+
+          <section className="opsSection exportSection">
+            <h4>Project export</h4>
+            <label className="toggleLabel">
+              <input
+                type="checkbox"
+                checked={includePayloads}
+                onChange={(event) => setIncludePayloads(event.target.checked)}
+              />
+              Include payload bodies
+            </label>
+            <button className="primaryButton" onClick={() => void exportProject()}>
+              <Database size={15} />
+              Export manifest
+            </button>
+            {exportBundle ? (
+              <div className="exportSummary">
+                <strong>{exportBundle.manifest.export_id}</strong>
+                <span>{formatTime(exportBundle.manifest.created_at)} · {exportSections.length} sections</span>
+                <div className="sectionRows">
+                  {exportSections.map(([name, section]) => (
+                    <div key={name}>
+                      <strong>{name}</strong>
+                      <span>{section.count} rows · {section.sha256.slice(0, 12)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </section>
+
+          <section className="opsSection classificationSection">
+            <h4>Classification check</h4>
+            <div className="inlineControls">
+              <input
+                value={defaultClassification}
+                onChange={(event) => setDefaultClassification(event.target.value)}
+                placeholder="default"
+              />
+              <input
+                value={ruleClassification}
+                onChange={(event) => setRuleClassification(event.target.value)}
+                placeholder="rule classification"
+              />
+            </div>
+            <input value={rulePath} onChange={(event) => setRulePath(event.target.value)} placeholder="payload.path" />
+            <button onClick={() => void createClassificationPolicy()}>
+              <Shield size={15} />
+              Create policy
+            </button>
+            <select
+              value={selectedClassificationPolicy?.policy_id ?? ""}
+              onChange={(event) => setSelectedClassificationId(event.target.value)}
+            >
+              <option value="">Select policy</option>
+              {classificationPolicies.map((policy) => (
+                <option key={policy.policy_id} value={policy.policy_id}>
+                  {policy.default_classification} · {policy.policy_id}
+                </option>
+              ))}
+            </select>
+            <label className="notesBox">
+              Payload
+              <textarea value={payloadText} onChange={(event) => setPayloadText(event.target.value)} />
+            </label>
+            <input
+              value={maxClassification}
+              onChange={(event) => setMaxClassification(event.target.value)}
+              placeholder="max classification"
+            />
+            <button onClick={() => void classifyPayload()}>
+              <FileSearch size={15} />
+              Classify
+            </button>
+            {classificationResult ? <pre>{JSON.stringify(classificationResult, null, 2)}</pre> : null}
+          </section>
+        </div>
+      </section>
+
+      <section className="panel opsDetail">
+        <div className="detailHeader">
+          <div>
+            <p className="sectionLabel">retention</p>
+            <h3>Policy dry-run and tombstone</h3>
+          </div>
+          <span className="judgeStatus active">{retentionPolicies.length} policies</span>
+        </div>
+        <div className="opsSection">
+          <h4>Create policy</h4>
+          <div className="inlineControls">
+            <input value={retentionName} onChange={(event) => setRetentionName(event.target.value)} placeholder="Policy name" />
+            <input value={retentionTtlDays} onChange={(event) => setRetentionTtlDays(event.target.value)} placeholder="ttl_days" />
+          </div>
+          <select
+            value={retentionStatus}
+            onChange={(event) => setRetentionStatus(event.target.value as RetentionPolicy["status"])}
+          >
+            <option value="active">active</option>
+            <option value="draft">draft</option>
+            <option value="paused">paused</option>
+            <option value="archived">archived</option>
+          </select>
+          <button onClick={() => void createRetentionPolicy()}>
+            <Shield size={15} />
+            Create retention policy
+          </button>
+        </div>
+
+        <div className="retentionRows">
+          {retentionPolicies.map((policy) => (
+            <button
+              className={policy.retention_policy_id === selectedRetentionPolicy?.retention_policy_id ? "selectedRetention" : ""}
+              key={policy.retention_policy_id}
+              onClick={() => {
+                setSelectedRetentionId(policy.retention_policy_id);
+                setRetentionResult(null);
+              }}
+            >
+              <span className={`judgeStatus ${policy.status}`}>{policy.status}</span>
+              <strong>{policy.name}</strong>
+              <small>{formatRetentionRules(policy.rules)} · {policy.retention_policy_id}</small>
+            </button>
+          ))}
+          {!retentionPolicies.length ? <div className="emptyState">No retention policies</div> : null}
+        </div>
+
+        {selectedRetentionPolicy ? (
+          <div className="opsSection">
+            <h4>Apply selected</h4>
+            <div className="reviewActions">
+              <button onClick={() => void applyRetentionPolicy(true)}>
+                <FileSearch size={15} />
+                Dry run
+              </button>
+              <button onClick={() => void applyRetentionPolicy(false)}>
+                <AlertTriangle size={15} />
+                Apply tombstone
+              </button>
+            </div>
+            {retentionResult ? (
+              <div className={`retentionResult ${retentionResult.status}`}>
+                <strong>{retentionResult.status}</strong>
+                <span>{retentionResult.candidate_trace_ids.length} candidates</span>
+                <span>{retentionResult.deleted_trace_ids.length} deleted</span>
+                <pre>{JSON.stringify(retentionResult, null, 2)}</pre>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </section>
     </div>
   );
@@ -2190,6 +2570,22 @@ function formatConfigContent(content: Record<string, unknown>) {
   const tools = Array.isArray(content.tools) ? `${content.tools.length} tools` : null;
   const workflow = content.workflow ? `workflow ${String(content.workflow)}` : null;
   return [model, tools, workflow].filter(Boolean).join(" · ") || JSON.stringify(content);
+}
+
+function countMetricLines(metricsText: string) {
+  return metricsText
+    .split("\n")
+    .filter((line) => line.trim() && !line.startsWith("#")).length;
+}
+
+function formatRetentionRules(rules: Array<Record<string, unknown>>) {
+  return rules
+    .map((rule) => {
+      const entity = rule.entity ? String(rule.entity) : "entity";
+      const ttl = rule.ttl_days == null ? "no ttl" : `${String(rule.ttl_days)}d`;
+      return `${entity} ${ttl}`;
+    })
+    .join(", ") || "no rules";
 }
 
 function connectionLabel(connection: ConnectionState) {

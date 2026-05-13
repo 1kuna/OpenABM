@@ -4,19 +4,25 @@ import type {
   AgentConfigVersion,
   BehaviorBacktestResult,
   BehaviorDefinition,
+  ClassificationResult,
+  DataClassificationPolicy,
   DatasetDefinition,
   DatasetExample,
   DocsSearchResult,
   EvalComparison,
   EvalResult,
   EvalRun,
+  HealthStatus,
   JudgeCalibrationReport,
   JudgeDefinition,
   JudgePromotionResult,
   Project,
+  ProjectExportBundle,
   PromptDefinition,
   PromptDiffResult,
   PromptVersion,
+  RetentionApplyResult,
+  RetentionPolicy,
   ReviewTask,
   TraceDetail,
   TraceEnvelope
@@ -39,6 +45,18 @@ export class OpenAbmClient {
   async listProjects(): Promise<Project[]> {
     const body = await this.get<{ data: Project[] }>("/v1/projects");
     return body.data;
+  }
+
+  async getHealth(): Promise<HealthStatus> {
+    return this.get<HealthStatus>("/health");
+  }
+
+  async getReady(): Promise<HealthStatus> {
+    return this.get<HealthStatus>("/ready");
+  }
+
+  async getMetricsText(): Promise<string> {
+    return this.getText("/metrics");
   }
 
   async listTraces(projectId: string, status?: string, environment?: string): Promise<TraceEnvelope[]> {
@@ -230,6 +248,76 @@ export class OpenAbmClient {
     });
   }
 
+  async listRetentionPolicies(projectId: string): Promise<RetentionPolicy[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: RetentionPolicy[] }>(`/v1/retention-policies?${params.toString()}`);
+    return body.data;
+  }
+
+  async createRetentionPolicy(
+    projectId: string,
+    name: string,
+    rules: Array<Record<string, unknown>>,
+    status: RetentionPolicy["status"]
+  ): Promise<RetentionPolicy> {
+    return this.post<RetentionPolicy>("/v1/retention-policies", {
+      project_id: projectId,
+      name,
+      rules,
+      status
+    });
+  }
+
+  async applyRetentionPolicy(
+    projectId: string,
+    retentionPolicyId: string,
+    dryRun: boolean
+  ): Promise<RetentionApplyResult> {
+    return this.post<RetentionApplyResult>(`/v1/retention-policies/${retentionPolicyId}/apply`, {
+      project_id: projectId,
+      dry_run: dryRun
+    });
+  }
+
+  async exportProject(projectId: string, includePayloads: boolean): Promise<ProjectExportBundle> {
+    return this.post<ProjectExportBundle>("/v1/exports/project", {
+      project_id: projectId,
+      include_payloads: includePayloads
+    });
+  }
+
+  async listDataClassificationPolicies(projectId: string): Promise<DataClassificationPolicy[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: DataClassificationPolicy[] }>(
+      `/v1/data-classification-policies?${params.toString()}`
+    );
+    return body.data;
+  }
+
+  async createDataClassificationPolicy(
+    projectId: string,
+    defaultClassification: string,
+    rules: Array<Record<string, unknown>>
+  ): Promise<DataClassificationPolicy> {
+    return this.post<DataClassificationPolicy>("/v1/data-classification-policies", {
+      project_id: projectId,
+      default_classification: defaultClassification,
+      rules
+    });
+  }
+
+  async classifyPayload(
+    payload: Record<string, unknown>,
+    policy: DataClassificationPolicy,
+    maxClassification?: string
+  ): Promise<ClassificationResult> {
+    return this.post<ClassificationResult>("/v1/data-classification/classify", {
+      payload,
+      policy,
+      max_classification: maxClassification || null
+    });
+  }
+
   async getJudge(projectId: string, judgeId: string): Promise<JudgeDefinition> {
     const params = new URLSearchParams({ project_id: projectId });
     return this.get<JudgeDefinition>(`/v1/judges/${judgeId}?${params.toString()}`);
@@ -369,6 +457,16 @@ export class OpenAbmClient {
       headers: this.headers()
     });
     return this.parse<T>(response);
+  }
+
+  private async getText(path: string): Promise<string> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      headers: this.headers()
+    });
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
+    return response.text();
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {

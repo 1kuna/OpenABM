@@ -246,6 +246,13 @@ button {
   gap: 18px;
 }
 
+.opsGrid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(560px, 1.2fr) minmax(360px, 0.8fr);
+  gap: 18px;
+}
+
 .panel {
   min-width: 0;
   min-height: 0;
@@ -353,6 +360,12 @@ button {
   padding: 10px;
 }
 
+.retentionRows {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
 .reviewRows button {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -384,7 +397,8 @@ button {
 .behaviorRows button,
 .promptRows button,
 .configRows button,
-.versionRows button {
+.versionRows button,
+.retentionRows button {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 4px 10px;
@@ -411,7 +425,9 @@ button {
 .promptRows .selectedPrompt,
 .configRows button:hover,
 .configRows .selectedConfig,
-.versionRows button:hover {
+.versionRows button:hover,
+.retentionRows button:hover,
+.retentionRows .selectedRetention {
   border-color: #9ca3af;
   background: #f8fafc;
 }
@@ -444,7 +460,9 @@ button {
 .promptRows small,
 .configRows strong,
 .configRows small,
-.versionRows strong {
+.versionRows strong,
+.retentionRows strong,
+.retentionRows small {
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -456,7 +474,8 @@ button {
 .behaviorRows small,
 .promptRows small,
 .configRows small,
-.versionRows small {
+.versionRows small,
+.retentionRows small {
   grid-column: 2;
   color: #6b7280;
 }
@@ -646,6 +665,14 @@ td span {
   padding: 16px;
 }
 
+.opsDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  padding: 16px;
+}
+
 .detailHeader {
   display: flex;
   align-items: flex-start;
@@ -687,6 +714,10 @@ td span {
 }
 
 .configMetrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.opsMetrics {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -1045,6 +1076,12 @@ pre {
   gap: 12px;
 }
 
+.opsSections {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+  gap: 12px;
+}
+
 .datasetSection {
   border: 1px solid #e5e7eb;
   border-radius: 7px;
@@ -1069,11 +1106,25 @@ pre {
   padding: 12px;
 }
 
+.opsSection {
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+}
+
 .datasetSection h4,
 .behaviorSection h4,
 .promptSection h4,
 .configSection h4 {
   margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.opsSection h4 {
+  margin: 0;
   font-size: 14px;
 }
 
@@ -1091,6 +1142,10 @@ pre {
   grid-row: span 2;
 }
 
+.classificationSection {
+  grid-row: span 2;
+}
+
 .positiveExamples {
   grid-column: 1 / -1;
 }
@@ -1098,6 +1153,10 @@ pre {
 .promptSection .primaryButton,
 .configSection .primaryButton {
   margin-top: 10px;
+}
+
+.opsSection .primaryButton {
+  margin-top: 0;
 }
 
 .exampleAdd,
@@ -1111,6 +1170,66 @@ pre {
   gap: 5px;
   color: #6b7280;
   font-size: 12px;
+}
+
+.opsSection input:not([type="checkbox"]),
+.opsSection select {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  color: #111827;
+  padding: 0 9px;
+}
+
+.opsSection button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  padding: 0 10px;
+}
+
+.toggleLabel {
+  align-items: center;
+  color: #374151;
+  display: flex;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.sectionRows {
+  display: grid;
+  gap: 8px;
+}
+
+.exportSummary,
+.retentionResult {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #edf0f4;
+  border-radius: 7px;
+  padding: 9px;
+}
+
+.exportSummary span,
+.retentionResult span,
+.sectionRows span {
+  color: #6b7280;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.sectionRows div {
+  display: grid;
+  gap: 3px;
+  border-top: 1px solid #edf0f4;
+  padding-top: 8px;
 }
 
 .exampleRows,
@@ -1307,7 +1426,9 @@ pre {
   .promptGrid,
   .promptSections,
   .configGrid,
-  .configSections {
+  .configSections,
+  .opsGrid,
+  .opsSections {
     grid-template-columns: 1fr;
   }
 
@@ -1325,6 +1446,10 @@ pre {
   }
 
   .configSection:first-child {
+    grid-row: auto;
+  }
+
+  .classificationSection {
     grid-row: auto;
   }
 }
@@ -1354,6 +1479,7 @@ pre {
   .behaviorMetrics,
   .promptMetrics,
   .configMetrics,
+  .opsMetrics,
   .policyGrid {
     grid-template-columns: 1fr;
   }

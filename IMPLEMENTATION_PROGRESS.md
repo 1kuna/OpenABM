@@ -375,6 +375,10 @@ Done:
 - Added retention policy dry-run/apply execution for trace TTL rules so cleanup
   candidates can be reviewed before tombstoning, with audit records for planned
   or applied runs.
+- Added a live Operations workspace in the web app with health/readiness,
+  metrics text, project export manifests, retention policy creation and dry-run
+  / tombstone actions, plus data classification policy creation and payload
+  classification checks wired to the local API.
 
 ## Phase 9: Real-World Pilot And Revisit Decisions
 
@@ -393,11 +397,13 @@ Blocked:
 
 Verified after the latest implementation slices:
 
-- `make lint && make test`: passed, 39 tests after the judge/eval/docs MCP
+- `make lint && make test`: passed, 43 tests after the operations workspace
   slice.
 - `npm --prefix apps/web run build`: passed.
-- Browser QA captured desktop Judges and mobile MCP screenshots under
-  `artifacts/ui-qa/`; the updated status text fits at both checked widths.
+- Browser QA captured desktop and mobile Operations workspace screenshots under
+  `artifacts/ui-qa/`; retention dry-run, export manifest, and classification
+  flows completed against the live local API with no console errors or failing
+  API responses.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
 - MCP stdio smoke: `tools/list` returned 35 tools and
@@ -430,8 +436,8 @@ Known remaining gaps before calling the whole spec complete:
   real OCR, attachment text extraction, and vendor-specific chat connectors are
   still future integration work.
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
-  behavior detail, automation builder, impact report, prompt registry, and agent
-  configuration history.
+  behavior detail, automation builder, impact report, and deeper
+  prompt/configuration history.
 - Production-grade auth/session/API-key management, secret vault integration,
   and scheduled retention workers remain beyond the local reference scaffold.
 
@@ -554,3 +560,6 @@ Implemented in this pass:
   gates pass.
 - Added an Issues/Investigations scaffold view in the web app so the v2 surface
   is visible without pretending the LLM-backed pieces are ready.
+- Added a live Operations workspace in the web app so retention/export/privacy
+  operations can be exercised from the UI instead of only through integration
+  tests.

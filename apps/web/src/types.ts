@@ -185,6 +185,64 @@ export interface AgentConfigCompareResult {
   metadata_changed: boolean;
 }
 
+export interface HealthStatus {
+  status: string;
+  service: string;
+  details: Record<string, unknown>;
+}
+
+export interface RetentionPolicy {
+  retention_policy_id: string;
+  project_id: string;
+  name: string;
+  rules: Array<Record<string, unknown>>;
+  status: "draft" | "active" | "paused" | "archived";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RetentionApplyResult {
+  retention_policy_id: string;
+  project_id: string;
+  dry_run: boolean;
+  status: "planned" | "applied";
+  evaluated_rules: Array<Record<string, unknown>>;
+  candidate_trace_ids: string[];
+  deleted_trace_ids: string[];
+  effects: Array<Record<string, unknown>>;
+  created_at: string;
+}
+
+export interface ProjectExportManifest {
+  export_id: string;
+  project_id: string;
+  created_at: string;
+  include_payloads: boolean;
+  included_classifications: string[];
+  sections: Record<string, { count: number; sha256: string }>;
+}
+
+export interface ProjectExportBundle {
+  metadata: Record<string, unknown>;
+  manifest: ProjectExportManifest;
+  [section: string]: unknown;
+}
+
+export interface DataClassificationPolicy {
+  policy_id: string;
+  project_id: string;
+  default_classification: string;
+  rules: Array<Record<string, unknown>>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClassificationResult {
+  classification: string;
+  matched_rules: Array<Record<string, unknown>>;
+  payload?: unknown;
+}
+
 export interface JudgeDefinition {
   judge_id: string;
   project_id: string;
