@@ -432,6 +432,14 @@ def test_v1_judge_registry_eval_compare_and_docs_search(tmp_path) -> None:
     assert report_body["verdict_counts"]["fail"] == 1
     assert report_body["invalid_output_rate"] == 0
     assert report_body["human_review_labels"]["accepted"] == 1
+    promoted = client.post(
+        f"/v1/judges/{judge_id}/promote",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo"},
+    )
+    assert promoted.status_code == 200
+    assert promoted.json()["status"] == "promoted"
+    assert promoted.json()["judge"]["status"] == "active"
 
     docs = client.post(
         "/v1/docs/search",

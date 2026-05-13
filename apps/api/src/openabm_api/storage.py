@@ -193,6 +193,31 @@ def _parse_utc_datetime(value: Any) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
+def _judge_promotion_blockers(
+    report: dict[str, Any],
+    review_tasks: list[dict[str, Any]],
+    policy: dict[str, Any],
+) -> list[str]:
+    blockers = []
+    min_score_count = int(policy.get("min_score_count", 1))
+    if report["score_count"] < min_score_count:
+        blockers.append("insufficient_eval_scores")
+    invalid_rate = report.get("invalid_output_rate")
+    if invalid_rate is None:
+        blockers.append("missing_invalid_output_rate")
+    elif invalid_rate > float(policy.get("max_invalid_output_rate", 0.0)):
+        blockers.append("invalid_output_rate_too_high")
+    if policy.get("require_accepted_review", True) and not report[
+        "human_review_labels"
+    ].get("accepted"):
+        blockers.append("accepted_human_review_required")
+    if policy.get("require_no_open_reviews", True) and any(
+        task["status"] == "open" for task in review_tasks
+    ):
+        blockers.append("open_review_tasks")
+    return blockers
+
+
 class SQLiteStore:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
@@ -1221,6 +1246,72 @@ class SQLiteStore:
                 for eval_run_id, scores in sorted(per_run.items())
             ],
         }
+
+    def promote_judge(
+        self,
+        project_id: str,
+        judge_id: str,
+        *,
+        policy: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        policy = {
+            "min_score_count": 1,
+            "max_invalid_output_rate": 0.0,
+            "require_accepted_review": True,
+            "require_no_open_reviews": True,
+            **(policy or {}),
+        }
+        report = self.build_judge_calibration_report(project_id, judge_id)
+        blockers = _judge_promotion_blockers(
+            report,
+            self._judge_review_tasks(project_id, judge_id),
+            policy,
+        )
+        if blockers:
+            return {
+                "status": "blocked",
+                "judge_id": judge_id,
+                "project_id": project_id,
+                "promotion_policy": policy,
+                "blocking_reasons": blockers,
+                "calibration_report": report,
+            }
+        judge = self._update_judge_status(project_id, judge_id, "active")
+        return {
+            "status": "promoted",
+            "judge": judge,
+            "promotion_policy": policy,
+            "blocking_reasons": [],
+            "calibration_report": report,
+        }
+
+    def _judge_review_tasks(self, project_id: str, judge_id: str) -> list[dict[str, Any]]:
+        return [
+            task
+            for task in self.list_review_tasks(project_id, task_type="judge_output")
+            if task["source_entity_id"] == judge_id
+        ]
+
+    def _update_judge_status(
+        self,
+        project_id: str,
+        judge_id: str,
+        status: str,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE judges
+                SET status = ?, updated_at = ?
+                WHERE project_id = ? AND judge_id = ?
+                """,
+                (status, now, project_id, judge_id),
+            )
+        judge = self.get_judge(project_id, judge_id)
+        if judge is None:
+            raise KeyError(f"judge not found: {judge_id}")
+        return judge
 
     def add_trace_dimension(
         self,

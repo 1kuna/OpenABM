@@ -2431,6 +2431,68 @@
         }
       }
     },
+    "/v1/judges/{judge_id}/promote": {
+      "post": {
+        "operationId": "promoteJudge",
+        "summary": "Promote a judge when calibration and review gates pass.",
+        "x-required-scopes": [
+          "judges:write"
+        ],
+        "parameters": [
+          {
+            "name": "judge_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "promotion_policy": {
+                    "type": "object",
+                    "properties": {
+                      "min_score_count": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "max_invalid_output_rate": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "require_accepted_review": {
+                        "type": "boolean"
+                      },
+                      "require_no_open_reviews": {
+                        "type": "boolean"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Promotion result."
+          }
+        }
+      }
+    },
     "/v1/judges/drafts": {
       "post": {
         "operationId": "createJudgeDraft",

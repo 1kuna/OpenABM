@@ -516,6 +516,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
 
+    @app.post("/api/judges/{judge_id}/promote")
+    def promote_judge(
+        judge_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["judges:write"])),
+    ) -> dict[str, object]:
+        del actor
+        project_id = request.get("project_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        try:
+            result = store.promote_judge(
+                project_id,
+                judge_id,
+                policy=request.get("promotion_policy") or {},
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
+        store.append_audit(
+            "promote_judge",
+            "judge",
+            project_id,
+            judge_id,
+            {
+                "status": result["status"],
+                "blocking_reasons": result["blocking_reasons"],
+            },
+        )
+        return result
+
     @app.post("/api/judges/drafts", status_code=201)
     async def create_judge_draft(
         request: dict[str, Any],

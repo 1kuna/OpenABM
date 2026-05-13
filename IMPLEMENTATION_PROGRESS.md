@@ -386,8 +386,8 @@ Known remaining gaps before calling the whole spec complete:
   and MCP-backed lifecycle flows, but the web UI still needs full version
   history, tag movement, and eval-linked comparison views.
 - Judge registry, model-backed judge drafting, local eval launch, eval
-  comparison, and judge calibration reporting now exist; judge version promotion
-  policy and UI workspaces are still early.
+  comparison, judge calibration reporting, and promotion gates now exist; judge
+  UI workspaces are still early.
 - Automation definitions and local run execution include deterministic
   conditions, idempotency, preview notifications, review-task actions, and
   cooldown skips, bounded retries, and dead-letter action visibility; real
@@ -518,5 +518,8 @@ Implemented in this pass:
   inspected from eval score history, invalid-output rate, latency/token
   summaries, drift-by-eval-run, and human review labels. The report resolves
   registry judge IDs and immutable-version definition IDs as aliases.
+- Added `/v1/judges/{judge_id}/promote` so judges move from draft to active
+  only after calibration score, invalid-output, open-review, and accepted-review
+  gates pass.
 - Added an Issues/Investigations scaffold view in the web app so the v2 surface
   is visible without pretending the LLM-backed pieces are ready.
