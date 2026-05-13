@@ -357,6 +357,9 @@ Done:
 - Aligned the `ScoreResult` JSON Schema with the spec's failure-reason
   contract, including validation that succeeded scores cannot carry a
   non-null failure reason.
+- Persisted score `failure_reason` through the SQLite schema, migration
+  compatibility path, judge outputs, rubric API responses, score list API, and
+  eval result reads; invalid judge output now records `invalid_result`.
 - Added model-backed rubric judge execution with context packets, preserved-span
   citation validation, provider/model metadata, score persistence, and `/v1`
   API coverage.

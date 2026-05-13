@@ -12,7 +12,11 @@ from openabm_worker.agent_flow_smoke import (
 )
 from openabm_worker.context_packets import build_trace_context_packet
 from openabm_worker.investigation import assist_investigation
-from openabm_worker.judges import run_rubric_judge
+from openabm_worker.judges import (
+    run_deterministic_rule_judge,
+    run_rubric_judge,
+    validate_judge_output,
+)
 from openabm_worker.model_benchmark import (
     compare_model_runtime_benchmarks,
     run_model_runtime_benchmark,
@@ -333,10 +337,57 @@ def test_rubric_judge_requires_preserved_span_citations() -> None:
         )
     )
     assert score["status"] == "succeeded"
+    assert score["failure_reason"] is None
     assert score["evidence_span_ids"] == ["span_tool"]
     assert score["cost"]["model"] == "stub-model"
     assert score["cost"]["context_packet_hash"]
     assert score["cost"]["context_version"] == "ctx_2"
+
+
+def test_judge_outputs_include_contract_failure_reasons() -> None:
+    invalid = validate_judge_output(
+        {
+            "verdict": "fail",
+            "score": 0.0,
+            "confidence": 0.4,
+            "reasoning": "Missing evidence.",
+            "evidence_span_ids": [],
+        },
+        trace_id="trace_1",
+        judge_id="judge_1",
+        judge_version_id=None,
+        preserved_span_ids=set(),
+        require_span_citations=True,
+    )
+    deterministic = run_deterministic_rule_judge(
+        {"trace_id": "trace_1"},
+        [
+            {
+                "span_id": "span_tool",
+                "attributes": {"tool": {"name": "lookup_order"}},
+            }
+        ],
+        {
+            "judge_id": "judge_rule",
+            "judge_version_id": "judge_ver_1",
+            "rule": {
+                "match_semantics": "any_match_is_fail",
+                "failure_mode": "wrong_tool",
+                "conditions": {
+                    "combine": "all",
+                    "items": [
+                        {"field": "attributes.tool.name", "op": "eq", "value": "lookup_order"}
+                    ],
+                },
+            },
+        },
+    )
+
+    assert invalid["status"] == "invalid_output"
+    assert invalid["failure_reason"] == "invalid_result"
+    assert deterministic["status"] == "succeeded"
+    assert deterministic["failure_reason"] is None
+    assert deterministic["failure_mode"] == "wrong_tool"
 
 
 def test_trace_context_packet_summarizes_long_payloads_and_records_hash() -> None:

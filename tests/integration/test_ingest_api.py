@@ -1013,6 +1013,7 @@ def test_v1_eval_runs_are_queryable(tmp_path) -> None:
     )
     assert results.status_code == 200
     assert results.json()["data"][0]["scores"][0]["failure_mode"] == "wrong_tool_for_refund"
+    assert results.json()["data"][0]["scores"][0]["failure_reason"] is None
 
 
 def test_v1_judge_registry_eval_compare_and_docs_search(tmp_path) -> None:
@@ -2427,12 +2428,14 @@ def test_v1_rubric_judge_run_persists_cited_score(tmp_path, monkeypatch) -> None
         },
     )
     assert response.status_code == 201
+    assert response.json()["failure_reason"] is None
     assert response.json()["evidence_span_ids"] == ["span_wrong_tool_order_lookup"]
     scores = client.get(
         "/v1/scores",
         params={"project_id": "proj_demo", "trace_id": fixture["trace"]["trace_id"]},
         headers=auth_headers(),
     )
+    assert scores.json()["data"][0]["failure_reason"] is None
     assert scores.json()["data"][0]["cost"]["model"] == "stub-model"
 
 

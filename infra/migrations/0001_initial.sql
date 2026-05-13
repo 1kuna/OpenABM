@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS scores (
   judge_id TEXT NOT NULL,
   judge_version_id TEXT,
   status TEXT NOT NULL,
+  failure_reason TEXT,
   value_json TEXT NOT NULL,
   confidence REAL,
   reasoning TEXT,

@@ -569,6 +569,7 @@ class SQLiteStore:
             self._ensure_automation_run_cooldown_columns(conn)
             self._ensure_mcp_tool_observation_payload_columns(conn)
             self._ensure_trace_span_resource_column(conn)
+            self._ensure_score_failure_reason_column(conn)
             self.ensure_project("proj_demo", "Demo Project")
 
     @staticmethod
@@ -666,6 +667,14 @@ class SQLiteStore:
             conn.execute(
                 "ALTER TABLE trace_spans ADD COLUMN resource_json TEXT NOT NULL DEFAULT '{}'"
             )
+
+    @staticmethod
+    def _ensure_score_failure_reason_column(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(scores)").fetchall()
+        }
+        if "failure_reason" not in columns:
+            conn.execute("ALTER TABLE scores ADD COLUMN failure_reason TEXT")
 
     def ensure_project(self, project_id: str, name: str | None = None) -> None:
         now = utc_now()
@@ -2269,11 +2278,11 @@ class SQLiteStore:
                 """
                 INSERT INTO scores(
                   score_id, project_id, trace_id, span_id, judge_id,
-                  judge_version_id, status, value_json, confidence, reasoning,
+                  judge_version_id, status, failure_reason, value_json, confidence, reasoning,
                   evidence_span_ids_json, failure_mode, cost_json, latency_ms,
                   created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     score["score_id"],
@@ -2283,6 +2292,7 @@ class SQLiteStore:
                     score["judge_id"],
                     score.get("judge_version_id"),
                     score["status"],
+                    score.get("failure_reason"),
                     encode_json(score.get("value")),
                     score.get("confidence"),
                     score.get("reasoning"),
@@ -6115,6 +6125,7 @@ class SQLiteStore:
             "judge_id": row["judge_id"],
             "judge_version_id": row["judge_version_id"],
             "status": row["status"],
+            "failure_reason": row["failure_reason"],
             "value": decode_json(row["value_json"], None),
             "confidence": row["confidence"],
             "reasoning": row["reasoning"],
