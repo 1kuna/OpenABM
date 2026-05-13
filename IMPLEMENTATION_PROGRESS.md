@@ -443,6 +443,12 @@ Done:
   metrics text, project export manifests, retention policy creation and dry-run
   / tombstone actions, plus data classification policy creation and payload
   classification checks wired to the local API.
+- Added local reference auth storage and API coverage for the section 31 auth
+  contract: role-to-scope enforcement, local owner bootstrap, hashed API-key
+  creation/revocation, service accounts, users, memberships, invites, session
+  records, cookie/CSRF policy metadata, passwordless decision records, and an
+  external IdP adapter boundary. Expanded the Operations workspace with auth
+  mode/role visibility plus API-key, user, invite, and session controls.
 
 ## Phase 9: Real-World Pilot And Revisit Decisions
 
@@ -461,7 +467,7 @@ Blocked:
 
 Verified after the latest implementation slices:
 
-- `make lint && make test`: passed, 45 tests after the Behavior Detail
+- `make lint && make test`: passed, 46 tests after the auth/role matrix
   workspace slice.
 - `npm --prefix apps/web run build`: passed.
 - Browser QA captured desktop and mobile Trace Detail, Operations, Issues, and
@@ -487,6 +493,9 @@ Verified after the latest implementation slices:
 - Impact Report QA covered recurrence, business dimensions, task/workflow,
   deployment/code context, affected entities, recommended actions, representative
   trace navigation, and report JSON export visibility with no console errors.
+- Auth/Ops QA covered auth contract rendering, local role matrix visibility,
+  API-key creation with one-time secret reveal, user and invite creation,
+  session creation, and zero console errors against the live API.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
 - MCP stdio smoke: `tools/list` returned 35 tools and
@@ -521,8 +530,9 @@ Known remaining gaps before calling the whole spec complete:
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
   behavior detail, deeper impact-report analysis, and deeper
   prompt/configuration history.
-- Production-grade auth/session/API-key management, secret vault integration,
-  and scheduled retention workers remain beyond the local reference scaffold.
+- External IdP/OAuth login, real invite delivery, production secret vault
+  integration, and scheduled retention workers remain beyond the local reference
+  scaffold.
 
 ## Spec V2 Delta Incorporated
 

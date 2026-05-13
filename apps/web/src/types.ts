@@ -447,6 +447,79 @@ export interface AutomationPreviewResult {
   matches: AutomationPreviewMatch[];
 }
 
+export interface AuthContract {
+  active_auth_mode: string;
+  supported_auth_modes: string[];
+  session_cookie_policy: Record<string, unknown>;
+  csrf_policy: Record<string, unknown>;
+  password_or_passwordless_decision: string;
+  external_identity_provider_integration_point: Record<string, unknown>;
+  role_matrix: Record<string, string[]>;
+  decision_records: Array<Record<string, unknown>>;
+}
+
+export interface AuthApiKey {
+  api_key_id: string;
+  project_id: string;
+  name: string;
+  actor_id: string | null;
+  actor_type: string;
+  role: string;
+  scopes: string[];
+  status: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+  updated_at: string;
+  api_key?: string;
+}
+
+export interface AuthUser {
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  auth_provider: string;
+  external_subject: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  membership?: Record<string, unknown>;
+}
+
+export interface AuthInvite {
+  invite_id: string;
+  org_id: string;
+  project_id: string;
+  email: string;
+  role: string;
+  status: string;
+  invited_by: string | null;
+  expires_at: string | null;
+  accepted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuthSession {
+  auth_session_id: string;
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  org_id: string;
+  project_id: string;
+  cookie_policy: Record<string, unknown>;
+  ip_hint: string | null;
+  user_agent_hint: string | null;
+  status: string;
+  expires_at: string;
+  revoked_at: string | null;
+  created_at: string;
+  updated_at: string;
+  session_token?: string;
+  csrf_token?: string;
+}
+
 export interface JudgeDefinition {
   judge_id: string;
   project_id: string;

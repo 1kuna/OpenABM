@@ -23,6 +23,11 @@ import type {
   AgentConfigCompareResult,
   AgentConfigDefinition,
   AgentContextPack,
+  AuthApiKey,
+  AuthContract,
+  AuthInvite,
+  AuthSession,
+  AuthUser,
   AutomationDefinition,
   AutomationPreviewResult,
   AutomationRun,
@@ -577,6 +582,16 @@ function OpsWorkspace(props: {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [ready, setReady] = useState<HealthStatus | null>(null);
   const [metricsText, setMetricsText] = useState("");
+  const [authContract, setAuthContract] = useState<AuthContract | null>(null);
+  const [authApiKeys, setAuthApiKeys] = useState<AuthApiKey[]>([]);
+  const [authUsers, setAuthUsers] = useState<AuthUser[]>([]);
+  const [authInvites, setAuthInvites] = useState<AuthInvite[]>([]);
+  const [authSessions, setAuthSessions] = useState<AuthSession[]>([]);
+  const [apiKeyName, setApiKeyName] = useState("Local evaluator key");
+  const [apiKeyRole, setApiKeyRole] = useState("developer");
+  const [newApiKeySecret, setNewApiKeySecret] = useState("");
+  const [authEmail, setAuthEmail] = useState("teammate@example.com");
+  const [authRole, setAuthRole] = useState("viewer");
   const [retentionPolicies, setRetentionPolicies] = useState<RetentionPolicy[]>([]);
   const [selectedRetentionId, setSelectedRetentionId] = useState("");
   const [retentionName, setRetentionName] = useState("Short lived traces");
@@ -606,28 +621,62 @@ function OpsWorkspace(props: {
     classificationPolicies[0] ??
     null;
   const exportSections = Object.entries(exportBundle?.manifest.sections ?? {});
+  const authRoles = Object.keys(authContract?.role_matrix ?? {
+    viewer: [],
+    developer: [],
+    admin: [],
+    owner: []
+  });
+  const activeApiKeyCount = authApiKeys.filter((key) => key.status === "active").length;
+  const activeSessionCount = authSessions.filter((session) => session.status === "active").length;
 
   async function loadOps() {
     if (connection !== "live") {
       setHealth(null);
       setReady(null);
       setMetricsText("");
+      setAuthContract(null);
+      setAuthApiKeys([]);
+      setAuthUsers([]);
+      setAuthInvites([]);
+      setAuthSessions([]);
       setRetentionPolicies([]);
       setClassificationPolicies([]);
       setStateText("fixture mode");
       return;
     }
     try {
-      const [healthStatus, readyStatus, metrics, retention, classifications] = await Promise.all([
+      const [
+        healthStatus,
+        readyStatus,
+        metrics,
+        contract,
+        apiKeys,
+        users,
+        invites,
+        sessions,
+        retention,
+        classifications
+      ] = await Promise.all([
         client.getHealth(),
         client.getReady(),
         client.getMetricsText(),
+        client.getAuthContract(),
+        client.listAuthApiKeys(projectId),
+        client.listAuthUsers(projectId),
+        client.listAuthInvites(projectId),
+        client.listAuthSessions(projectId),
         client.listRetentionPolicies(projectId),
         client.listDataClassificationPolicies(projectId)
       ]);
       setHealth(healthStatus);
       setReady(readyStatus);
       setMetricsText(metrics || "No counters emitted yet");
+      setAuthContract(contract);
+      setAuthApiKeys(apiKeys);
+      setAuthUsers(users);
+      setAuthInvites(invites);
+      setAuthSessions(sessions);
       setRetentionPolicies(retention);
       setSelectedRetentionId((current) =>
         retention.some((policy) => policy.retention_policy_id === current)
@@ -649,6 +698,77 @@ function OpsWorkspace(props: {
   useEffect(() => {
     void loadOps();
   }, [client, connection, projectId]);
+
+  async function createLocalApiKey() {
+    if (connection !== "live" || !apiKeyName.trim()) return;
+    try {
+      const created = await client.createAuthApiKey(projectId, apiKeyName.trim(), apiKeyRole, ["*"]);
+      setAuthApiKeys([created, ...authApiKeys.filter((key) => key.api_key_id !== created.api_key_id)]);
+      setNewApiKeySecret(created.api_key ?? "");
+      setStateText(`created ${created.name}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "API key creation failed");
+    }
+  }
+
+  async function revokeLocalApiKey(apiKeyId: string) {
+    if (connection !== "live") return;
+    if (!window.confirm("Revoke this API key?")) return;
+    try {
+      const revoked = await client.revokeAuthApiKey(projectId, apiKeyId);
+      setAuthApiKeys(authApiKeys.map((key) => (key.api_key_id === apiKeyId ? revoked : key)));
+      setNewApiKeySecret("");
+      setStateText(`revoked ${revoked.name}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "API key revoke failed");
+    }
+  }
+
+  async function createLocalAuthUser() {
+    if (connection !== "live" || !authEmail.trim()) return;
+    try {
+      const created = await client.createAuthUser(projectId, authEmail.trim(), authRole);
+      setAuthUsers([created, ...authUsers.filter((user) => user.user_id !== created.user_id)]);
+      setStateText(`created user ${created.email}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "auth user creation failed");
+    }
+  }
+
+  async function createLocalInvite() {
+    if (connection !== "live" || !authEmail.trim()) return;
+    try {
+      const created = await client.createAuthInvite(projectId, authEmail.trim(), authRole);
+      setAuthInvites([created, ...authInvites]);
+      setStateText(`invited ${created.email}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "invite creation failed");
+    }
+  }
+
+  async function createLocalAuthSession(userId: string) {
+    if (connection !== "live") return;
+    try {
+      const created = await client.createAuthSession(projectId, userId);
+      setAuthSessions([created, ...authSessions]);
+      setStateText(`created session ${created.auth_session_id}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "auth session creation failed");
+    }
+  }
+
+  async function revokeLocalAuthSession(sessionId: string) {
+    if (connection !== "live") return;
+    try {
+      const revoked = await client.revokeAuthSession(projectId, sessionId);
+      setAuthSessions(authSessions.map((session) => (
+        session.auth_session_id === sessionId ? revoked : session
+      )));
+      setStateText(`revoked session ${revoked.auth_session_id}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "auth session revoke failed");
+    }
+  }
 
   async function createRetentionPolicy() {
     if (connection !== "live" || !retentionName.trim()) return;
@@ -780,6 +900,104 @@ function OpsWorkspace(props: {
                 <dd>{String(ready?.details?.store ?? "unknown")}</dd>
               </div>
             </dl>
+          </section>
+
+          <section className="opsSection authSection">
+            <h4>Auth and access</h4>
+            <div className="metricsRow compactMetrics">
+              <Metric icon={<Shield />} label="Mode" value={authContract?.active_auth_mode ?? "unknown"} />
+              <Metric icon={<KeyRound />} label="Active keys" value={String(activeApiKeyCount)} />
+              <Metric icon={<Activity />} label="Sessions" value={String(activeSessionCount)} />
+            </div>
+            <dl className="reviewFacts">
+              <div>
+                <dt>Password decision</dt>
+                <dd>{authContract?.password_or_passwordless_decision ?? "unknown"}</dd>
+              </div>
+              <div>
+                <dt>CSRF</dt>
+                <dd>{String(authContract?.csrf_policy?.required_for_mutating_requests ?? "unknown")}</dd>
+              </div>
+              <div>
+                <dt>IdP boundary</dt>
+                <dd>{String(authContract?.external_identity_provider_integration_point?.status ?? "unknown")}</dd>
+              </div>
+            </dl>
+
+            <div className="inlineControls">
+              <input value={apiKeyName} onChange={(event) => setApiKeyName(event.target.value)} />
+              <select value={apiKeyRole} onChange={(event) => setApiKeyRole(event.target.value)}>
+                {authRoles.map((role) => (
+                  <option key={role} value={role}>{role}</option>
+                ))}
+              </select>
+              <button onClick={() => void createLocalApiKey()}>
+                <KeyRound size={15} />
+                Create key
+              </button>
+            </div>
+            {newApiKeySecret ? (
+              <div className="secretReveal">
+                <strong>New key</strong>
+                <code>{newApiKeySecret}</code>
+              </div>
+            ) : null}
+            <div className="sectionRows">
+              {authApiKeys.slice(0, 5).map((key) => (
+                <div key={key.api_key_id}>
+                  <strong>{key.name}</strong>
+                  <span>{key.role} · {key.status} · {key.scopes.join(", ")}</span>
+                  {key.status === "active" ? (
+                    <button onClick={() => void revokeLocalApiKey(key.api_key_id)}>Revoke</button>
+                  ) : null}
+                </div>
+              ))}
+              {!authApiKeys.length ? <div className="emptyState">No API keys</div> : null}
+            </div>
+
+            <div className="inlineControls">
+              <input value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} />
+              <select value={authRole} onChange={(event) => setAuthRole(event.target.value)}>
+                {authRoles.map((role) => (
+                  <option key={role} value={role}>{role}</option>
+                ))}
+              </select>
+              <button onClick={() => void createLocalAuthUser()}>
+                <Shield size={15} />
+                Add user
+              </button>
+              <button onClick={() => void createLocalInvite()}>
+                <FileSearch size={15} />
+                Invite
+              </button>
+            </div>
+            <div className="sectionRows">
+              {authUsers.slice(0, 5).map((user) => (
+                <div key={user.user_id}>
+                  <strong>{user.email}</strong>
+                  <span>{String(user.membership?.role ?? "no role")} · {user.status}</span>
+                  <button onClick={() => void createLocalAuthSession(user.user_id)}>New session</button>
+                </div>
+              ))}
+              {!authUsers.length ? <div className="emptyState">No auth users</div> : null}
+            </div>
+            <div className="sectionRows">
+              {authSessions.slice(0, 3).map((session) => (
+                <div key={session.auth_session_id}>
+                  <strong>{session.email}</strong>
+                  <span>{session.status} · expires {formatTime(session.expires_at)}</span>
+                  {session.status === "active" ? (
+                    <button onClick={() => void revokeLocalAuthSession(session.auth_session_id)}>Revoke</button>
+                  ) : null}
+                </div>
+              ))}
+              {authInvites.slice(0, 3).map((invite) => (
+                <div key={invite.invite_id}>
+                  <strong>{invite.email}</strong>
+                  <span>{invite.role} invite · {invite.status}</span>
+                </div>
+              ))}
+            </div>
           </section>
 
           <section className="opsSection">

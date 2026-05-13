@@ -1739,6 +1739,10 @@ pre {
   grid-row: span 2;
 }
 
+.authSection {
+  grid-row: span 2;
+}
+
 .impactSection {
   grid-row: span 2;
 }
@@ -1839,6 +1843,21 @@ pre {
   padding: 9px;
 }
 
+.secretReveal {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #d1fae5;
+  border-radius: 7px;
+  background: #f0fdf4;
+  color: #14532d;
+  padding: 9px;
+}
+
+.secretReveal code {
+  color: #052e16;
+  overflow-wrap: anywhere;
+}
+
 .exportSummary span,
 .retentionResult span,
 .automationResult span,
@@ -1866,6 +1885,12 @@ pre {
   gap: 3px;
   min-width: 0;
   text-align: left;
+}
+
+.sectionRows div > button {
+  justify-self: start;
+  display: inline-flex;
+  text-align: center;
 }
 
 .exampleRows,

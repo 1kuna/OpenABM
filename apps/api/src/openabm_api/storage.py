@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
+import secrets
 import sqlite3
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
@@ -15,6 +16,62 @@ from openabm_api.time import utc_now
 
 ROOT = Path(__file__).resolve().parents[4]
 MIGRATION_DIR = ROOT / "infra" / "migrations"
+DEFAULT_ORG_ID = "org_local"
+DEFAULT_OWNER_USER_ID = "user_local_owner"
+DEFAULT_SERVICE_ACCOUNT_ID = "service_account_local_dev"
+DEFAULT_DEV_API_KEY_ID = "api_key_local_dev"
+
+
+def hash_secret(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _auth_role(value: Any, default: str = "viewer") -> str:
+    role = str(value or default)
+    if role not in {"viewer", "developer", "admin", "owner"}:
+        raise ValueError(f"Unsupported role: {role}")
+    return role
+
+
+def _future_timestamp(seconds: int) -> str:
+    return (datetime.now(UTC) + timedelta(seconds=max(1, seconds))).isoformat()
+
+
+def _auth_decision_records(now: str) -> list[dict[str, str]]:
+    del now
+    return [
+        {
+            "record_id": "auth_decision_local_passwordless",
+            "topic": "password_or_passwordless",
+            "decision": "passwordless_first",
+            "rationale": (
+                "The local reference implementation stores users, invites, sessions, "
+                "and API keys, but defers password verification to a future identity "
+                "provider integration point."
+            ),
+            "status": "accepted",
+        },
+        {
+            "record_id": "auth_decision_session_cookie_policy",
+            "topic": "session_cookie_policy",
+            "decision": "http_only_same_site_lax_secure_in_production",
+            "rationale": (
+                "Browser sessions should use HTTP-only cookies, SameSite=Lax, CSRF "
+                "tokens for mutating requests, and Secure cookies outside local dev."
+            ),
+            "status": "accepted",
+        },
+        {
+            "record_id": "auth_decision_external_idp",
+            "topic": "external_identity_provider_integration",
+            "decision": "adapter_boundary_not_vendor_locked",
+            "rationale": (
+                "The API records external provider subject ids and auth providers so "
+                "OAuth/OIDC can be integrated without rewriting project role checks."
+            ),
+            "status": "accepted",
+        },
+    ]
 
 
 def encode_json(value: Any) -> str:
@@ -241,8 +298,30 @@ class SQLiteStore:
         with self.connect() as conn:
             for migration in sorted(MIGRATION_DIR.glob("*.sql")):
                 conn.executescript(migration.read_text())
+            self._ensure_auth_api_key_columns(conn)
             self._ensure_automation_run_cooldown_columns(conn)
             self.ensure_project("proj_demo", "Demo Project")
+
+    @staticmethod
+    def _ensure_auth_api_key_columns(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(api_keys)").fetchall()
+        }
+        column_specs = {
+            "name": "TEXT",
+            "actor_id": "TEXT",
+            "actor_type": "TEXT",
+            "role": "TEXT",
+            "status": "TEXT",
+            "last_used_at": "TEXT",
+            "expires_at": "TEXT",
+            "revoked_by": "TEXT",
+            "updated_at": "TEXT",
+        }
+        for column, spec in column_specs.items():
+            if column not in columns:
+                conn.execute(f"ALTER TABLE api_keys ADD COLUMN {column} {spec}")
 
     @staticmethod
     def _ensure_automation_run_cooldown_columns(conn: sqlite3.Connection) -> None:
@@ -273,6 +352,618 @@ class SQLiteStore:
                 """,
                 (project_id, name or project_id, now),
             )
+
+    def ensure_auth_bootstrap(self, dev_api_key: str) -> None:
+        self.ensure_project("proj_demo", "Demo Project")
+        now = utc_now()
+        key_hash = hash_secret(dev_api_key)
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO orgs(org_id, name, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(org_id) DO UPDATE SET
+                  name = excluded.name,
+                  updated_at = excluded.updated_at
+                """,
+                (DEFAULT_ORG_ID, "Local Development Org", now, now),
+            )
+            conn.execute(
+                """
+                INSERT INTO auth_users(
+                  user_id, email, display_name, auth_provider, external_subject,
+                  status, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                  email = excluded.email,
+                  display_name = excluded.display_name,
+                  status = excluded.status,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    DEFAULT_OWNER_USER_ID,
+                    "local-owner@openabm.dev",
+                    "Local Owner",
+                    "local",
+                    DEFAULT_OWNER_USER_ID,
+                    "active",
+                    now,
+                    now,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO project_memberships(
+                  membership_id, org_id, project_id, user_id, role, status,
+                  created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(project_id, user_id) DO UPDATE SET
+                  role = excluded.role,
+                  status = excluded.status,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    "membership_local_owner_proj_demo",
+                    DEFAULT_ORG_ID,
+                    "proj_demo",
+                    DEFAULT_OWNER_USER_ID,
+                    "owner",
+                    "active",
+                    now,
+                    now,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO service_accounts(
+                  service_account_id, org_id, project_id, name, role, status,
+                  created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(service_account_id) DO UPDATE SET
+                  name = excluded.name,
+                  role = excluded.role,
+                  status = excluded.status,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    DEFAULT_SERVICE_ACCOUNT_ID,
+                    DEFAULT_ORG_ID,
+                    "proj_demo",
+                    "Local development API key",
+                    "owner",
+                    "active",
+                    now,
+                    now,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO api_keys(
+                  api_key_id, project_id, key_hash, scopes_json, revoked_at, created_at,
+                  name, actor_id, actor_type, role, status, last_used_at, expires_at,
+                  revoked_by, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(api_key_id) DO UPDATE SET
+                  key_hash = excluded.key_hash,
+                  name = excluded.name,
+                  actor_id = excluded.actor_id,
+                  actor_type = excluded.actor_type,
+                  role = excluded.role,
+                  scopes_json = excluded.scopes_json,
+                  revoked_at = NULL,
+                  revoked_by = NULL,
+                  status = excluded.status,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    DEFAULT_DEV_API_KEY_ID,
+                    "proj_demo",
+                    key_hash,
+                    encode_json(["*"]),
+                    None,
+                    now,
+                    "Local development owner key",
+                    DEFAULT_SERVICE_ACCOUNT_ID,
+                    "service_account",
+                    "owner",
+                    "active",
+                    None,
+                    None,
+                    None,
+                    now,
+                ),
+            )
+            for record in _auth_decision_records(now):
+                conn.execute(
+                    """
+                    INSERT INTO auth_decision_records(
+                      record_id, topic, decision, rationale, status, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(record_id) DO UPDATE SET
+                      decision = excluded.decision,
+                      rationale = excluded.rationale,
+                      status = excluded.status,
+                      updated_at = excluded.updated_at
+                    """,
+                    (
+                        record["record_id"],
+                        record["topic"],
+                        record["decision"],
+                        record["rationale"],
+                        record["status"],
+                        now,
+                        now,
+                    ),
+                )
+
+    def authenticate_api_key(self, api_key: str) -> dict[str, Any] | None:
+        key_hash = hash_secret(api_key)
+        now = utc_now()
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM api_keys WHERE key_hash = ?",
+                (key_hash,),
+            ).fetchone()
+            if row is None:
+                return None
+            item = self._api_key_from_row(row, include_hash=False)
+            if item["status"] != "active" or item.get("revoked_at") is not None:
+                return None
+            expires_at = item.get("expires_at")
+            if isinstance(expires_at, str) and expires_at:
+                parsed = _parse_utc_datetime(expires_at)
+                if parsed is not None and parsed < datetime.now(UTC):
+                    return None
+            conn.execute(
+                """
+                UPDATE api_keys
+                SET last_used_at = ?, updated_at = ?
+                WHERE api_key_id = ?
+                """,
+                (now, now, item["api_key_id"]),
+            )
+        return {**item, "last_used_at": now}
+
+    def list_api_keys(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM api_keys
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._api_key_from_row(row, include_hash=False) for row in rows]
+
+    def create_api_key(
+        self,
+        request: dict[str, Any],
+        *,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        project_id = request["project_id"]
+        self.ensure_project(project_id)
+        now = utc_now()
+        role = _auth_role(request.get("role"), "viewer")
+        actor_type = str(request.get("actor_type") or "service_account")
+        actor_ref = request.get("actor_id") or new_id("service_account")
+        scopes = _string_list(request.get("scopes")) or ["*"]
+        api_key = f"opabm_{secrets.token_urlsafe(32)}"
+        item = {
+            "api_key_id": new_id("api_key"),
+            "project_id": project_id,
+            "name": request.get("name") or f"{role.title()} API key",
+            "actor_id": str(actor_ref),
+            "actor_type": actor_type,
+            "role": role,
+            "scopes": scopes,
+            "status": "active",
+            "last_used_at": None,
+            "expires_at": request.get("expires_at"),
+            "revoked_at": None,
+            "revoked_by": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        if actor_type == "service_account":
+            self.ensure_service_account(
+                project_id=project_id,
+                service_account_id=item["actor_id"],
+                name=item["name"],
+                role=role,
+            )
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO api_keys(
+                  api_key_id, project_id, key_hash, scopes_json, revoked_at, created_at,
+                  name, actor_id, actor_type, role, status, last_used_at, expires_at,
+                  revoked_by, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["api_key_id"],
+                    item["project_id"],
+                    hash_secret(api_key),
+                    encode_json(scopes),
+                    None,
+                    now,
+                    item["name"],
+                    item["actor_id"],
+                    item["actor_type"],
+                    item["role"],
+                    item["status"],
+                    None,
+                    item["expires_at"],
+                    None,
+                    now,
+                ),
+            )
+        self.append_audit(
+            "create_api_key",
+            "api_key",
+            project_id,
+            item["api_key_id"],
+            {"role": role, "scopes": scopes, "actor_type": actor_type},
+            actor_id=actor_id,
+        )
+        return {**item, "api_key": api_key}
+
+    def revoke_api_key(
+        self,
+        project_id: str,
+        api_key_id: str,
+        *,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE api_keys
+                SET revoked_at = ?, revoked_by = ?, status = ?, updated_at = ?
+                WHERE project_id = ? AND api_key_id = ?
+                """,
+                (now, actor_id, "revoked", now, project_id, api_key_id),
+            )
+            row = conn.execute(
+                "SELECT * FROM api_keys WHERE project_id = ? AND api_key_id = ?",
+                (project_id, api_key_id),
+            ).fetchone()
+        if row is None:
+            raise KeyError("API key not found")
+        item = self._api_key_from_row(row, include_hash=False)
+        self.append_audit(
+            "revoke_api_key",
+            "api_key",
+            project_id,
+            api_key_id,
+            {"revoked_at": now},
+            actor_id=actor_id,
+        )
+        return item
+
+    def ensure_service_account(
+        self,
+        *,
+        project_id: str,
+        service_account_id: str,
+        name: str,
+        role: str,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        role = _auth_role(role, "viewer")
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO service_accounts(
+                  service_account_id, org_id, project_id, name, role, status,
+                  created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(service_account_id) DO UPDATE SET
+                  name = excluded.name,
+                  role = excluded.role,
+                  status = excluded.status,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    service_account_id,
+                    DEFAULT_ORG_ID,
+                    project_id,
+                    name,
+                    role,
+                    "active",
+                    now,
+                    now,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM service_accounts WHERE service_account_id = ?",
+                (service_account_id,),
+            ).fetchone()
+        return self._service_account_from_row(row)
+
+    def list_auth_users(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT u.*, m.membership_id, m.role, m.status AS membership_status
+                FROM auth_users u
+                LEFT JOIN project_memberships m ON m.user_id = u.user_id
+                WHERE m.project_id = ?
+                ORDER BY u.email ASC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._auth_user_from_row(row) for row in rows]
+
+    def create_auth_user(self, request: dict[str, Any]) -> dict[str, Any]:
+        now = utc_now()
+        user_id = request.get("user_id") or new_id("user")
+        email = str(request["email"]).strip().lower()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO auth_users(
+                  user_id, email, display_name, auth_provider, external_subject,
+                  status, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(email) DO UPDATE SET
+                  display_name = excluded.display_name,
+                  auth_provider = excluded.auth_provider,
+                  external_subject = excluded.external_subject,
+                  status = excluded.status,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    user_id,
+                    email,
+                    request.get("display_name"),
+                    request.get("auth_provider") or "local",
+                    request.get("external_subject"),
+                    request.get("status") or "active",
+                    now,
+                    now,
+                ),
+            )
+            row = conn.execute("SELECT * FROM auth_users WHERE email = ?", (email,)).fetchone()
+        return self._auth_user_from_row(row)
+
+    def list_project_memberships(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT m.*, u.email, u.display_name
+                FROM project_memberships m
+                JOIN auth_users u ON u.user_id = m.user_id
+                WHERE m.project_id = ?
+                ORDER BY m.created_at ASC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._membership_from_row(row) for row in rows]
+
+    def upsert_project_membership(self, request: dict[str, Any]) -> dict[str, Any]:
+        project_id = request["project_id"]
+        user_id = request["user_id"]
+        role = _auth_role(request.get("role"), "viewer")
+        now = utc_now()
+        with self.connect() as conn:
+            user = conn.execute("SELECT * FROM auth_users WHERE user_id = ?", (user_id,)).fetchone()
+            if user is None:
+                raise KeyError("Auth user not found")
+            conn.execute(
+                """
+                INSERT INTO project_memberships(
+                  membership_id, org_id, project_id, user_id, role, status,
+                  created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(project_id, user_id) DO UPDATE SET
+                  role = excluded.role,
+                  status = excluded.status,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    request.get("membership_id") or new_id("membership"),
+                    request.get("org_id") or DEFAULT_ORG_ID,
+                    project_id,
+                    user_id,
+                    role,
+                    request.get("status") or "active",
+                    now,
+                    now,
+                ),
+            )
+            row = conn.execute(
+                """
+                SELECT m.*, u.email, u.display_name
+                FROM project_memberships m
+                JOIN auth_users u ON u.user_id = m.user_id
+                WHERE m.project_id = ? AND m.user_id = ?
+                """,
+                (project_id, user_id),
+            ).fetchone()
+        return self._membership_from_row(row)
+
+    def list_auth_invites(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM auth_invites
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._invite_from_row(row) for row in rows]
+
+    def create_auth_invite(
+        self,
+        request: dict[str, Any],
+        *,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        expires_in_seconds = int(request.get("expires_in_seconds") or 7 * 24 * 60 * 60)
+        item = {
+            "invite_id": new_id("invite"),
+            "org_id": request.get("org_id") or DEFAULT_ORG_ID,
+            "project_id": request["project_id"],
+            "email": str(request["email"]).strip().lower(),
+            "role": _auth_role(request.get("role"), "viewer"),
+            "status": "pending",
+            "invited_by": actor_id,
+            "expires_at": request.get("expires_at") or _future_timestamp(expires_in_seconds),
+            "accepted_at": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO auth_invites(
+                  invite_id, org_id, project_id, email, role, status, invited_by,
+                  expires_at, accepted_at, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["invite_id"],
+                    item["org_id"],
+                    item["project_id"],
+                    item["email"],
+                    item["role"],
+                    item["status"],
+                    item["invited_by"],
+                    item["expires_at"],
+                    item["accepted_at"],
+                    item["created_at"],
+                    item["updated_at"],
+                ),
+            )
+        self.append_audit(
+            "create_auth_invite",
+            "auth_invite",
+            item["project_id"],
+            item["invite_id"],
+            {"email": item["email"], "role": item["role"]},
+            actor_id=actor_id,
+        )
+        return item
+
+    def list_auth_sessions(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT s.*, u.email, u.display_name
+                FROM auth_sessions s
+                JOIN auth_users u ON u.user_id = s.user_id
+                WHERE s.project_id = ?
+                ORDER BY s.created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._auth_session_from_row(row, include_hashes=False) for row in rows]
+
+    def create_auth_session(
+        self,
+        request: dict[str, Any],
+        *,
+        cookie_policy: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = utc_now()
+        ttl_seconds = int(request.get("ttl_seconds") or 7 * 24 * 60 * 60)
+        session_token = f"opabm_sess_{secrets.token_urlsafe(32)}"
+        csrf_token = f"opabm_csrf_{secrets.token_urlsafe(24)}"
+        item = {
+            "auth_session_id": new_id("auth_session"),
+            "user_id": request["user_id"],
+            "org_id": request.get("org_id") or DEFAULT_ORG_ID,
+            "project_id": request["project_id"],
+            "cookie_policy": cookie_policy,
+            "ip_hint": request.get("ip_hint"),
+            "user_agent_hint": request.get("user_agent_hint"),
+            "status": "active",
+            "expires_at": request.get("expires_at") or _future_timestamp(ttl_seconds),
+            "revoked_at": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self.connect() as conn:
+            user = conn.execute(
+                "SELECT * FROM auth_users WHERE user_id = ?",
+                (item["user_id"],),
+            ).fetchone()
+            if user is None:
+                raise KeyError("Auth user not found")
+            conn.execute(
+                """
+                INSERT INTO auth_sessions(
+                  auth_session_id, user_id, org_id, project_id, session_token_hash,
+                  csrf_token_hash, cookie_policy_json, ip_hint, user_agent_hint,
+                  status, expires_at, revoked_at, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["auth_session_id"],
+                    item["user_id"],
+                    item["org_id"],
+                    item["project_id"],
+                    hash_secret(session_token),
+                    hash_secret(csrf_token),
+                    encode_json(cookie_policy),
+                    item["ip_hint"],
+                    item["user_agent_hint"],
+                    item["status"],
+                    item["expires_at"],
+                    None,
+                    now,
+                    now,
+                ),
+            )
+        return {**item, "session_token": session_token, "csrf_token": csrf_token}
+
+    def revoke_auth_session(self, project_id: str, auth_session_id: str) -> dict[str, Any]:
+        now = utc_now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE auth_sessions
+                SET status = ?, revoked_at = ?, updated_at = ?
+                WHERE project_id = ? AND auth_session_id = ?
+                """,
+                ("revoked", now, now, project_id, auth_session_id),
+            )
+            row = conn.execute(
+                """
+                SELECT s.*, u.email, u.display_name
+                FROM auth_sessions s
+                JOIN auth_users u ON u.user_id = s.user_id
+                WHERE s.project_id = ? AND s.auth_session_id = ?
+                """,
+                (project_id, auth_session_id),
+            ).fetchone()
+        if row is None:
+            raise KeyError("Auth session not found")
+        return self._auth_session_from_row(row, include_hashes=False)
+
+    def list_auth_decision_records(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM auth_decision_records ORDER BY topic ASC"
+            ).fetchall()
+        return [self._auth_decision_from_row(row) for row in rows]
 
     def upsert_trace(self, trace: dict[str, Any]) -> str:
         now = utc_now()
@@ -3147,6 +3838,131 @@ class SQLiteStore:
             "INSERT INTO trace_search_fts(trace_id, project_id, body) VALUES (?, ?, ?)",
             (trace_id, project_id, body),
         )
+
+    @staticmethod
+    def _api_key_from_row(row: sqlite3.Row, *, include_hash: bool) -> dict[str, Any]:
+        item = {
+            "api_key_id": row["api_key_id"],
+            "project_id": row["project_id"],
+            "name": row["name"] or row["api_key_id"],
+            "actor_id": row["actor_id"],
+            "actor_type": row["actor_type"] or "service_account",
+            "role": row["role"] or "viewer",
+            "scopes": decode_json(row["scopes_json"], []),
+            "status": row["status"] or ("revoked" if row["revoked_at"] else "active"),
+            "last_used_at": row["last_used_at"],
+            "expires_at": row["expires_at"],
+            "revoked_at": row["revoked_at"],
+            "revoked_by": row["revoked_by"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"] or row["created_at"],
+        }
+        if include_hash:
+            item["key_hash"] = row["key_hash"]
+        return item
+
+    @staticmethod
+    def _service_account_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "service_account_id": row["service_account_id"],
+            "org_id": row["org_id"],
+            "project_id": row["project_id"],
+            "name": row["name"],
+            "role": row["role"],
+            "status": row["status"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _auth_user_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        item = {
+            "user_id": row["user_id"],
+            "email": row["email"],
+            "display_name": row["display_name"],
+            "auth_provider": row["auth_provider"],
+            "external_subject": row["external_subject"],
+            "status": row["status"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        if "membership_id" in row.keys():
+            item["membership"] = {
+                "membership_id": row["membership_id"],
+                "role": row["role"],
+                "status": row["membership_status"],
+            }
+        return item
+
+    @staticmethod
+    def _membership_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "membership_id": row["membership_id"],
+            "org_id": row["org_id"],
+            "project_id": row["project_id"],
+            "user_id": row["user_id"],
+            "email": row["email"],
+            "display_name": row["display_name"],
+            "role": row["role"],
+            "status": row["status"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _invite_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "invite_id": row["invite_id"],
+            "org_id": row["org_id"],
+            "project_id": row["project_id"],
+            "email": row["email"],
+            "role": row["role"],
+            "status": row["status"],
+            "invited_by": row["invited_by"],
+            "expires_at": row["expires_at"],
+            "accepted_at": row["accepted_at"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _auth_session_from_row(
+        row: sqlite3.Row,
+        *,
+        include_hashes: bool,
+    ) -> dict[str, Any]:
+        item = {
+            "auth_session_id": row["auth_session_id"],
+            "user_id": row["user_id"],
+            "email": row["email"],
+            "display_name": row["display_name"],
+            "org_id": row["org_id"],
+            "project_id": row["project_id"],
+            "cookie_policy": decode_json(row["cookie_policy_json"], {}),
+            "ip_hint": row["ip_hint"],
+            "user_agent_hint": row["user_agent_hint"],
+            "status": row["status"],
+            "expires_at": row["expires_at"],
+            "revoked_at": row["revoked_at"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        if include_hashes:
+            item["session_token_hash"] = row["session_token_hash"]
+            item["csrf_token_hash"] = row["csrf_token_hash"]
+        return item
+
+    @staticmethod
+    def _auth_decision_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "record_id": row["record_id"],
+            "topic": row["topic"],
+            "decision": row["decision"],
+            "rationale": row["rationale"],
+            "status": row["status"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
 
     @staticmethod
     def _trace_from_row(row: sqlite3.Row) -> dict[str, Any]:

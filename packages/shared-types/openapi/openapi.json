@@ -74,6 +74,429 @@
         }
       }
     },
+    "/v1/auth/api-keys": {
+      "get": {
+        "operationId": "listAuthApiKeys",
+        "summary": "List hashed API key records for a project.",
+        "x-required-scopes": [
+          "api_keys:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "API key records.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createAuthApiKey",
+        "summary": "Create an API key and return the plaintext secret once.",
+        "x-required-scopes": [
+          "api_keys:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created API key record with one-time plaintext secret.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/api-keys/{api_key_id}/revoke": {
+      "post": {
+        "operationId": "revokeAuthApiKey",
+        "summary": "Revoke an API key.",
+        "x-required-scopes": [
+          "api_keys:write"
+        ],
+        "parameters": [
+          {
+            "name": "api_key_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked API key record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/contract": {
+      "get": {
+        "operationId": "getAuthContract",
+        "summary": "Describe local auth mode, role matrix, session policy, and IdP boundary.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Auth contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/decision-records": {
+      "get": {
+        "operationId": "listAuthDecisionRecords",
+        "summary": "List auth decision records for passwordless, cookie, CSRF, and IdP choices.",
+        "x-required-scopes": [
+          "auth:read"
+        ],
+        "responses": {
+          "200": {
+            "description": "Auth decision records.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/invites": {
+      "get": {
+        "operationId": "listAuthInvites",
+        "summary": "List project invites.",
+        "x-required-scopes": [
+          "invites:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invite records.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createAuthInvite",
+        "summary": "Create an out-of-band project invite.",
+        "x-required-scopes": [
+          "invites:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created invite.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/me": {
+      "get": {
+        "operationId": "getAuthActor",
+        "summary": "Return the authenticated actor and effective role scopes.",
+        "x-required-scopes": [
+          "projects:read"
+        ],
+        "responses": {
+          "200": {
+            "description": "Authenticated actor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/project-memberships": {
+      "get": {
+        "operationId": "listProjectMemberships",
+        "summary": "List project role memberships.",
+        "x-required-scopes": [
+          "org_users:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Membership records.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "upsertProjectMembership",
+        "summary": "Create or update a project role membership.",
+        "x-required-scopes": [
+          "org_users:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Membership record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/sessions": {
+      "get": {
+        "operationId": "listAuthSessions",
+        "summary": "List auth sessions without exposing session tokens.",
+        "x-required-scopes": [
+          "sessions:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session records.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createAuthSession",
+        "summary": "Create a local reference auth session.",
+        "x-required-scopes": [
+          "sessions:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Session record with one-time session and CSRF tokens.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/sessions/{auth_session_id}/revoke": {
+      "post": {
+        "operationId": "revokeAuthSession",
+        "summary": "Revoke an auth session.",
+        "x-required-scopes": [
+          "sessions:write"
+        ],
+        "parameters": [
+          {
+            "name": "auth_session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked session record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/users": {
+      "get": {
+        "operationId": "listAuthUsers",
+        "summary": "List project auth users.",
+        "x-required-scopes": [
+          "org_users:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Auth users.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createAuthUser",
+        "summary": "Create an auth user and optional project membership.",
+        "x-required-scopes": [
+          "org_users:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created auth user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/behaviors": {
       "get": {
         "operationId": "listBehaviors",

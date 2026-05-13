@@ -66,6 +66,16 @@ REQUIRED_INGEST_PATHS = {
 
 REQUIRED_QUERY_PATHS = {
     "/v1/projects",
+    "/v1/auth/api-keys",
+    "/v1/auth/api-keys/{api_key_id}/revoke",
+    "/v1/auth/contract",
+    "/v1/auth/decision-records",
+    "/v1/auth/invites",
+    "/v1/auth/me",
+    "/v1/auth/project-memberships",
+    "/v1/auth/sessions",
+    "/v1/auth/sessions/{auth_session_id}/revoke",
+    "/v1/auth/users",
     "/v1/traces",
     "/v1/traces/{trace_id}",
     "/v1/traces/{trace_id}/assertions/check",

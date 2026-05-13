@@ -3,6 +3,11 @@ import type {
   AgentConfigDefinition,
   AgentConfigVersion,
   AgentContextPack,
+  AuthApiKey,
+  AuthContract,
+  AuthInvite,
+  AuthSession,
+  AuthUser,
   AutomationDefinition,
   AutomationPreviewResult,
   AutomationRun,
@@ -74,6 +79,83 @@ export class OpenAbmClient {
 
   async getMetricsText(): Promise<string> {
     return this.getText("/metrics");
+  }
+
+  async getAuthContract(): Promise<AuthContract> {
+    return this.get<AuthContract>("/v1/auth/contract");
+  }
+
+  async listAuthApiKeys(projectId: string): Promise<AuthApiKey[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: AuthApiKey[] }>(`/v1/auth/api-keys?${params.toString()}`);
+    return body.data;
+  }
+
+  async createAuthApiKey(
+    projectId: string,
+    name: string,
+    role: string,
+    scopes: string[] = ["*"]
+  ): Promise<AuthApiKey> {
+    return this.post<AuthApiKey>("/v1/auth/api-keys", {
+      project_id: projectId,
+      name,
+      role,
+      scopes
+    });
+  }
+
+  async revokeAuthApiKey(projectId: string, apiKeyId: string): Promise<AuthApiKey> {
+    return this.post<AuthApiKey>(`/v1/auth/api-keys/${apiKeyId}/revoke`, {
+      project_id: projectId
+    });
+  }
+
+  async listAuthUsers(projectId: string): Promise<AuthUser[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: AuthUser[] }>(`/v1/auth/users?${params.toString()}`);
+    return body.data;
+  }
+
+  async createAuthUser(projectId: string, email: string, role: string): Promise<AuthUser> {
+    return this.post<AuthUser>("/v1/auth/users", {
+      project_id: projectId,
+      email,
+      role
+    });
+  }
+
+  async listAuthInvites(projectId: string): Promise<AuthInvite[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: AuthInvite[] }>(`/v1/auth/invites?${params.toString()}`);
+    return body.data;
+  }
+
+  async createAuthInvite(projectId: string, email: string, role: string): Promise<AuthInvite> {
+    return this.post<AuthInvite>("/v1/auth/invites", {
+      project_id: projectId,
+      email,
+      role
+    });
+  }
+
+  async listAuthSessions(projectId: string): Promise<AuthSession[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: AuthSession[] }>(`/v1/auth/sessions?${params.toString()}`);
+    return body.data;
+  }
+
+  async createAuthSession(projectId: string, userId: string): Promise<AuthSession> {
+    return this.post<AuthSession>("/v1/auth/sessions", {
+      project_id: projectId,
+      user_id: userId
+    });
+  }
+
+  async revokeAuthSession(projectId: string, sessionId: string): Promise<AuthSession> {
+    return this.post<AuthSession>(`/v1/auth/sessions/${sessionId}/revoke`, {
+      project_id: projectId
+    });
   }
 
   async listTraces(projectId: string, status?: string, environment?: string): Promise<TraceEnvelope[]> {

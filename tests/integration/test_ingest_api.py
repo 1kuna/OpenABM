@@ -49,6 +49,88 @@ def test_batch_ingest_and_trace_detail(tmp_path) -> None:
     assert fixture["trace"]["trace_id"] in session.json()["trace_ids"]
 
 
+def test_auth_contract_api_keys_roles_sessions_and_revocation(tmp_path) -> None:
+    client = make_client(tmp_path)
+
+    contract = client.get("/v1/auth/contract")
+    assert contract.status_code == 200
+    assert contract.json()["password_or_passwordless_decision"] == "passwordless_first"
+    assert "viewer" in contract.json()["role_matrix"]
+
+    me = client.get("/v1/auth/me", headers=auth_headers())
+    assert me.status_code == 200
+    assert me.json()["actor"]["role"] == "owner"
+
+    user = client.post(
+        "/v1/auth/users",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "email": "dev@example.com",
+            "display_name": "Dev User",
+            "role": "developer",
+        },
+    )
+    assert user.status_code == 201
+    user_id = user.json()["user_id"]
+    assert user.json()["membership"]["role"] == "developer"
+
+    invite = client.post(
+        "/v1/auth/invites",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "email": "viewer@example.com", "role": "viewer"},
+    )
+    assert invite.status_code == 201
+    assert invite.json()["status"] == "pending"
+
+    session = client.post(
+        "/v1/auth/sessions",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "user_id": user_id},
+    )
+    assert session.status_code == 201
+    assert session.json()["session_token"].startswith("opabm_sess_")
+    sessions = client.get(
+        "/v1/auth/sessions",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert sessions.status_code == 200
+    assert "session_token" not in sessions.json()["data"][0]
+
+    viewer_key = client.post(
+        "/v1/auth/api-keys",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "name": "Viewer key",
+            "role": "viewer",
+            "scopes": ["*"],
+        },
+    )
+    assert viewer_key.status_code == 201
+    viewer_headers = {"Authorization": f"Bearer {viewer_key.json()['api_key']}"}
+
+    projects = client.get("/v1/projects", headers=viewer_headers)
+    assert projects.status_code == 200
+    forbidden = client.post(
+        "/v1/auth/api-keys",
+        headers=viewer_headers,
+        json={"project_id": "proj_demo", "name": "Bad key", "role": "admin"},
+    )
+    assert forbidden.status_code == 403
+
+    revoked = client.post(
+        f"/v1/auth/api-keys/{viewer_key.json()['api_key_id']}/revoke",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo"},
+    )
+    assert revoked.status_code == 200
+    assert revoked.json()["status"] == "revoked"
+    rejected = client.get("/v1/projects", headers=viewer_headers)
+    assert rejected.status_code == 401
+
+
 def test_invalid_span_gets_partial_success_rejection(tmp_path) -> None:
     client = make_client(tmp_path)
     response = client.post(

@@ -36,7 +36,7 @@ from openabm_worker.novelty import (
 from openabm_worker.offline_eval import run_eval
 from openabm_worker.similarity import rank_similar_traces
 
-from openabm_api.auth import require_api_key
+from openabm_api.auth import SESSION_COOKIE_POLICY, auth_contract, require_api_key, role_matrix
 from openabm_api.classification import classify_payload, normalize_classification, redact_if_needed
 from openabm_api.docs_search import search_public_docs
 from openabm_api.ids import new_id
@@ -53,6 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     store = SQLiteStore(settings.sqlite_path)
     store.init_db()
+    store.ensure_auth_bootstrap(settings.dev_api_key)
     metrics = Metrics()
 
     app = FastAPI(title="OpenABM API", version="0.0.0")
@@ -70,7 +71,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def auth_dependency(scopes: list[str]) -> Callable[[str | None], dict[str, object]]:
         def dependency(authorization: str | None = Header(default=None)) -> dict[str, object]:
-            return require_api_key(settings, scopes, authorization)
+            return require_api_key(settings, store, scopes, authorization)
 
         return dependency
 
@@ -100,6 +101,221 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/metrics", response_class=PlainTextResponse)
     def metrics_endpoint() -> str:
         return metrics.render_text()
+
+    @app.get("/api/auth/contract")
+    def get_auth_contract() -> dict[str, object]:
+        return auth_contract(settings, store.list_auth_decision_records())
+
+    @app.get("/api/auth/me")
+    def get_auth_actor(
+        actor: dict[str, object] = Depends(auth_dependency(["projects:read"])),
+    ) -> dict[str, object]:
+        return {
+            "actor": actor,
+            "role_scopes": role_matrix().get(str(actor.get("role") or "viewer"), []),
+        }
+
+    @app.get("/api/auth/api-keys")
+    def list_api_keys(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["api_keys:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_api_keys(project_id)}
+
+    @app.post("/api/auth/api-keys", status_code=201)
+    def create_api_key(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["api_keys:write"])),
+    ) -> dict[str, object]:
+        for key in ["project_id", "name", "role"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        try:
+            return store.create_api_key(request, actor_id=str(actor.get("actor_id") or "unknown"))
+        except ValueError as exc:
+            raise SchemaValidationFailure("schema_validation_failed", str(exc), "/role") from exc
+
+    @app.post("/api/auth/api-keys/{api_key_id}/revoke")
+    def revoke_api_key(
+        api_key_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["api_keys:write"])),
+    ) -> dict[str, object]:
+        project_id = request.get("project_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        try:
+            return store.revoke_api_key(
+                project_id,
+                api_key_id,
+                actor_id=str(actor.get("actor_id") or "unknown"),
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
+
+    @app.get("/api/auth/users")
+    def list_auth_users(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["org_users:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_auth_users(project_id)}
+
+    @app.post("/api/auth/users", status_code=201)
+    def create_auth_user(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["org_users:write"])),
+    ) -> dict[str, object]:
+        for key in ["project_id", "email"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        user = store.create_auth_user(request)
+        if request.get("role"):
+            try:
+                membership = store.upsert_project_membership(
+                    {
+                        "project_id": request["project_id"],
+                        "user_id": user["user_id"],
+                        "role": request["role"],
+                    }
+                )
+                user = {**user, "membership": membership}
+            except (KeyError, ValueError) as exc:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    str(exc),
+                    "/role",
+                ) from exc
+        store.append_audit(
+            "create_auth_user",
+            "auth_user",
+            request["project_id"],
+            user["user_id"],
+            {"email": user["email"]},
+            actor_id=str(actor.get("actor_id") or "unknown"),
+        )
+        return user
+
+    @app.get("/api/auth/project-memberships")
+    def list_project_memberships(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["org_users:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_project_memberships(project_id)}
+
+    @app.post("/api/auth/project-memberships", status_code=201)
+    def upsert_project_membership(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["org_users:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "user_id", "role"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        try:
+            return store.upsert_project_membership(request)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
+        except ValueError as exc:
+            raise SchemaValidationFailure("schema_validation_failed", str(exc), "/role") from exc
+
+    @app.get("/api/auth/invites")
+    def list_auth_invites(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["invites:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_auth_invites(project_id)}
+
+    @app.post("/api/auth/invites", status_code=201)
+    def create_auth_invite(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["invites:write"])),
+    ) -> dict[str, object]:
+        for key in ["project_id", "email", "role"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        try:
+            return store.create_auth_invite(
+                request,
+                actor_id=str(actor.get("actor_id") or "unknown"),
+            )
+        except ValueError as exc:
+            raise SchemaValidationFailure("schema_validation_failed", str(exc), "/role") from exc
+
+    @app.get("/api/auth/sessions")
+    def list_auth_sessions(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["sessions:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_auth_sessions(project_id)}
+
+    @app.post("/api/auth/sessions", status_code=201)
+    def create_auth_session(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["sessions:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "user_id"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        try:
+            return store.create_auth_session(request, cookie_policy=SESSION_COOKIE_POLICY)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
+
+    @app.post("/api/auth/sessions/{auth_session_id}/revoke")
+    def revoke_auth_session(
+        auth_session_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["sessions:write"])),
+    ) -> dict[str, object]:
+        del actor
+        project_id = request.get("project_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        try:
+            return store.revoke_auth_session(project_id, auth_session_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
+
+    @app.get("/api/auth/decision-records")
+    def list_auth_decision_records(
+        actor: dict[str, object] = Depends(auth_dependency(["auth:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_auth_decision_records()}
 
     @app.post("/api/ingest/traces", status_code=202)
     def ingest_trace(
