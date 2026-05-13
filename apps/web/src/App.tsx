@@ -26,6 +26,7 @@ import type {
   AutomationRun,
   BehaviorBacktestResult,
   BehaviorDefinition,
+  BehaviorMatch,
   ChatOpsInvestigationResult,
   ClassificationResult,
   DataClassificationPolicy,
@@ -50,6 +51,7 @@ import type {
   RetentionPolicy,
   ReviewTask,
   SavedSearch,
+  ScoreResult,
   ScreenshotIssueResult,
   SpanEnvelope,
   SpanNode,
@@ -2660,6 +2662,8 @@ function TraceExplorer(props: {
   const [datasetName, setDatasetName] = useState("Trace review set");
   const [selectedDatasetId, setSelectedDatasetId] = useState("");
   const [traceListState, setTraceListState] = useState("Trace list ready");
+  const [scoresByTrace, setScoresByTrace] = useState<Record<string, ScoreResult[]>>({});
+  const [behaviorMatchesByTrace, setBehaviorMatchesByTrace] = useState<Record<string, BehaviorMatch[]>>({});
   const selectedSpan = detail?.spans[0] ?? null;
   const selectedSavedSearch = savedSearches.find((item) => item.saved_search_id === selectedSavedSearchId) ?? null;
   const selectedDataset = datasets.find((dataset) => dataset.dataset_id === selectedDatasetId) ?? datasets[0] ?? null;
@@ -2668,16 +2672,22 @@ function TraceExplorer(props: {
     if (props.connection !== "live") {
       setSavedSearches([]);
       setDatasets([]);
+      setScoresByTrace({});
+      setBehaviorMatchesByTrace({});
       setTraceListState("fixture mode");
       return;
     }
     try {
-      const [loadedSearches, loadedDatasets] = await Promise.all([
+      const [loadedSearches, loadedDatasets, loadedScores, loadedBehaviorMatches] = await Promise.all([
         props.client.listSavedSearches(props.projectId),
-        props.client.listDatasets(props.projectId)
+        props.client.listDatasets(props.projectId),
+        props.client.listScores(props.projectId),
+        props.client.listBehaviorMatches(props.projectId)
       ]);
       setSavedSearches(loadedSearches);
       setDatasets(loadedDatasets);
+      setScoresByTrace(groupByTraceId(loadedScores));
+      setBehaviorMatchesByTrace(groupByTraceId(loadedBehaviorMatches));
       setSelectedSavedSearchId((current) =>
         loadedSearches.some((search) => search.saved_search_id === current)
           ? current
@@ -2688,7 +2698,9 @@ function TraceExplorer(props: {
           ? current
           : loadedDatasets[0]?.dataset_id ?? ""
       );
-      setTraceListState(`${loadedSearches.length} saved searches · ${loadedDatasets.length} datasets`);
+      setTraceListState(
+        `${loadedSearches.length} saved searches · ${loadedDatasets.length} datasets · ${loadedScores.length} scores · ${loadedBehaviorMatches.length} behavior matches`
+      );
     } catch (error) {
       setTraceListState(error instanceof Error ? error.message : "trace list tools failed");
     }
@@ -2815,6 +2827,10 @@ function TraceExplorer(props: {
               <tr>
                 <th>Status</th>
                 <th>Trace</th>
+                <th>Latency</th>
+                <th>Tokens</th>
+                <th>Cost</th>
+                <th>Badges</th>
                 <th>Session</th>
                 <th>Started</th>
                 <th>Tags</th>
@@ -2831,6 +2847,18 @@ function TraceExplorer(props: {
                   <td>
                     <strong>{trace.trace_id}</strong>
                     <span>{trace.summary}</span>
+                  </td>
+                  <td>{traceLatency(trace)}</td>
+                  <td>{traceTokenSummary(trace, scoresByTrace[trace.trace_id] ?? [])}</td>
+                  <td>{traceCostSummary(trace, scoresByTrace[trace.trace_id] ?? [])}</td>
+                  <td>
+                    <TraceBadges
+                      badges={traceBadges(
+                        trace,
+                        scoresByTrace[trace.trace_id] ?? [],
+                        behaviorMatchesByTrace[trace.trace_id] ?? []
+                      )}
+                    />
                   </td>
                   <td>{trace.session_id ?? "none"}</td>
                   <td>{formatTime(trace.started_at)}</td>
@@ -3425,6 +3453,28 @@ function StatusBadge({ status }: { status: TraceStatus }) {
   return <span className={`statusBadge ${status}`}>{status}</span>;
 }
 
+type TraceBadge = {
+  key: string;
+  label: string;
+  tone: "behavior" | "score" | "attribute";
+};
+
+function TraceBadges({ badges }: { badges: TraceBadge[] }) {
+  if (!badges.length) return <span className="traceBadge muted">none</span>;
+  const visible = badges.slice(0, 5);
+  const hiddenCount = badges.length - visible.length;
+  return (
+    <div className="traceBadges">
+      {visible.map((badge) => (
+        <span className={`traceBadge ${badge.tone}`} key={badge.key}>
+          {badge.label}
+        </span>
+      ))}
+      {hiddenCount > 0 ? <span className="traceBadge muted">+{hiddenCount}</span> : null}
+    </div>
+  );
+}
+
 function Metric(props: { icon: React.ReactNode; label: string; value: string }) {
   return (
     <div className="metric">
@@ -3537,6 +3587,160 @@ function codeErrorAttributes(span: SpanEnvelope) {
     input_redaction: span.input?.redaction_state ?? span.input?.mode ?? null,
     output_redaction: span.output?.redaction_state ?? span.output?.mode ?? null
   };
+}
+
+function groupByTraceId<T extends { trace_id: string }>(items: T[]) {
+  return items.reduce<Record<string, T[]>>((grouped, item) => {
+    grouped[item.trace_id] = [...(grouped[item.trace_id] ?? []), item];
+    return grouped;
+  }, {});
+}
+
+function traceLatency(trace: TraceEnvelope) {
+  const explicitMs = firstNumber(trace.attributes, ["duration_ms", "latency_ms", "trace.duration_ms", "trace.latency_ms"]);
+  if (explicitMs != null) return formatDuration(explicitMs);
+  if (!trace.ended_at) return "running";
+  const started = Date.parse(trace.started_at);
+  const ended = Date.parse(trace.ended_at);
+  if (Number.isNaN(started) || Number.isNaN(ended) || ended < started) return "unknown";
+  return formatDuration(ended - started);
+}
+
+function traceTokenSummary(trace: TraceEnvelope, scores: ScoreResult[]) {
+  const traceTokens = firstNumber(trace.attributes, [
+    "usage.total_tokens",
+    "total_tokens",
+    "tokens.total",
+    "tokens.total_tokens",
+    "llm.total_tokens",
+    "model.usage.total_tokens",
+    "openai.usage.total_tokens"
+  ]);
+  if (traceTokens != null) return formatCompactNumber(traceTokens);
+  const scoreTokens = scores
+    .map((score) => firstNumber(score.cost ?? {}, ["usage.total_tokens", "total_tokens", "tokens.total", "tokens.total_tokens"]))
+    .filter((value): value is number => value != null);
+  if (!scoreTokens.length) return "none";
+  return formatCompactNumber(scoreTokens.reduce((sum, value) => sum + value, 0));
+}
+
+function traceCostSummary(trace: TraceEnvelope, scores: ScoreResult[]) {
+  const traceCost = firstNumber(trace.attributes, [
+    "cost.estimated_usd",
+    "cost.total_usd",
+    "cost.usd",
+    "usage.cost_usd",
+    "cost_usd",
+    "openabm.cost_usd"
+  ]);
+  if (traceCost != null) return formatUsd(traceCost);
+  const scoreCosts = scores
+    .map((score) => firstNumber(score.cost ?? {}, ["cost.estimated_usd", "cost.total_usd", "cost.usd", "usage.cost_usd", "cost_usd"]))
+    .filter((value): value is number => value != null);
+  if (!scoreCosts.length) return "none";
+  return formatUsd(scoreCosts.reduce((sum, value) => sum + value, 0));
+}
+
+function traceBadges(trace: TraceEnvelope, scores: ScoreResult[], behaviorMatches: BehaviorMatch[]): TraceBadge[] {
+  const badges: TraceBadge[] = [];
+  const behaviorIds = new Set<string>([
+    ...explicitStringList(trace.attributes, ["openabm.behavior_ids", "behavior_ids", "behavior.id", "behavior_id"]),
+    ...behaviorMatches.map((match) => match.behavior_id)
+  ]);
+  for (const behaviorId of behaviorIds) {
+    badges.push({
+      key: `behavior-${behaviorId}`,
+      label: `behavior ${shortIdentifier(behaviorId)}`,
+      tone: "behavior"
+    });
+  }
+
+  const scoreVerdicts = countLabels([
+    ...explicitStringList(trace.attributes, ["openabm.score_verdicts", "score.verdict", "score_verdict"]),
+    ...scores.map(scoreBadgeLabel)
+  ]);
+  for (const [verdict, count] of Object.entries(scoreVerdicts)) {
+    badges.push({
+      key: `score-${verdict}`,
+      label: `score ${shortIdentifier(verdict)}${count > 1 ? ` x${count}` : ""}`,
+      tone: "score"
+    });
+  }
+
+  return badges;
+}
+
+function scoreBadgeLabel(score: ScoreResult) {
+  const value = asRecord(score.value);
+  return String(value.verdict ?? score.status ?? "score");
+}
+
+function explicitStringList(record: Record<string, unknown>, keys: string[]) {
+  return keys.flatMap((key) => stringsFromUnknown(attributeValue(record, key)));
+}
+
+function stringsFromUnknown(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(stringsFromUnknown);
+  if (typeof value === "string" && value.trim()) return [value.trim()];
+  if (typeof value === "number" || typeof value === "boolean") return [String(value)];
+  return [];
+}
+
+function countLabels(values: string[]) {
+  return values.reduce<Record<string, number>>((counts, value) => {
+    const label = value.trim();
+    if (label) counts[label] = (counts[label] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function firstNumber(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = numberFromUnknown(attributeValue(record, key));
+    if (value != null) return value;
+  }
+  return null;
+}
+
+function attributeValue(record: Record<string, unknown>, path: string): unknown {
+  if (Object.prototype.hasOwnProperty.call(record, path)) return record[path];
+  return path.split(".").reduce<unknown>((current, part) => {
+    const currentRecord = asRecord(current);
+    return Object.prototype.hasOwnProperty.call(currentRecord, part) ? currentRecord[part] : undefined;
+  }, record);
+}
+
+function numberFromUnknown(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function formatDuration(ms: number) {
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  if (ms < 60_000) {
+    const seconds = ms / 1000;
+    return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`;
+  }
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
+  return `${minutes}m ${seconds}s`;
+}
+
+function formatCompactNumber(value: number) {
+  return new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
+}
+
+function formatUsd(value: number) {
+  if (value === 0) return "$0";
+  return `$${value < 0.01 ? value.toFixed(4) : value.toFixed(2)}`;
+}
+
+function shortIdentifier(value: string) {
+  return value.length > 24 ? `${value.slice(0, 14)}...${value.slice(-5)}` : value;
 }
 
 function formatCounts(counts: Record<string, unknown>) {

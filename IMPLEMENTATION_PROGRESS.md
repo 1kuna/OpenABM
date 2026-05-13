@@ -137,6 +137,13 @@ Done:
 - Added trace-list saved search controls and a bulk dataset action that saves
   the current trace query, reapplies saved searches, creates datasets, and adds
   the visible trace result set as provenance-linked dataset examples.
+- Added trace-list latency, token, cost, score-badge, and behavior-badge
+  columns. Latency is derived from trace timestamps or explicit duration
+  attributes; token/cost values come only from captured trace metadata or
+  persisted score usage/cost records; behavior badges come from explicit trace
+  behavior attributes or persisted behavior matches.
+- Added `/v1/behavior-matches` so persisted behavior matches can be listed by
+  project, trace, or behavior, and included behavior matches in project exports.
 - Replaced the old fail-closed similar-trace stub with model-backed semantic
   similarity ranking over candidate traces, preserving cited candidate span
   evidence and model metadata.
@@ -419,10 +426,11 @@ Verified after the latest implementation slices:
 - Browser QA captured desktop and mobile Trace Detail, Operations, Issues, and
   Automations workspace screenshots under `artifacts/ui-qa/`; trace detail mode
   switching, saved search creation/application, trace-list dataset bulk add,
-  retention dry-run, export manifest, classification, issue intake, screenshot
-  intake, ChatOps investigation, notification-target creation, automation
-  creation, and automation run-once flows completed against the live local API
-  with no console errors or failing API responses.
+  trace-list latency/token/cost columns, score and behavior badges, retention
+  dry-run, export manifest, classification, issue intake, screenshot intake,
+  ChatOps investigation, notification-target creation, automation creation, and
+  automation run-once flows completed against the live local API with no console
+  errors or failing API responses.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
 - MCP stdio smoke: `tools/list` returned 35 tools and

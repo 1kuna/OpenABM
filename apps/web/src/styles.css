@@ -713,6 +713,43 @@ td span {
   color: #a16207;
 }
 
+.traceBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 150px;
+}
+
+.traceBadge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: #f3f4f6;
+  color: #374151;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.2;
+  margin-top: 0;
+  max-width: none;
+  white-space: nowrap;
+}
+
+.traceBadge.behavior {
+  background: #ecfeff;
+  color: #0e7490;
+}
+
+.traceBadge.score {
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.traceBadge.muted {
+  background: #f9fafb;
+  color: #6b7280;
+}
+
 .traceDetail {
   display: flex;
   flex-direction: column;

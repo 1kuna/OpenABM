@@ -1204,6 +1204,17 @@ def test_v1_behavior_backtest_persists_matches_and_review_task(tmp_path) -> None
     assert body["persisted_behavior_matches"][0]["status"] == "backtest_positive"
     assert body["review_task"]["task_type"] == "behavior_candidate"
 
+    matches = client.get(
+        "/v1/behavior-matches",
+        params={"project_id": "proj_demo", "trace_id": "trace_wrong_tool"},
+        headers=auth_headers(),
+    )
+    assert matches.status_code == 200
+    assert matches.json()["data"][0]["behavior_id"] == behavior.json()["behavior_id"]
+    assert matches.json()["data"][0]["evidence_span_ids"] == [
+        "span_wrong_tool_order_lookup"
+    ]
+
     reviews = client.get(
         "/v1/review-tasks",
         params={"project_id": "proj_demo", "task_type": "behavior_candidate"},

@@ -90,6 +90,7 @@ REQUIRED_QUERY_PATHS = {
     "/v1/behaviors",
     "/v1/behaviors/{behavior_id}",
     "/v1/behaviors/{behavior_id}/backtest",
+    "/v1/behavior-matches",
     "/v1/review-tasks",
     "/v1/review-tasks/{review_task_id}",
     "/v1/datasets/{dataset_id}",

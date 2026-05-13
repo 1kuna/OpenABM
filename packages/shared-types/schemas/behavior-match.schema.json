@@ -4,16 +4,16 @@
   "title": "BehaviorMatch",
   "type": "object",
   "additionalProperties": false,
-  "required": ["behavior_match_id", "behavior_id", "trace_id", "status", "created_at"],
+  "required": ["behavior_match_id", "project_id", "behavior_id", "trace_id", "status", "created_at"],
   "properties": {
     "behavior_match_id": {"type": "string"},
+    "project_id": {"type": "string"},
     "behavior_id": {"type": "string"},
     "trace_id": {"type": "string"},
     "span_id": {"type": ["string", "null"]},
     "score_id": {"type": ["string", "null"]},
-    "status": {"enum": ["candidate", "confirmed", "rejected"]},
+    "status": {"enum": ["candidate", "confirmed", "rejected", "backtest_positive"]},
     "evidence_span_ids": {"type": "array", "items": {"type": "string"}, "default": []},
     "created_at": {"type": "string", "format": "date-time"}
   }
 }
-

@@ -516,6 +516,29 @@ class SQLiteStore:
             ).fetchall()
         return [self._score_from_row(row) for row in rows]
 
+    def list_behavior_matches(
+        self,
+        project_id: str,
+        trace_id: str | None = None,
+        behavior_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses = ["project_id = ?"]
+        params: list[Any] = [project_id]
+        if trace_id:
+            clauses.append("trace_id = ?")
+            params.append(trace_id)
+        if behavior_id:
+            clauses.append("behavior_id = ?")
+            params.append(behavior_id)
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM behavior_matches WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY created_at DESC",
+                params,
+            ).fetchall()
+        return [self._behavior_match_from_row(row) for row in rows]
+
     def record_score(self, project_id: str, score: dict[str, Any]) -> dict[str, Any]:
         self.ensure_project(project_id)
         with self.connect() as conn:
@@ -2761,6 +2784,7 @@ class SQLiteStore:
             "spans": spans,
             "payloads": payloads if include_payloads else _payload_metadata_only(payloads),
             "scores": self.list_scores(project_id),
+            "behavior_matches": self.list_behavior_matches(project_id),
             "judges": self.list_judges(project_id),
             "eval_runs": self.list_eval_runs(project_id),
             "behaviors": self.list_behaviors(project_id),
@@ -3092,6 +3116,20 @@ class SQLiteStore:
             "failure_mode": row["failure_mode"],
             "cost": decode_json(row["cost_json"], None),
             "latency_ms": row["latency_ms"],
+            "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _behavior_match_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "behavior_match_id": row["behavior_match_id"],
+            "project_id": row["project_id"],
+            "behavior_id": row["behavior_id"],
+            "trace_id": row["trace_id"],
+            "span_id": row["span_id"],
+            "score_id": row["score_id"],
+            "status": row["status"],
+            "evidence_span_ids": decode_json(row["evidence_span_ids_json"], []),
             "created_at": row["created_at"],
         }
 

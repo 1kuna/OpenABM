@@ -778,6 +778,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         return behavior
 
+    @app.get("/api/behavior-matches")
+    def list_behavior_matches(
+        project_id: str,
+        trace_id: str | None = None,
+        behavior_id: str | None = None,
+        actor: dict[str, object] = Depends(auth_dependency(["behaviors:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {
+            "data": store.list_behavior_matches(
+                project_id,
+                trace_id=trace_id,
+                behavior_id=behavior_id,
+            )
+        }
+
     @app.post("/api/behaviors/{behavior_id}/backtest")
     def backtest_behavior_endpoint(
         behavior_id: str,

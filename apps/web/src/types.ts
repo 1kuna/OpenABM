@@ -140,6 +140,35 @@ export interface BehaviorBacktestResult {
   review_task?: ReviewTask;
 }
 
+export interface BehaviorMatch {
+  behavior_match_id: string;
+  project_id: string;
+  behavior_id: string;
+  trace_id: string;
+  span_id: string | null;
+  score_id: string | null;
+  status: string;
+  evidence_span_ids: string[];
+  created_at: string;
+}
+
+export interface ScoreResult {
+  score_id: string;
+  trace_id: string;
+  span_id: string | null;
+  judge_id: string;
+  judge_version_id: string | null;
+  status: string;
+  value: unknown;
+  confidence: number | null;
+  reasoning: string | null;
+  evidence_span_ids: string[];
+  failure_mode: string | null;
+  cost: Record<string, unknown> | null;
+  latency_ms: number | null;
+  created_at: string;
+}
+
 export interface PromptDefinition {
   prompt_id: string;
   project_id: string;

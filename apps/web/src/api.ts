@@ -6,6 +6,7 @@ import type {
   AutomationRun,
   BehaviorBacktestResult,
   BehaviorDefinition,
+  BehaviorMatch,
   ChatOpsInvestigationResult,
   ClassificationResult,
   DataClassificationPolicy,
@@ -32,6 +33,7 @@ import type {
   RetentionPolicy,
   ReviewTask,
   SavedSearch,
+  ScoreResult,
   ScreenshotIssueResult,
   TraceDetail,
   TraceEnvelope
@@ -242,6 +244,20 @@ export class OpenAbmClient {
       limit: request.limit ?? 100,
       sample_limit: request.sampleLimit ?? 10
     });
+  }
+
+  async listBehaviorMatches(projectId: string, traceId?: string): Promise<BehaviorMatch[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    if (traceId) params.set("trace_id", traceId);
+    const body = await this.get<{ data: BehaviorMatch[] }>(`/v1/behavior-matches?${params.toString()}`);
+    return body.data;
+  }
+
+  async listScores(projectId: string, traceId?: string): Promise<ScoreResult[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    if (traceId) params.set("trace_id", traceId);
+    const body = await this.get<{ data: ScoreResult[] }>(`/v1/scores?${params.toString()}`);
+    return body.data;
   }
 
   async listPrompts(projectId: string): Promise<PromptDefinition[]> {
