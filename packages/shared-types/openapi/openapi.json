@@ -1348,13 +1348,51 @@
       },
       "post": {
         "operationId": "createGroundingCheck",
-        "summary": "Check claims against trace evidence.",
+        "summary": "Check explicit or model-extracted claims against trace evidence.",
         "x-required-scopes": [
           "grounding:write"
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "trace_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "trace_id": {
+                    "type": "string"
+                  },
+                  "claims": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "extract_claims_with_model": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "Grounding check created."
+          },
+          "503": {
+            "description": "Model provider unavailable for claim extraction."
           }
         }
       }

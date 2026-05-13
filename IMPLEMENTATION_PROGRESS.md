@@ -9,8 +9,8 @@ work can resume from concrete state instead of memory.
 - `openabm_implementation_spec.md` is the read-only SSOT.
 - Local LLM calls are now allowed through LM Studio when semantic judgment is
   required.
-- The current local model lane is `qwen3.5-9b-mlx`, loaded through LM Studio as
-  `openabm-qwen35-9b` for this implementation pass.
+- The current local model lane is `qwen3.5-9b-mlx` through LM Studio for this
+  implementation pass.
 - Do not disable reasoning, do not apply generation timeouts, and do not use
   less than 32k context for model-backed work.
 - Defer to heavier models only after prompt/runtime tinkering shows an obvious
@@ -34,6 +34,9 @@ In this pass:
 - Add decision record template.
 - Add starter decision records for storage, model runtime, search, code sandbox,
   and local stack runner.
+- Add an agent orchestration direction record that favors OpenABM-owned tool
+  contracts first, then evaluating LangGraph/Deep Agents or Pi-style cores
+  instead of reinventing a deep-agent runtime.
 - Leave final license choice pending owner review rather than silently committing
   legal terms.
 
@@ -128,7 +131,7 @@ Done:
 - Replaced the old fail-closed similar-trace stub with model-backed semantic
   similarity ranking over candidate traces, preserving cited candidate span
   evidence and model metadata.
-- Verified a live LM Studio similarity canary with `openabm-qwen35-9b`; the
+- Verified a live LM Studio similarity canary with `qwen3.5-9b-mlx`; the
   model returned a cited candidate match, unrepaired structured output, and
   reasoning-token usage.
 - Verified the web app with `npm --prefix apps/web run build` and headless
@@ -160,6 +163,8 @@ Done:
   bounded repair, no generation timeout, and a minimum 32k context guard.
 - Added optional structured-output token caps for small JSON tasks to prevent
   runaway completions without adding a timeout or reducing model context.
+- Added OpenAI-compatible tool-call parsing to the local provider so semantic
+  workers can prefer typed tool requests over prose-shaped JSON.
 - Added judge output validation for verdicts and span citations.
 - Added model-backed rubric judge execution with context packets, preserved-span
   citation validation, provider/model metadata, score persistence, and `/v1`
@@ -168,9 +173,9 @@ Done:
   versions, including explicit-definition drafts and local-model natural
   language judge drafting that always creates human review work before use.
 - Verified a live LM Studio structured-output canary against
-  `openabm-qwen35-9b`; output was valid JSON, unrepaired, and reported
+  `qwen3.5-9b-mlx`; output was valid JSON, unrepaired, and reported
   reasoning-token usage.
-- Verified a live LM Studio judge-draft canary against `openabm-qwen35-9b`;
+- Verified a live LM Studio judge-draft canary against `qwen3.5-9b-mlx`;
   after adding structured-output length control, the model returned a draft
   rubric judge as valid unrepaired JSON with 4,605 total tokens and 4,120
   reasoning tokens.
@@ -277,13 +282,23 @@ Done:
   citation filtering before model output becomes canonical.
 - Added grounding check storage/API for explicit claims, deterministic trace-span
   evidence matching, unsupported-claim review task creation, and export coverage.
+- Added optional local-model grounding claim extraction through model tool
+  calls; deterministic exact-evidence matching still decides support status, and
+  model extraction metadata persists with the grounding check.
+- Verified a live LM Studio grounding canary against `qwen3.5-9b-mlx`: the
+  model emitted a tool call with `delivered` and `refund policy approved`, the
+  API persisted the extraction, and deterministic validation marked `delivered`
+  supported while keeping the policy claim in review. A richer contradiction
+  extraction prompt caused the 9B model to spend 8,191 reasoning tokens without
+  emitting a tool call, so semantic contradiction adjudication remains a later,
+  separately scoped tool.
 - Added passive novelty detection runs that group unknown error/tool signatures,
   persist candidate outputs, and create review tasks for behavior candidates.
 - Added screenshot issue intake endpoint that stores screenshot-origin issues and
   returns candidate seed traces with explicit match reasons.
 - Added ChatOps-style investigation endpoint that creates canonical issue and
   investigation artifacts without binding the product to a chat vendor.
-- Verified a live LM Studio investigation canary with `openabm-qwen35-9b`; the
+- Verified a live LM Studio investigation canary with `qwen3.5-9b-mlx`; the
   prompt revision produced a cited root cause, behavior draft, and rubric draft
   as valid unrepaired JSON with reasoning-token usage.
 - Added human review task APIs and connected investigation root-cause/behavior
@@ -375,9 +390,9 @@ Known remaining gaps before calling the whole spec complete:
   need implementation beyond preview/audit mode.
 - Passive novelty detection has a deterministic exact-signature runner; semantic
   grouping and model-generated candidate naming remain future model-quality work.
-- Grounding/fabricated-value checks support explicit/deterministically split
-  claims and exact evidence matching; model-backed claim extraction and
-  contradiction detection still need implementation.
+- Grounding/fabricated-value checks support explicit, deterministically split,
+  and model-extracted claims with exact evidence matching; broader semantic
+  contradiction adjudication remains review-gated rather than automatic.
 - Screenshot issue intake and ChatOps-style issue/investigation creation exist;
   real OCR, attachment text extraction, and vendor-specific chat connectors are
   still future integration work.
@@ -471,6 +486,12 @@ Implemented in this pass:
   preview-only notification action audits.
 - Added `/v1/grounding-checks` and `/v1/novelty-runs` paths for reviewable
   fabricated-value checks and passive behavior candidate discovery.
+- Added model-assisted `/v1/grounding-checks` claim extraction with persisted
+  model metadata and deterministic support validation.
+- Captured a proposed long-term orchestration direction in
+  `docs/decisions/0006-agent-orchestration-framework.md`: evaluate LangGraph /
+  Deep Agents or Pi-style cores after OpenABM's primitive local tool-call
+  boundary is proven.
 - Added `/v1/issues/from-screenshot` and `/v1/chatops/investigate` entrypoints
   for weak human reports and chat-originated investigations.
 - Added `/v1/judges`, `/v1/judges/drafts`, `/v1/evals/run`,

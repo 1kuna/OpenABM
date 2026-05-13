@@ -48,6 +48,75 @@ def test_structured_completion_parses_json_without_timeout() -> None:
     assert result["model"] == "local-test"
 
 
+def test_tool_completion_parses_openai_compatible_tool_calls() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["tool_choice"] == "required"
+        assert body["tools"][0]["function"]["name"] == "extract_claims"
+        assert "timeout" not in body
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "finish_reason": "tool_calls",
+                        "message": {
+                            "role": "assistant",
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "extract_claims",
+                                        "arguments": json.dumps({"claims": ["delivered"]}),
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    provider = OpenAICompatibleModelProvider(
+        base_url="http://test/v1",
+        chat_model="local-test",
+        context_length=32768,
+        transport=httpx.MockTransport(handler),
+    )
+    result = asyncio.run(
+        provider.tool_completion(
+            {
+                "messages": [{"role": "user", "content": "extract"}],
+                "tool_choice": {"type": "function", "function": {"name": "extract_claims"}},
+            },
+            [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "extract_claims",
+                        "description": "Extract claims.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "claims": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                }
+                            },
+                            "required": ["claims"],
+                        },
+                    },
+                }
+            ],
+        )
+    )
+    assert result["status"] == "succeeded"
+    assert result["tool_calls"][0]["name"] == "extract_claims"
+    assert result["tool_calls"][0]["arguments"] == {"claims": ["delivered"]}
+
+
 def test_rubric_judge_requires_preserved_span_citations() -> None:
     class StubProvider:
         async def structured_completion(self, request, schema):

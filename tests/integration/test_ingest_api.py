@@ -718,6 +718,78 @@ def test_v1_grounding_checks_and_novelty_runs_are_reviewable(tmp_path) -> None:
     }
 
 
+def test_v1_model_extracted_grounding_claims_are_deterministically_checked(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class StubProvider:
+        async def tool_completion(self, request, tools):
+            del request, tools
+            return {
+                "status": "succeeded",
+                "tool_calls": [
+                    {
+                        "name": "record_grounding_extraction",
+                        "arguments": {
+                            "claims": ["delivered", "refund policy approved"],
+                            "possible_contradictions": [
+                                {
+                                    "claim": "refund policy approved",
+                                    "contradicted_by_span_ids": [
+                                        "span_wrong_tool_order_lookup",
+                                        "span_not_real",
+                                    ],
+                                    "reason": "Trace shows order lookup evidence.",
+                                    "uncertainty": "single fixture trace",
+                                }
+                            ],
+                            "uncertainty": "tool call extraction requires deterministic check",
+                        },
+                    }
+                ],
+                "provider": "stub",
+                "model": "stub-model",
+                "usage": {"total_tokens": 99},
+                "repaired": False,
+            }
+
+        async def structured_completion(self, request, schema):
+            del request, schema
+            raise AssertionError("tool completion should be used before structured fallback")
+
+    monkeypatch.setattr(
+        "openabm_api.main.model_provider_from_settings",
+        lambda settings: StubProvider(),
+    )
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    trace_id = fixture["trace"]["trace_id"]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    response = client.post(
+        "/v1/grounding-checks",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": trace_id,
+            "text": "The order was delivered and refund policy approved.",
+            "extract_claims_with_model": True,
+        },
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "needs_review"
+    statuses = {claim["claim"]: claim["status"] for claim in body["claims"]}
+    assert statuses["delivered"] == "supported"
+    assert statuses["refund policy approved"] == "missing_evidence"
+    contradiction = body["model_extraction"]["possible_contradictions"][0]
+    assert contradiction["contradicted_by_span_ids"] == ["span_wrong_tool_order_lookup"]
+    assert body["model_extraction"]["model_metadata"]["model"] == "stub-model"
+
+
 def test_v1_screenshot_issue_and_chatops_create_canonical_artifacts(tmp_path) -> None:
     client = make_client(tmp_path)
     fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]

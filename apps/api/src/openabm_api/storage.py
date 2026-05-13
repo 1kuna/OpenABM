@@ -2288,6 +2288,8 @@ class SQLiteStore:
             "evidence_span_ids": result["evidence_span_ids"],
             "created_at": now,
         }
+        if result.get("model_extraction"):
+            check["model_extraction"] = result["model_extraction"]
         with self.connect() as conn:
             conn.execute(
                 """
@@ -2308,6 +2310,21 @@ class SQLiteStore:
                     now,
                 ),
             )
+            if result.get("model_extraction"):
+                conn.execute(
+                    """
+                    INSERT INTO grounding_check_model_extractions(
+                      grounding_check_id, project_id, model_extraction_json, created_at
+                    )
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        check["grounding_check_id"],
+                        project_id,
+                        encode_json(result["model_extraction"]),
+                        now,
+                    ),
+                )
         return check
 
     def list_grounding_checks(self, project_id: str) -> list[dict[str, Any]]:
@@ -2320,7 +2337,23 @@ class SQLiteStore:
                 """,
                 (project_id,),
             ).fetchall()
-        return [self._grounding_check_from_row(row) for row in rows]
+            extraction_rows = conn.execute(
+                """
+                SELECT grounding_check_id, model_extraction_json
+                FROM grounding_check_model_extractions
+                WHERE project_id = ?
+                """,
+                (project_id,),
+            ).fetchall()
+        extractions = {
+            row["grounding_check_id"]: decode_json(row["model_extraction_json"], {})
+            for row in extraction_rows
+        }
+        checks = [self._grounding_check_from_row(row) for row in rows]
+        for check in checks:
+            if check["grounding_check_id"] in extractions:
+                check["model_extraction"] = extractions[check["grounding_check_id"]]
+        return checks
 
     def create_novelty_run(
         self,

@@ -10,7 +10,11 @@ from fastapi.routing import APIRoute
 from openabm_worker.automations import evaluate_automation_conditions, planned_automation_actions
 from openabm_worker.behaviors import backtest_behavior
 from openabm_worker.context_packs import build_agent_context_pack_content
-from openabm_worker.grounding import claims_from_text, evaluate_grounding_claims
+from openabm_worker.grounding import (
+    claims_from_text,
+    evaluate_grounding_claims,
+    extract_grounding_claims_with_model,
+)
 from openabm_worker.investigation import assist_investigation
 from openabm_worker.judge_drafts import draft_judge_from_request
 from openabm_worker.judges import run_rubric_judge
@@ -1967,7 +1971,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"data": store.list_grounding_checks(project_id)}
 
     @app.post("/api/grounding-checks", status_code=201)
-    def create_grounding_check(
+    async def create_grounding_check(
         request: dict[str, Any],
         actor: dict[str, object] = Depends(auth_dependency(["grounding:write"])),
     ) -> dict[str, object]:
@@ -1983,8 +1987,46 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if trace is None:
             raise HTTPException(status_code=404, detail=_error("not_found", "Trace not found."))
         spans = store.list_spans(request["project_id"], request["trace_id"])
-        claims = request.get("claims") or claims_from_text(request.get("text", ""))
+        model_extraction = None
+        if request.get("claims"):
+            claims = request["claims"]
+        elif request.get("extract_claims_with_model"):
+            try:
+                provider = model_provider_from_settings(settings)
+                model_extraction = await extract_grounding_claims_with_model(
+                    provider,
+                    text=request.get("text") or trace.get("summary") or "",
+                    trace=trace,
+                    spans=spans,
+                )
+            except ModelConfigurationError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=_error("model_unavailable", str(exc), retryable=True),
+                ) from exc
+            except ModelCallsDisabled as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=_error("model_unavailable", str(exc), retryable=True),
+                ) from exc
+            if model_extraction["status"] != "succeeded":
+                raise HTTPException(
+                    status_code=422,
+                    detail=_error(
+                        "invalid_model_output",
+                        "Grounding claim extraction model output was invalid.",
+                    ),
+                )
+            claims = model_extraction["claims"]
+        else:
+            claims = claims_from_text(request.get("text", ""))
         result = evaluate_grounding_claims(claims, spans)
+        if model_extraction is not None:
+            result["model_extraction"] = {
+                "possible_contradictions": model_extraction["possible_contradictions"],
+                "uncertainty": model_extraction["uncertainty"],
+                "model_metadata": model_extraction["model_metadata"],
+            }
         check = store.create_grounding_check(
             request["project_id"],
             request["trace_id"],

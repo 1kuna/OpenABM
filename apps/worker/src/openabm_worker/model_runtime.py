@@ -55,6 +55,15 @@ class DisabledModelProvider:
         del request, schema, timeout_seconds
         raise ModelCallsDisabled("Model-backed structured completion is disabled.")
 
+    async def tool_completion(
+        self,
+        request: dict[str, Any],
+        tools: list[dict[str, Any]],
+        timeout_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        del request, tools, timeout_seconds
+        raise ModelCallsDisabled("Model-backed tool completion is disabled.")
+
 
 class DisabledEmbeddingProvider:
     adapter_name = "disabled-embedding"
@@ -79,7 +88,7 @@ class DisabledEmbeddingProvider:
 
 class OpenAICompatibleModelProvider:
     adapter_name = "openai-compatible-chat"
-    supported_capabilities = ["chat_completion", "structured_completion"]
+    supported_capabilities = ["chat_completion", "structured_completion", "tool_completion"]
     configuration_schema = {
         "type": "object",
         "required": ["base_url", "chat_model"],
@@ -90,7 +99,7 @@ class OpenAICompatibleModelProvider:
         },
     }
     request_shape = "OpenAI-compatible /chat/completions"
-    response_shape = "OpenAI-compatible choices[0].message.content"
+    response_shape = "OpenAI-compatible choices[0].message.content/tool_calls"
     timeout_behavior = "No generation timeout is applied by OpenABM."
     rate_limit_behavior = "Provider-defined; OpenABM surfaces transport errors."
     cost_reporting_behavior = "Uses provider usage metadata when returned."
@@ -194,6 +203,60 @@ class OpenAICompatibleModelProvider:
             "model": self.chat_model,
         }
 
+    async def tool_completion(
+        self,
+        request: dict[str, Any],
+        tools: list[dict[str, Any]],
+        timeout_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        del timeout_seconds
+        for tool in tools:
+            parameters = tool.get("function", {}).get("parameters")
+            if isinstance(parameters, dict):
+                Draft202012Validator.check_schema(parameters)
+        payload = {
+            "model": request.get("model") or self.chat_model,
+            "messages": request["messages"],
+            "tools": tools,
+            "temperature": request.get("temperature", 0.1),
+            **_completion_length(request),
+        }
+        if "tool_choice" in request:
+            payload["tool_choice"] = _tool_choice(request["tool_choice"])
+        try:
+            response = await self._post_chat(payload)
+        except httpx.HTTPStatusError as exc:
+            return {
+                "status": "invalid_output",
+                "raw_message": {},
+                "finish_reason": None,
+                "parse_errors": [
+                    f"tool request rejected: {exc.response.status_code} {exc.response.text}"
+                ],
+                "usage": None,
+                "provider": self.adapter_name,
+                "model": self.chat_model,
+            }
+        parsed, errors = _tool_calls(response)
+        if parsed and not errors:
+            return {
+                "status": "succeeded",
+                "tool_calls": parsed,
+                "raw_message": response["choices"][0]["message"],
+                "usage": response.get("usage"),
+                "provider": self.adapter_name,
+                "model": self.chat_model,
+            }
+        return {
+            "status": "invalid_output",
+            "raw_message": response["choices"][0].get("message", {}),
+            "finish_reason": response["choices"][0].get("finish_reason"),
+            "parse_errors": errors or ["model did not return parsed tool_calls"],
+            "usage": response.get("usage"),
+            "provider": self.adapter_name,
+            "model": self.chat_model,
+        }
+
     async def _repair_structured_output(
         self,
         *,
@@ -285,8 +348,45 @@ def _completion_length(request: dict[str, Any]) -> dict[str, int]:
     return {}
 
 
+def _tool_choice(value: Any) -> Any:
+    if isinstance(value, dict):
+        return "required"
+    return value
+
+
 def _message_text(response: dict[str, Any]) -> str:
-    return str(response["choices"][0]["message"]["content"])
+    return str(response["choices"][0]["message"].get("content") or "")
+
+
+def _tool_calls(response: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    message = response["choices"][0].get("message", {})
+    tool_calls = message.get("tool_calls") or []
+    parsed = []
+    errors = []
+    for index, tool_call in enumerate(tool_calls):
+        function = tool_call.get("function") or {}
+        name = function.get("name")
+        raw_arguments = function.get("arguments") or "{}"
+        try:
+            arguments = json.loads(raw_arguments)
+        except JSONDecodeError as exc:
+            errors.append(f"tool_call[{index}] arguments JSON parse failed: {exc}")
+            continue
+        if not isinstance(arguments, dict):
+            errors.append(f"tool_call[{index}] arguments must be an object")
+            continue
+        if not isinstance(name, str) or not name:
+            errors.append(f"tool_call[{index}] function.name is required")
+            continue
+        parsed.append(
+            {
+                "id": tool_call.get("id"),
+                "type": tool_call.get("type"),
+                "name": name,
+                "arguments": arguments,
+            }
+        )
+    return parsed, errors
 
 
 def _parse_json(text: str) -> tuple[Any | None, str | None]:
