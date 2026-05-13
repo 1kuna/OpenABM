@@ -13,6 +13,8 @@
     "runner": {"type": "object", "required": ["type"], "properties": {"type": {"enum": ["in_process_function", "command", "http_endpoint"]}}, "additionalProperties": true},
     "judges": {"type": "array", "items": {"type": "object"}, "default": []},
     "prompt_version_id": {"type": ["string", "null"]},
+    "agent_config_version_id": {"type": ["string", "null"]},
+    "runtime_context": {"type": "object", "default": {}},
     "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]},
     "summary": {"type": "object", "default": {}},
     "created_at": {"type": "string", "format": "date-time"},

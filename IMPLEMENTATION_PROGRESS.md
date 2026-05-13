@@ -110,6 +110,11 @@ Done:
   omission markers, bounded HTTP exporter buffering, server-side inline payload
   and event sampling, retryable low-priority batch backpressure, and always-keep
   preservation for error/high-priority/feedback/behavior/dataset-linked traces.
+- Added SDK and ingest/storage support for top-level runtime provenance on
+  traces: `prompt_version_id`, `agent_config_version_id`,
+  `deployment_context_id`, and `tool_version_ids`. Trace detail and search now
+  expose those identifiers explicitly instead of requiring clients to dig
+  through opaque attributes.
 - Expanded batch ingest so events, feedback, and payload metadata are processed
   through the same partial-success response contract as traces and spans.
 - Added CLI commands for database initialization, fixture seeding, and status.
@@ -283,6 +288,11 @@ Done:
 - Expanded the Eval Comparison UI with baseline/candidate selectors, pass and
   score deltas, invalid-output/cost/latency/token deltas, new/fixed/unchanged
   failure lists, and trace links back to source examples.
+- Added eval-run runtime provenance: eval runs can store
+  `prompt_version_id`, `agent_config_version_id`, and opaque runtime context for
+  deployment/tool/retrieval/memory/guardrail/routing identifiers. Eval
+  comparison output now includes deterministic provenance deltas so prompt/config
+  changes can be linked to regression comparisons.
 
 ## Phase 6: Behaviors And Automations
 
@@ -653,6 +663,10 @@ Verified after the latest implementation slices:
   `on_failure: compensate` ran an explicit notification compensation action for
   a prior review-task action, preserved the original dead-lettered action, and
   reported the compensation status/result on the failed action.
+- Runtime-provenance regression passed: SDK traces export prompt/config/
+  deployment/tool version identifiers, ingest and trace detail preserve them,
+  eval run comparison reports prompt/config/context deltas, and impact/root-cause
+  output surfaces correlated runtime provenance distributions.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:

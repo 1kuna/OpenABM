@@ -20,7 +20,10 @@
     "ended_at": {"type": ["string", "null"], "format": "date-time"},
     "tags": {"type": "array", "items": {"type": "string"}, "default": []},
     "attributes": {"type": "object", "default": {}},
+    "prompt_version_id": {"type": ["string", "null"]},
+    "agent_config_version_id": {"type": ["string", "null"]},
+    "deployment_context_id": {"type": ["string", "null"]},
+    "tool_version_ids": {"type": "array", "items": {"type": "string"}, "default": []},
     "summary": {"type": ["string", "null"]}
   }
 }
-

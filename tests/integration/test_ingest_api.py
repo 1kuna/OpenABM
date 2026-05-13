@@ -1072,6 +1072,114 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
     )
     assert '"tools":["lookup"]' in compare.json()["content_diff"]
 
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    trace = {
+        **fixture["trace"],
+        "prompt_version_id": version_2.json()["prompt_version_id"],
+        "agent_config_version_id": cfg_v2.json()["agent_config_version_id"],
+        "deployment_context_id": "deploy_refund_runtime_v2",
+        "tool_version_ids": ["tool_lookup_v1"],
+    }
+    ingest = client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [trace], "spans": fixture["spans"]},
+    )
+    assert ingest.status_code == 207
+    detail = client.get(
+        f"/v1/traces/{trace['trace_id']}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert detail.status_code == 200
+    assert detail.json()["trace"]["prompt_version_id"] == version_2.json()["prompt_version_id"]
+    assert detail.json()["trace"]["agent_config_version_id"] == cfg_v2.json()[
+        "agent_config_version_id"
+    ]
+    assert detail.json()["trace"]["tool_version_ids"] == ["tool_lookup_v1"]
+
+    store = client.app.state.store
+    dataset = store.create_dataset("proj_demo", "Runtime provenance eval")
+    store.add_trace_to_dataset("proj_demo", dataset["dataset_id"], trace["trace_id"])
+    baseline = client.post(
+        "/v1/evals/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "dataset_version_id": dataset["latest_version_id"],
+            "judges": [_wrong_tool_judge()],
+            "prompt_version_id": version_1.json()["prompt_version_id"],
+            "agent_config_version_id": cfg_v1.json()["agent_config_version_id"],
+            "runtime_context": {
+                "deployment_context_id": "deploy_refund_runtime_v1",
+                "tool_version_ids": ["tool_refund_v1"],
+            },
+        },
+    )
+    candidate = client.post(
+        "/v1/evals/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "dataset_version_id": dataset["latest_version_id"],
+            "judges": [_wrong_tool_judge()],
+            "baseline_eval_run_id": baseline.json()["eval_run_id"],
+            "prompt_version_id": version_2.json()["prompt_version_id"],
+            "agent_config_version_id": cfg_v2.json()["agent_config_version_id"],
+            "runtime_context": {
+                "deployment_context_id": "deploy_refund_runtime_v2",
+                "tool_version_ids": ["tool_refund_v2"],
+            },
+        },
+    )
+    assert baseline.status_code == 201
+    assert candidate.status_code == 201
+    assert candidate.json()["agent_config_version_id"] == cfg_v2.json()[
+        "agent_config_version_id"
+    ]
+    comparison = client.post(
+        "/v1/evals/compare",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "baseline_eval_run_id": baseline.json()["eval_run_id"],
+            "candidate_eval_run_id": candidate.json()["eval_run_id"],
+        },
+    )
+    assert comparison.status_code == 200
+    provenance = comparison.json()["provenance_comparison"]
+    assert set(provenance["changed_fields"]) == {
+        "prompt_version_id",
+        "agent_config_version_id",
+        "deployment_context_id",
+        "tool_version_ids",
+    }
+    assert provenance["candidate"]["runtime_context"]["deployment_context_id"] == (
+        "deploy_refund_runtime_v2"
+    )
+
+    investigation = client.post(
+        "/v1/investigations",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "seed_trace_id_nullable": trace["trace_id"],
+            "filters": {"trace_id": trace["trace_id"]},
+        },
+    )
+    assert investigation.status_code == 201
+    impact = investigation.json()["result"]["impact_report"]
+    assert impact["deployment_distribution"]["prompt_version_id"][
+        version_2.json()["prompt_version_id"]
+    ] == 1
+    assert impact["deployment_distribution"]["agent_config_version_id"][
+        cfg_v2.json()["agent_config_version_id"]
+    ] == 1
+    assert any(
+        candidate["hypothesis"] == "Trace cohort has correlated runtime provenance identifiers."
+        for candidate in impact["suspected_root_causes"]
+    )
+
 
 def test_v1_automation_run_creates_review_task_and_notification_preview(tmp_path) -> None:
     client = make_client(tmp_path)

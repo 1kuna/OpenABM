@@ -3464,6 +3464,18 @@ function DatasetEvalWorkspace(props: {
                         <dt>Judges</dt>
                         <dd>{selectedRun.judges.map((judge) => String(judge.name ?? judge.judge_id ?? judge.judge_type)).join(", ")}</dd>
                       </div>
+                      <div>
+                        <dt>Prompt</dt>
+                        <dd>{selectedRun.prompt_version_id ?? "none"}</dd>
+                      </div>
+                      <div>
+                        <dt>Runtime config</dt>
+                        <dd>{selectedRun.agent_config_version_id ?? "none"}</dd>
+                      </div>
+                      <div>
+                        <dt>Runtime context</dt>
+                        <dd>{formatEvalRuntimeContext(selectedRun.runtime_context)}</dd>
+                      </div>
                     </dl>
                     <div className="resultRows">
                       {evalResults.map((result) => (
@@ -3517,6 +3529,7 @@ function DatasetEvalWorkspace(props: {
                     <span>Score delta {formatSignedNumber(comparison.avg_score_delta)} · invalid outputs {formatSignedInteger(comparison.invalid_judge_output_delta)}</span>
                     <span>Cost {formatCurrencyDelta(comparison.cost_delta)} · latency {formatDurationDelta(comparison.latency_delta)} · tokens {formatIntegerDelta(comparison.token_delta)}</span>
                     <span>Fixed {comparison.fixed_failures.length} · new {comparison.new_failures.length} · unchanged {comparison.unchanged_failures.length}</span>
+                    <span>{formatEvalProvenanceComparison(comparison.provenance_comparison)}</span>
                     <span>Baseline {formatEvalSummary(comparison.baseline_summary)}</span>
                     <span>Candidate {formatEvalSummary(comparison.candidate_summary)}</span>
                     <EvalFailureRows
@@ -5712,6 +5725,30 @@ function formatEvalSummary(summary: Record<string, unknown>) {
     invalid == null ? null : `${String(invalid)} invalid`
   ].filter(Boolean);
   return parts.join(" · ") || "summary pending";
+}
+
+function formatEvalRuntimeContext(context: Record<string, unknown>) {
+  const deployment = context.deployment_context_id
+    ? `deploy ${String(context.deployment_context_id)}`
+    : null;
+  const toolVersions = Array.isArray(context.tool_version_ids)
+    ? `tools ${context.tool_version_ids.map((value) => String(value)).join(", ")}`
+    : null;
+  return [deployment, toolVersions].filter(Boolean).join(" · ") || "none";
+}
+
+function formatEvalProvenanceComparison(value: Record<string, unknown>) {
+  const changed = Array.isArray(value.changed_fields)
+    ? value.changed_fields.map((field) => String(field))
+    : [];
+  const contextKeys = Array.isArray(value.changed_runtime_context_keys)
+    ? value.changed_runtime_context_keys.map((key) => String(key))
+    : [];
+  const parts = [
+    changed.length ? `changed ${changed.join(", ")}` : "no provenance changes",
+    contextKeys.length ? `context ${contextKeys.join(", ")}` : null
+  ].filter(Boolean);
+  return `Provenance: ${parts.join(" · ")}`;
 }
 
 function formatScore(score: Record<string, unknown>) {

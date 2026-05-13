@@ -2138,6 +2138,23 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "prompt_version_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "agent_config_version_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "runtime_context": {
+                    "type": "object",
+                    "description": "Opaque prompt, tool, deployment, retrieval, memory, guardrail, routing, and runtime version context for this eval run.",
+                    "default": {}
                   }
                 }
               }

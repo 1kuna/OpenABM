@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS trace_metadata (
   ended_at TEXT,
   tags_json TEXT NOT NULL,
   attributes_json TEXT NOT NULL,
+  prompt_version_id TEXT,
+  agent_config_version_id TEXT,
+  deployment_context_id TEXT,
+  tool_version_ids_json TEXT NOT NULL DEFAULT '[]',
   summary TEXT,
   server_received_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -186,4 +190,3 @@ CREATE VIRTUAL TABLE IF NOT EXISTS trace_search_fts USING fts5(
   project_id UNINDEXED,
   body
 );
-

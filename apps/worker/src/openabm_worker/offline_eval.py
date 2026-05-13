@@ -20,6 +20,9 @@ def run_deterministic_eval(
     dataset_version_id: str,
     judges: list[dict[str, Any]],
     runner: dict[str, Any] | None = None,
+    prompt_version_id: str | None = None,
+    agent_config_version_id: str | None = None,
+    runtime_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     runner = runner or {"type": "in_process_function", "mode": "deterministic"}
     run = store.create_eval_run(
@@ -27,6 +30,9 @@ def run_deterministic_eval(
         dataset_version_id,
         runner=runner,
         judges=judges,
+        prompt_version_id=prompt_version_id,
+        agent_config_version_id=agent_config_version_id,
+        runtime_context=runtime_context,
     )
     results = []
     unsupported_judge_ids = []
@@ -96,6 +102,8 @@ async def run_eval(
     token_budget: int = 262144,
     baseline_eval_run_id: str | None = None,
     prompt_version_id: str | None = None,
+    agent_config_version_id: str | None = None,
+    runtime_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     runner = runner or {"type": "in_process_function", "mode": "mixed"}
     run = store.create_eval_run(
@@ -105,6 +113,8 @@ async def run_eval(
         judges=judges,
         baseline_eval_run_id=baseline_eval_run_id,
         prompt_version_id=prompt_version_id,
+        agent_config_version_id=agent_config_version_id,
+        runtime_context=runtime_context,
     )
     results = []
     unsupported_judge_ids = []

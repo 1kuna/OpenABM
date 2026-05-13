@@ -18,6 +18,10 @@ export const fixtureDetails: TraceDetail[] = [
       ended_at: "2026-05-12T10:05:10Z",
       tags: ["support", "fixture", "failure"],
       attributes: { channel: "chat" },
+      prompt_version_id: null,
+      agent_config_version_id: null,
+      deployment_context_id: null,
+      tool_version_ids: [],
       summary: "Agent used an order lookup tool for a refund decision that required policy lookup."
     },
     spans: [
@@ -94,4 +98,3 @@ export const fixtureDetails: TraceDetail[] = [
 ];
 
 export const fixtureTraces: TraceEnvelope[] = fixtureDetails.map((detail) => detail.trace);
-

@@ -302,6 +302,134 @@ def _string_list(value: Any) -> list[str]:
     return []
 
 
+def _optional_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _runtime_provenance_sources(item: dict[str, Any]) -> list[dict[str, Any]]:
+    sources = [item]
+    attributes = item.get("attributes")
+    if isinstance(attributes, dict):
+        sources.append(attributes)
+        for key in ["openabm", "runtime", "provenance"]:
+            nested = attributes.get(key)
+            if isinstance(nested, dict):
+                sources.append(nested)
+    runtime_context = item.get("runtime_context")
+    if isinstance(runtime_context, dict):
+        sources.append(runtime_context)
+    return sources
+
+
+def _runtime_provenance_value(item: dict[str, Any], key: str) -> str | None:
+    for source in _runtime_provenance_sources(item):
+        value = _optional_string(source.get(key))
+        if value:
+            return value
+    return None
+
+
+def _runtime_tool_version_ids(item: dict[str, Any]) -> list[str]:
+    for source in _runtime_provenance_sources(item):
+        values = _string_list(source.get("tool_version_ids"))
+        if values:
+            return sorted(set(values))
+        value = _optional_string(source.get("tool_version_id"))
+        if value:
+            return [value]
+    return []
+
+
+def _trace_runtime_provenance(trace: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "prompt_version_id": _runtime_provenance_value(trace, "prompt_version_id"),
+        "agent_config_version_id": _runtime_provenance_value(
+            trace, "agent_config_version_id"
+        ),
+        "deployment_context_id": _runtime_provenance_value(trace, "deployment_context_id"),
+        "tool_version_ids": _runtime_tool_version_ids(trace),
+    }
+
+
+def _eval_runtime_provenance(run: dict[str, Any]) -> dict[str, Any]:
+    runtime_context = (
+        run.get("runtime_context")
+        if isinstance(run.get("runtime_context"), dict)
+        else {}
+    )
+    payload = {
+        **runtime_context,
+        "prompt_version_id": run.get("prompt_version_id")
+        or runtime_context.get("prompt_version_id"),
+        "agent_config_version_id": run.get("agent_config_version_id")
+        or runtime_context.get("agent_config_version_id"),
+    }
+    return {
+        "prompt_version_id": _runtime_provenance_value(payload, "prompt_version_id"),
+        "agent_config_version_id": _runtime_provenance_value(
+            payload, "agent_config_version_id"
+        ),
+        "deployment_context_id": _runtime_provenance_value(payload, "deployment_context_id"),
+        "tool_version_ids": _runtime_tool_version_ids(payload),
+        "runtime_context": runtime_context,
+    }
+
+
+def _runtime_provenance_comparison(
+    baseline: dict[str, Any],
+    candidate: dict[str, Any],
+) -> dict[str, Any]:
+    baseline_provenance = _eval_runtime_provenance(baseline)
+    candidate_provenance = _eval_runtime_provenance(candidate)
+    comparable_fields = [
+        "prompt_version_id",
+        "agent_config_version_id",
+        "deployment_context_id",
+        "tool_version_ids",
+    ]
+    changed_fields = [
+        field
+        for field in comparable_fields
+        if baseline_provenance.get(field) != candidate_provenance.get(field)
+    ]
+    baseline_context = baseline_provenance.get("runtime_context") or {}
+    candidate_context = candidate_provenance.get("runtime_context") or {}
+    changed_context_keys = sorted(
+        key
+        for key in set(baseline_context) | set(candidate_context)
+        if baseline_context.get(key) != candidate_context.get(key)
+    )
+    return {
+        "baseline": baseline_provenance,
+        "candidate": candidate_provenance,
+        "changed_fields": changed_fields,
+        "changed_runtime_context_keys": changed_context_keys,
+    }
+
+
+def _runtime_provenance_distribution(traces: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    distribution: dict[str, dict[str, int]] = {
+        "prompt_version_id": {},
+        "agent_config_version_id": {},
+        "deployment_context_id": {},
+        "tool_version_ids": {},
+    }
+    for trace in traces:
+        provenance = _trace_runtime_provenance(trace)
+        for key in ["prompt_version_id", "agent_config_version_id", "deployment_context_id"]:
+            value = provenance.get(key)
+            if isinstance(value, str) and value:
+                distribution[key][value] = distribution[key].get(value, 0) + 1
+        for tool_version_id in provenance["tool_version_ids"]:
+            distribution["tool_version_ids"][tool_version_id] = (
+                distribution["tool_version_ids"].get(tool_version_id, 0) + 1
+            )
+    return {key: values for key, values in distribution.items() if values}
+
+
 def _judge_promotion_blockers(
     report: dict[str, Any],
     review_tasks: list[dict[str, Any]],
@@ -342,9 +470,41 @@ class SQLiteStore:
         with self.connect() as conn:
             for migration in sorted(MIGRATION_DIR.glob("*.sql")):
                 conn.executescript(migration.read_text())
+            self._ensure_trace_provenance_columns(conn)
+            self._ensure_eval_run_provenance_columns(conn)
             self._ensure_auth_api_key_columns(conn)
             self._ensure_automation_run_cooldown_columns(conn)
             self.ensure_project("proj_demo", "Demo Project")
+
+    @staticmethod
+    def _ensure_trace_provenance_columns(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(trace_metadata)").fetchall()
+        }
+        column_specs = {
+            "prompt_version_id": "TEXT",
+            "agent_config_version_id": "TEXT",
+            "deployment_context_id": "TEXT",
+            "tool_version_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+        }
+        for column, spec in column_specs.items():
+            if column not in columns:
+                conn.execute(f"ALTER TABLE trace_metadata ADD COLUMN {column} {spec}")
+
+    @staticmethod
+    def _ensure_eval_run_provenance_columns(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(eval_runs)").fetchall()
+        }
+        column_specs = {
+            "agent_config_version_id": "TEXT",
+            "runtime_context_json": "TEXT NOT NULL DEFAULT '{}'",
+        }
+        for column, spec in column_specs.items():
+            if column not in columns:
+                conn.execute(f"ALTER TABLE eval_runs ADD COLUMN {column} {spec}")
 
     @staticmethod
     def _ensure_auth_api_key_columns(conn: sqlite3.Connection) -> None:
@@ -1506,15 +1666,17 @@ class SQLiteStore:
     def upsert_trace(self, trace: dict[str, Any]) -> str:
         now = utc_now()
         self.ensure_project(trace["project_id"])
+        provenance = _trace_runtime_provenance(trace)
         with self.connect() as conn:
             conn.execute(
                 """
                 INSERT INTO trace_metadata(
                   trace_id, project_id, session_id, user_external_id, root_span_id,
                   environment, status, started_at, ended_at, tags_json, attributes_json,
-                  summary, server_received_at, updated_at
+                  prompt_version_id, agent_config_version_id, deployment_context_id,
+                  tool_version_ids_json, summary, server_received_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(trace_id) DO UPDATE SET
                   session_id = excluded.session_id,
                   user_external_id = excluded.user_external_id,
@@ -1525,6 +1687,10 @@ class SQLiteStore:
                   ended_at = excluded.ended_at,
                   tags_json = excluded.tags_json,
                   attributes_json = excluded.attributes_json,
+                  prompt_version_id = excluded.prompt_version_id,
+                  agent_config_version_id = excluded.agent_config_version_id,
+                  deployment_context_id = excluded.deployment_context_id,
+                  tool_version_ids_json = excluded.tool_version_ids_json,
                   summary = excluded.summary,
                   updated_at = excluded.updated_at
                 """,
@@ -1540,6 +1706,10 @@ class SQLiteStore:
                     trace.get("ended_at"),
                     encode_json(trace.get("tags", [])),
                     encode_json(trace.get("attributes", {})),
+                    provenance["prompt_version_id"],
+                    provenance["agent_config_version_id"],
+                    provenance["deployment_context_id"],
+                    encode_json(provenance["tool_version_ids"]),
                     trace.get("summary"),
                     now,
                     now,
@@ -1717,6 +1887,15 @@ class SQLiteStore:
         if filters.get("session_id"):
             clauses.append("session_id = ?")
             params.append(filters["session_id"])
+        if filters.get("prompt_version_id"):
+            clauses.append("prompt_version_id = ?")
+            params.append(filters["prompt_version_id"])
+        if filters.get("agent_config_version_id"):
+            clauses.append("agent_config_version_id = ?")
+            params.append(filters["agent_config_version_id"])
+        if filters.get("deployment_context_id"):
+            clauses.append("deployment_context_id = ?")
+            params.append(filters["deployment_context_id"])
         if filters.get("time_from"):
             clauses.append("started_at >= ?")
             params.append(filters["time_from"])
@@ -2282,9 +2461,12 @@ class SQLiteStore:
         judges: list[dict[str, Any]],
         baseline_eval_run_id: str | None = None,
         prompt_version_id: str | None = None,
+        agent_config_version_id: str | None = None,
+        runtime_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self.ensure_project(project_id)
         now = utc_now()
+        runtime_context = runtime_context or {}
         item = {
             "eval_run_id": new_id("eval_run"),
             "project_id": project_id,
@@ -2293,6 +2475,8 @@ class SQLiteStore:
             "runner": runner,
             "judges": judges,
             "prompt_version_id": prompt_version_id,
+            "agent_config_version_id": agent_config_version_id,
+            "runtime_context": runtime_context,
             "status": "running",
             "summary": {},
             "created_at": now,
@@ -2303,10 +2487,10 @@ class SQLiteStore:
                 """
                 INSERT INTO eval_runs(
                   eval_run_id, project_id, dataset_version_id, baseline_eval_run_id,
-                  runner_json, judges_json, prompt_version_id, status, summary_json,
-                  created_at, completed_at
+                  runner_json, judges_json, prompt_version_id, agent_config_version_id,
+                  runtime_context_json, status, summary_json, created_at, completed_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item["eval_run_id"],
@@ -2316,6 +2500,8 @@ class SQLiteStore:
                     encode_json(runner),
                     encode_json(judges),
                     prompt_version_id,
+                    agent_config_version_id,
+                    encode_json(runtime_context),
                     "running",
                     encode_json({}),
                     now,
@@ -2491,6 +2677,7 @@ class SQLiteStore:
             if baseline_tokens is None or candidate_tokens is None
             else candidate_tokens - baseline_tokens,
             "behavior_distribution_shift": {},
+            "provenance_comparison": _runtime_provenance_comparison(baseline, candidate),
         }
 
     def build_judge_calibration_report(
@@ -4916,6 +5103,20 @@ class SQLiteStore:
                     "confidence_or_uncertainty": "deterministic_cohort_signal_only",
                 }
             )
+        runtime_distribution = _runtime_provenance_distribution(traces)
+        if runtime_distribution:
+            suspected.append(
+                {
+                    "candidate_id": new_id("root_cause_candidate"),
+                    "hypothesis": "Trace cohort has correlated runtime provenance identifiers.",
+                    "evidence_summary": {
+                        "runtime_provenance_distribution": runtime_distribution
+                    },
+                    "representative_trace_ids": trace_ids[:5],
+                    "correlated_fields": sorted(runtime_distribution),
+                    "confidence_or_uncertainty": "deterministic_correlation_only",
+                }
+            )
         now = utc_now()
         return {
             "report_id": new_id("impact_report"),
@@ -4930,7 +5131,7 @@ class SQLiteStore:
             "task_type_distribution": dimension_distribution.get("task_type", {}),
             "dimension_distribution": dimension_distribution,
             "behavior_distribution": {},
-            "deployment_distribution": {},
+            "deployment_distribution": runtime_distribution,
             "suspected_root_causes": suspected,
             "representative_trace_ids": trace_ids[:10],
             "generated_summary": (
@@ -5020,6 +5221,10 @@ class SQLiteStore:
                     trace["environment"] or "",
                     trace["tags_json"] or "",
                     trace["attributes_json"] or "",
+                    trace["prompt_version_id"] or "",
+                    trace["agent_config_version_id"] or "",
+                    trace["deployment_context_id"] or "",
+                    trace["tool_version_ids_json"] or "",
                 ]
             )
         for span in spans:
@@ -5235,6 +5440,10 @@ class SQLiteStore:
             "ended_at": row["ended_at"],
             "tags": decode_json(row["tags_json"], []),
             "attributes": decode_json(row["attributes_json"], {}),
+            "prompt_version_id": row["prompt_version_id"],
+            "agent_config_version_id": row["agent_config_version_id"],
+            "deployment_context_id": row["deployment_context_id"],
+            "tool_version_ids": decode_json(row["tool_version_ids_json"], []),
             "summary": row["summary"],
             "server_received_at": row["server_received_at"],
             "updated_at": row["updated_at"],
@@ -5442,6 +5651,8 @@ class SQLiteStore:
             "runner": decode_json(row["runner_json"], {}),
             "judges": decode_json(row["judges_json"], []),
             "prompt_version_id": row["prompt_version_id"],
+            "agent_config_version_id": row["agent_config_version_id"],
+            "runtime_context": decode_json(row["runtime_context_json"], {}),
             "status": row["status"],
             "summary": decode_json(row["summary_json"], {}),
             "created_at": row["created_at"],

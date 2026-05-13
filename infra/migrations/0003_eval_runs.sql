@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS eval_runs (
   runner_json TEXT NOT NULL,
   judges_json TEXT NOT NULL,
   prompt_version_id TEXT,
+  agent_config_version_id TEXT,
+  runtime_context_json TEXT NOT NULL DEFAULT '{}',
   status TEXT NOT NULL,
   summary_json TEXT NOT NULL,
   created_at TEXT NOT NULL,

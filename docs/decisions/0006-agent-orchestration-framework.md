@@ -105,3 +105,9 @@ graph version, generated search queries, candidate trace IDs, and tool-call
 inputs/outputs. This keeps framework execution inspectable and preserves the
 option to evaluate Deep Agents or Pi/pi-agent-core later without changing the
 product data contracts.
+
+The follow-on runtime provenance slice keeps that same boundary: SDK traces and
+eval runs now expose prompt, agent-config, deployment, and tool-version
+identifiers as OpenABM-owned fields/context. Frameworks may orchestrate these
+workflows, but OpenABM remains responsible for comparing, auditing, and linking
+the runtime versions that influenced a trace, eval, or root-cause report.

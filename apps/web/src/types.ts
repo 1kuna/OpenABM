@@ -12,6 +12,10 @@ export interface TraceEnvelope {
   ended_at: string | null;
   tags: string[];
   attributes: Record<string, unknown>;
+  prompt_version_id: string | null;
+  agent_config_version_id: string | null;
+  deployment_context_id: string | null;
+  tool_version_ids: string[];
   summary: string | null;
 }
 
@@ -675,6 +679,8 @@ export interface EvalRun {
   runner: Record<string, unknown>;
   judges: Array<Record<string, unknown>>;
   prompt_version_id: string | null;
+  agent_config_version_id: string | null;
+  runtime_context: Record<string, unknown>;
   status: string;
   summary: Record<string, unknown>;
   created_at: string;
@@ -709,6 +715,7 @@ export interface EvalComparison {
   latency_delta: number;
   token_delta: number | null;
   behavior_distribution_shift: Record<string, unknown>;
+  provenance_comparison: Record<string, unknown>;
 }
 
 export interface DocsSearchResult {

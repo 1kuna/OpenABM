@@ -51,6 +51,10 @@ class Tracer:
         sampling: SamplingConfig | None = None,
         sdk_name: str = "openabm-python",
         sdk_version: str = "0.0.0",
+        prompt_version_id: str | None = None,
+        agent_config_version_id: str | None = None,
+        deployment_context_id: str | None = None,
+        tool_version_ids: list[str] | None = None,
     ) -> None:
         self.project_id = project
         self.environment = environment
@@ -60,6 +64,10 @@ class Tracer:
         self.sampling = sampling or SamplingConfig()
         self.sdk_name = sdk_name
         self.sdk_version = sdk_version
+        self.prompt_version_id = prompt_version_id
+        self.agent_config_version_id = agent_config_version_id
+        self.deployment_context_id = deployment_context_id
+        self.tool_version_ids = sorted(set(tool_version_ids or []))
         if not 0 <= self.sampling.sample_rate <= 1:
             raise ValueError("sampling.sample_rate must be between 0 and 1")
         if self.sampling.stream_event_sample_rate < 1:
@@ -132,12 +140,21 @@ class Tracer:
         return {"mode": "inline", "value": redacted, "redaction_state": "raw"}
 
     def _base_attributes(self) -> dict[str, Any]:
-        return {
+        attributes = {
             "openabm.project_id": self.project_id,
             "openabm.environment": self.environment,
             "openabm.sdk.name": self.sdk_name,
             "openabm.sdk.version": self.sdk_version,
         }
+        if self.prompt_version_id:
+            attributes["prompt_version_id"] = self.prompt_version_id
+        if self.agent_config_version_id:
+            attributes["agent_config_version_id"] = self.agent_config_version_id
+        if self.deployment_context_id:
+            attributes["deployment_context_id"] = self.deployment_context_id
+        if self.tool_version_ids:
+            attributes["tool_version_ids"] = self.tool_version_ids
+        return attributes
 
     def _trace_is_sampled(self, trace_id: str, attributes: dict[str, Any]) -> bool:
         if _attributes_are_high_priority(attributes):
@@ -274,6 +291,10 @@ class Span:
                     **self.tracer._base_attributes(),
                     "openabm.sampling.sampled": self.sampled,
                 },
+                "prompt_version_id": self.tracer.prompt_version_id,
+                "agent_config_version_id": self.tracer.agent_config_version_id,
+                "deployment_context_id": self.tracer.deployment_context_id,
+                "tool_version_ids": self.tracer.tool_version_ids,
                 "summary": self.name,
             }
             self.tracer.exporter.export("trace", trace_payload)

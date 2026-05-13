@@ -1697,6 +1697,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 token_budget=settings.max_trace_tokens_for_judge,
                 baseline_eval_run_id=request.get("baseline_eval_run_id"),
                 prompt_version_id=request.get("prompt_version_id"),
+                agent_config_version_id=request.get("agent_config_version_id"),
+                runtime_context=request.get("runtime_context") or {},
             )
         except ModelCallsDisabled as exc:
             metrics.increment("eval.failures")

@@ -80,6 +80,29 @@ def test_sdk_payload_and_stream_event_sampling_are_visible() -> None:
     assert span_payload["events"][-1]["attributes"]["stream_events_omitted"] == 4
 
 
+def test_sdk_exports_runtime_provenance_on_root_trace() -> None:
+    exporter = InMemoryExporter()
+    tracer = Tracer(
+        "proj_demo",
+        environment="test",
+        exporter=exporter,
+        prompt_version_id="prompt_version_prod",
+        agent_config_version_id="agent_config_runtime_v2",
+        deployment_context_id="deploy_runtime_v2",
+        tool_version_ids=["tool_lookup_v1"],
+    )
+
+    with tracer.span("runtime_agent", span_type="agent"):
+        pass
+
+    trace_payload = next(item["payload"] for item in exporter.items if item["type"] == "trace")
+    assert trace_payload["prompt_version_id"] == "prompt_version_prod"
+    assert trace_payload["agent_config_version_id"] == "agent_config_runtime_v2"
+    assert trace_payload["deployment_context_id"] == "deploy_runtime_v2"
+    assert trace_payload["tool_version_ids"] == ["tool_lookup_v1"]
+    assert trace_payload["attributes"]["agent_config_version_id"] == "agent_config_runtime_v2"
+
+
 def test_sdk_probabilistic_sampling_preserves_metadata_and_omits_bodies() -> None:
     exporter = InMemoryExporter()
     tracer = Tracer(
