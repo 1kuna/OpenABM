@@ -23,6 +23,7 @@ import type {
   JudgeCalibrationReport,
   JudgeDefinition,
   JudgePromotionResult,
+  LabelTraceBehaviorResult,
   NotificationTarget,
   Project,
   ProjectExportBundle,
@@ -258,6 +259,19 @@ export class OpenAbmClient {
     if (traceId) params.set("trace_id", traceId);
     const body = await this.get<{ data: ScoreResult[] }>(`/v1/scores?${params.toString()}`);
     return body.data;
+  }
+
+  async labelTraceBehavior(
+    projectId: string,
+    traceId: string,
+    behaviorId: string,
+    spanId?: string
+  ): Promise<LabelTraceBehaviorResult> {
+    return this.post<LabelTraceBehaviorResult>(`/v1/traces/${traceId}/behavior-labels`, {
+      project_id: projectId,
+      behavior_id: behaviorId,
+      span_id_nullable: spanId || null
+    });
   }
 
   async listPrompts(projectId: string): Promise<PromptDefinition[]> {

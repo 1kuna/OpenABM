@@ -1215,6 +1215,24 @@ def test_v1_behavior_backtest_persists_matches_and_review_task(tmp_path) -> None
         "span_wrong_tool_order_lookup"
     ]
 
+    label = client.post(
+        "/v1/traces/trace_wrong_tool/behavior-labels",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "behavior_id": behavior.json()["behavior_id"],
+            "span_id_nullable": "span_wrong_tool_order_lookup",
+        },
+    )
+    assert label.status_code == 201
+    assert label.json()["behavior_match"]["status"] == "confirmed"
+    assert label.json()["behavior_match"]["evidence_span_ids"] == [
+        "span_wrong_tool_order_lookup"
+    ]
+    assert behavior.json()["behavior_id"] in label.json()["trace"]["attributes"][
+        "openabm.behavior_ids"
+    ]
+
     reviews = client.get(
         "/v1/review-tasks",
         params={"project_id": "proj_demo", "task_type": "behavior_candidate"},

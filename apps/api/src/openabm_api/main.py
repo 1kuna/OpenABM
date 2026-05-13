@@ -794,6 +794,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         }
 
+    @app.post("/api/traces/{trace_id}/behavior-labels", status_code=201)
+    def label_trace_behavior(
+        trace_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["behaviors:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "behavior_id"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        try:
+            result = store.label_trace_behavior(
+                request["project_id"],
+                trace_id,
+                request["behavior_id"],
+                span_id=request.get("span_id_nullable"),
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
+        store.append_audit(
+            "label_trace_behavior",
+            "behavior_match",
+            request["project_id"],
+            result["behavior_match"]["behavior_match_id"],
+            {
+                "trace_id": trace_id,
+                "behavior_id": request["behavior_id"],
+                "span_id": request.get("span_id_nullable"),
+            },
+        )
+        return result
+
     @app.post("/api/behaviors/{behavior_id}/backtest")
     def backtest_behavior_endpoint(
         behavior_id: str,

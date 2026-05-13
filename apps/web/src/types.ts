@@ -152,6 +152,11 @@ export interface BehaviorMatch {
   created_at: string;
 }
 
+export interface LabelTraceBehaviorResult {
+  trace: TraceEnvelope;
+  behavior_match: BehaviorMatch;
+}
+
 export interface ScoreResult {
   score_id: string;
   trace_id: string;

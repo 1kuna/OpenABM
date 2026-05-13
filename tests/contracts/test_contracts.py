@@ -68,6 +68,7 @@ REQUIRED_QUERY_PATHS = {
     "/v1/projects",
     "/v1/traces",
     "/v1/traces/{trace_id}",
+    "/v1/traces/{trace_id}/behavior-labels",
     "/v1/traces/{trace_id}/spans",
     "/v1/spans/{span_id}",
     "/v1/sessions",

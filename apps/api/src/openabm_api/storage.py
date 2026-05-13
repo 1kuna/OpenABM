@@ -193,6 +193,14 @@ def _parse_utc_datetime(value: Any) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if item is not None and str(item)]
+    if isinstance(value, str) and value:
+        return [value]
+    return []
+
+
 def _judge_promotion_blockers(
     report: dict[str, Any],
     review_tasks: list[dict[str, Any]],
@@ -538,6 +546,67 @@ class SQLiteStore:
                 params,
             ).fetchall()
         return [self._behavior_match_from_row(row) for row in rows]
+
+    def label_trace_behavior(
+        self,
+        project_id: str,
+        trace_id: str,
+        behavior_id: str,
+        span_id: str | None = None,
+    ) -> dict[str, Any]:
+        trace = self.get_trace(project_id, trace_id)
+        if trace is None:
+            raise KeyError(f"trace not found: {trace_id}")
+        attributes = dict(trace.get("attributes") or {})
+        behavior_ids = _string_list(attributes.get("openabm.behavior_ids"))
+        if behavior_id not in behavior_ids:
+            behavior_ids.append(behavior_id)
+        trace["attributes"] = {**attributes, "openabm.behavior_ids": behavior_ids}
+        self.upsert_trace(trace)
+
+        now = utc_now()
+        evidence_span_ids = [span_id] if span_id else []
+        match = {
+            "behavior_match_id": new_id("behavior_match"),
+            "project_id": project_id,
+            "behavior_id": behavior_id,
+            "trace_id": trace_id,
+            "span_id": span_id,
+            "score_id": None,
+            "status": "confirmed",
+            "evidence_span_ids": evidence_span_ids,
+            "created_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                DELETE FROM behavior_matches
+                WHERE project_id = ? AND trace_id = ? AND behavior_id = ?
+                  AND status = 'confirmed'
+                """,
+                (project_id, trace_id, behavior_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO behavior_matches(
+                  behavior_match_id, project_id, behavior_id, trace_id, span_id,
+                  score_id, status, evidence_span_ids_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    match["behavior_match_id"],
+                    project_id,
+                    behavior_id,
+                    trace_id,
+                    span_id,
+                    None,
+                    "confirmed",
+                    encode_json(evidence_span_ids),
+                    now,
+                ),
+            )
+        return {"trace": self.get_trace(project_id, trace_id), "behavior_match": match}
 
     def record_score(self, project_id: str, score: dict[str, Any]) -> dict[str, Any]:
         self.ensure_project(project_id)

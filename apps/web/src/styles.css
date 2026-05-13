@@ -1300,6 +1300,21 @@ pre {
   border-color: #d1d5db;
 }
 
+.actionStrip select {
+  min-height: 36px;
+  min-width: min(260px, 100%);
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  padding: 0 10px;
+}
+
+.actionStrip button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .reviewFacts {
   display: grid;
   gap: 8px;

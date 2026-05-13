@@ -3669,6 +3669,74 @@
         }
       }
     },
+    "/v1/traces/{trace_id}/behavior-labels": {
+      "post": {
+        "operationId": "labelTraceBehavior",
+        "summary": "Persist a human-confirmed behavior label for a trace.",
+        "x-required-scopes": [
+          "behaviors:write"
+        ],
+        "parameters": [
+          {
+            "name": "trace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "behavior_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "behavior_id": {
+                    "type": "string"
+                  },
+                  "span_id_nullable": {
+                    "type": ["string", "null"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Behavior label persisted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "trace",
+                    "behavior_match"
+                  ],
+                  "properties": {
+                    "trace": {
+                      "$ref": "../schemas/trace-envelope.schema.json"
+                    },
+                    "behavior_match": {
+                      "$ref": "../schemas/behavior-match.schema.json"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/traces/{trace_id}/spans": {
       "get": {
         "operationId": "listTraceSpans",

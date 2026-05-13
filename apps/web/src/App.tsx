@@ -2665,6 +2665,8 @@ function TraceExplorer(props: {
   const [scoresByTrace, setScoresByTrace] = useState<Record<string, ScoreResult[]>>({});
   const [behaviorMatchesByTrace, setBehaviorMatchesByTrace] = useState<Record<string, BehaviorMatch[]>>({});
   const [datasetMembershipByTrace, setDatasetMembershipByTrace] = useState<Record<string, DatasetMembership[]>>({});
+  const [behaviorDefinitions, setBehaviorDefinitions] = useState<BehaviorDefinition[]>([]);
+  const [labelBehaviorId, setLabelBehaviorId] = useState("");
   const [selectedSpanId, setSelectedSpanId] = useState("");
   const selectedSpan = detail?.spans.find((span) => span.span_id === selectedSpanId) ?? detail?.spans[0] ?? null;
   const selectedSavedSearch = savedSearches.find((item) => item.saved_search_id === selectedSavedSearchId) ?? null;
@@ -2677,15 +2679,18 @@ function TraceExplorer(props: {
       setScoresByTrace({});
       setBehaviorMatchesByTrace({});
       setDatasetMembershipByTrace({});
+      setBehaviorDefinitions([]);
+      setLabelBehaviorId("");
       setTraceListState("fixture mode");
       return;
     }
     try {
-      const [loadedSearches, loadedDatasets, loadedScores, loadedBehaviorMatches] = await Promise.all([
+      const [loadedSearches, loadedDatasets, loadedScores, loadedBehaviorMatches, loadedBehaviors] = await Promise.all([
         props.client.listSavedSearches(props.projectId),
         props.client.listDatasets(props.projectId),
         props.client.listScores(props.projectId),
-        props.client.listBehaviorMatches(props.projectId)
+        props.client.listBehaviorMatches(props.projectId),
+        props.client.listBehaviors(props.projectId)
       ]);
       const datasetExamples = await Promise.all(
         loadedDatasets.map(async (dataset) => ({
@@ -2698,6 +2703,12 @@ function TraceExplorer(props: {
       setScoresByTrace(groupByTraceId(loadedScores));
       setBehaviorMatchesByTrace(groupByTraceId(loadedBehaviorMatches));
       setDatasetMembershipByTrace(groupDatasetMembership(datasetExamples));
+      setBehaviorDefinitions(loadedBehaviors);
+      setLabelBehaviorId((current) =>
+        loadedBehaviors.some((behavior) => behavior.behavior_id === current)
+          ? current
+          : loadedBehaviors[0]?.behavior_id ?? ""
+      );
       setSelectedSavedSearchId((current) =>
         loadedSearches.some((search) => search.saved_search_id === current)
           ? current
@@ -2796,6 +2807,34 @@ function TraceExplorer(props: {
       setTraceListState(`added ${detail.trace.trace_id} to ${dataset.name}`);
     } catch (error) {
       setTraceListState(error instanceof Error ? error.message : "trace add failed");
+    }
+  }
+
+  async function labelSelectedTraceBehavior() {
+    if (props.connection !== "live" || !detail || !labelBehaviorId) return;
+    try {
+      const result = await props.client.labelTraceBehavior(
+        props.projectId,
+        detail.trace.trace_id,
+        labelBehaviorId,
+        selectedSpan?.span_id
+      );
+      setBehaviorMatchesByTrace((current) => ({
+        ...current,
+        [detail.trace.trace_id]: [
+          result.behavior_match,
+          ...(current[detail.trace.trace_id] ?? []).filter(
+            (match) =>
+              !(
+                match.behavior_id === result.behavior_match.behavior_id &&
+                match.status === result.behavior_match.status
+              )
+          )
+        ]
+      }));
+      setTraceListState(`labeled ${detail.trace.trace_id} with ${result.behavior_match.behavior_id}`);
+    } catch (error) {
+      setTraceListState(error instanceof Error ? error.message : "behavior label failed");
     }
   }
 
@@ -2960,6 +2999,22 @@ function TraceExplorer(props: {
               <button onClick={props.onCheckSimilarity}>
                 <Search size={15} />
                 Similar
+              </button>
+              <select
+                value={labelBehaviorId}
+                onChange={(event) => setLabelBehaviorId(event.target.value)}
+                aria-label="Behavior label"
+              >
+                <option value="">Select behavior</option>
+                {behaviorDefinitions.map((behavior) => (
+                  <option key={behavior.behavior_id} value={behavior.behavior_id}>
+                    {behavior.name}
+                  </option>
+                ))}
+              </select>
+              <button onClick={() => void labelSelectedTraceBehavior()} disabled={!labelBehaviorId}>
+                <GitBranch size={15} />
+                Label behavior
               </button>
               <button>
                 <Braces size={15} />
