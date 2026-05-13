@@ -1003,9 +1003,9 @@ Known remaining gaps before calling the whole spec complete:
 - Judge registry, model-backed judge drafting, local eval launch, eval
   comparison, judge calibration reporting, promotion gates, and the judge
   lifecycle workspace now exist. Prompt/config-linked eval launch, comparison
-  provenance, behavior-distribution shifts, historical run drilldowns, and
-  runtime-version analytics are now wired; broader long-horizon trend views
-  remain future polish.
+  provenance, behavior-distribution shifts, historical run drilldowns,
+  long-horizon trend rows, and runtime-version analytics are now wired; broader
+  pilot-scale trend interpretation remains future polish.
 - Automation definitions and local run execution include deterministic
   conditions, idempotency, preview notifications, opt-in live webhook delivery,
   review-task actions, cooldown skips, bounded retries, and dead-letter action
@@ -1155,6 +1155,9 @@ Implemented in this pass:
 - Added eval comparison historical run drilldowns keyed by related dataset,
   prompt, config, and baseline-chain lineage, plus UI rows that expose pass
   rate, score, invalid-output count, runtime provenance, and matched lineage.
+- Added eval analytics trend rows with pass-rate and invalid-output deltas over
+  the latest 30 runs, and surfaced the newest trend rows in the Datasets/Evals
+  workspace.
 - Notification target creation now rejects plaintext config blobs and validates
   `config_secret_refs`; active targets require at least one secret ref, while
   paused placeholders can be created without mounting secrets.

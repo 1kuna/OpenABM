@@ -813,6 +813,24 @@ export interface EvalAnalytics {
   by_agent_config_version: EvalAnalyticsGroup[];
   by_deployment_context: EvalAnalyticsGroup[];
   recent_runs: Array<Record<string, unknown>>;
+  trend: EvalAnalyticsTrendRow[];
+}
+
+export interface EvalAnalyticsTrendRow {
+  eval_run_id: string;
+  sequence_index: number;
+  dataset_version_id: string;
+  status: string;
+  pass_rate: number;
+  pass_rate_delta: number | null;
+  invalid_output_count: number;
+  invalid_output_delta: number | null;
+  total_examples: number;
+  prompt_version_id: string | null;
+  agent_config_version_id: string | null;
+  deployment_context_id: string | null;
+  created_at: string;
+  completed_at: string | null;
 }
 
 export interface EvalResult {

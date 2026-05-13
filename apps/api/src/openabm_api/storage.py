@@ -3198,7 +3198,7 @@ class SQLiteStore:
                 """
                 SELECT * FROM eval_runs
                 WHERE project_id = ?
-                ORDER BY created_at DESC
+                ORDER BY created_at DESC, rowid DESC
                 """,
                 (project_id,),
             ).fetchall()
@@ -3253,7 +3253,47 @@ class SQLiteStore:
                 }
                 for run in runs[:10]
             ],
+            "trend": self._eval_run_trend_rows(runs),
         }
+
+    def _eval_run_trend_rows(
+        self,
+        runs: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        chronological = list(reversed(runs[:30]))
+        rows = []
+        previous_pass_rate: float | None = None
+        previous_invalid_count: int | None = None
+        for index, run in enumerate(chronological, start=1):
+            summary = run.get("summary", {})
+            pass_rate = _pass_rate(summary)
+            invalid_output_count = _invalid_output_count(summary)
+            row = {
+                "eval_run_id": run["eval_run_id"],
+                "sequence_index": index,
+                "dataset_version_id": run["dataset_version_id"],
+                "status": run["status"],
+                "pass_rate": pass_rate,
+                "pass_rate_delta": None
+                if previous_pass_rate is None
+                else round(pass_rate - previous_pass_rate, 4),
+                "invalid_output_count": invalid_output_count,
+                "invalid_output_delta": None
+                if previous_invalid_count is None
+                else invalid_output_count - previous_invalid_count,
+                "total_examples": _total_eval_examples(summary),
+                "prompt_version_id": run.get("prompt_version_id"),
+                "agent_config_version_id": run.get("agent_config_version_id"),
+                "deployment_context_id": (run.get("runtime_context") or {}).get(
+                    "deployment_context_id"
+                ),
+                "created_at": run["created_at"],
+                "completed_at": run.get("completed_at"),
+            }
+            rows.append(row)
+            previous_pass_rate = pass_rate
+            previous_invalid_count = invalid_output_count
+        return rows
 
     def get_eval_run(self, project_id: str, eval_run_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:

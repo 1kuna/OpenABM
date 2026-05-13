@@ -1991,6 +1991,13 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
     assert version_2.json()["prompt_version_id"] in prompt_keys
     deployment_keys = {item["key"] for item in analytics_body["by_deployment_context"]}
     assert {"deploy_refund_runtime_v1", "deploy_refund_runtime_v2"} <= deployment_keys
+    assert [row["eval_run_id"] for row in analytics_body["trend"]] == [
+        baseline.json()["eval_run_id"],
+        candidate.json()["eval_run_id"],
+    ]
+    assert analytics_body["trend"][0]["pass_rate_delta"] is None
+    assert analytics_body["trend"][1]["pass_rate_delta"] == 0.0
+    assert analytics_body["trend"][1]["deployment_context_id"] == "deploy_refund_runtime_v2"
 
     investigation = client.post(
         "/v1/investigations",

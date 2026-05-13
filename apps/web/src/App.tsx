@@ -4016,6 +4016,7 @@ function DatasetEvalWorkspace(props: {
                     <span>{formatEvalAnalyticsGroup(topDeploymentAnalytics)}</span>
                   </div>
                 </div>
+                <EvalTrendRows trend={evalAnalytics?.trend ?? []} />
                 <div className="evalRows">
                   {datasetRuns.map((run) => (
                     <button
@@ -4195,6 +4196,28 @@ function EvalBehaviorShiftRows(props: {
         );
       })}
       {!deltas.length ? <span>No labeled behavior changes</span> : null}
+    </div>
+  );
+}
+
+function EvalTrendRows(props: { trend: EvalAnalytics["trend"] }) {
+  const rows = props.trend.slice(-6).reverse();
+  return (
+    <div className="comparisonShiftRows">
+      <strong>Trend</strong>
+      {rows.map((run) => (
+        <div key={run.eval_run_id}>
+          <div className="comparisonShiftHeader">
+            <strong>{shortIdentifier(run.eval_run_id)}</strong>
+            <span className={`judgeStatus ${run.status}`}>{run.status}</span>
+          </div>
+          <span>
+            Pass {formatPercent(run.pass_rate)} ({formatSignedPercent(run.pass_rate_delta)}) · invalid {run.invalid_output_count} ({formatSignedInteger(run.invalid_output_delta)})
+          </span>
+          <small>{formatEvalTrendRuntime(run)}</small>
+        </div>
+      ))}
+      {!rows.length ? <span>No trend data yet</span> : null}
     </div>
   );
 }
@@ -6577,6 +6600,18 @@ function formatNullableNumber(value: number | null | undefined) {
 
 function formatEvalHistoryRuntime(run: EvalComparison["historical_runs"][number]) {
   const parts = [
+    run.prompt_version_id ? `prompt ${shortIdentifier(run.prompt_version_id)}` : null,
+    run.agent_config_version_id ? `config ${shortIdentifier(run.agent_config_version_id)}` : null,
+    run.deployment_context_id ? `deploy ${shortIdentifier(run.deployment_context_id)}` : null,
+    run.completed_at ? `completed ${formatTime(run.completed_at)}` : `created ${formatTime(run.created_at)}`
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
+function formatEvalTrendRuntime(run: EvalAnalytics["trend"][number]) {
+  const parts = [
+    `#${run.sequence_index}`,
+    run.total_examples ? `${run.total_examples} examples` : "no examples",
     run.prompt_version_id ? `prompt ${shortIdentifier(run.prompt_version_id)}` : null,
     run.agent_config_version_id ? `config ${shortIdentifier(run.agent_config_version_id)}` : null,
     run.deployment_context_id ? `deploy ${shortIdentifier(run.deployment_context_id)}` : null,
