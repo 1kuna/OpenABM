@@ -24,9 +24,10 @@ live in this repo as original OpenABM artifacts.
 
 ## Development
 
-The local reference implementation is designed to run without local or hosted
-LLMs unless model-backed judges, summarization, embeddings, behavior discovery,
-or investigation chat are explicitly enabled later.
+The local reference implementation can run without local or hosted LLMs, and it
+also supports explicitly configured OpenAI-compatible local providers for
+model-backed judges, summarization, embeddings, behavior discovery, grounding,
+and investigation assistance.
 
 See `IMPLEMENTATION_PROGRESS.md` for the current build status and deferred
 LLM-dependent work.

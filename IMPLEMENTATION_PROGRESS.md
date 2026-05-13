@@ -480,6 +480,9 @@ Done:
 - Verified a live LM Studio investigation canary with `qwen3.5-9b-mlx`; the
   prompt revision produced a cited root cause, behavior draft, and rubric draft
   as valid unrepaired JSON with reasoning-token usage.
+- Updated the model-runtime decision record from no-LLM deferral to the accepted
+  local OpenAI-compatible provider strategy now that LM Studio chat/tool-call
+  and embedding paths are implemented and covered by tests/canaries.
 - Added human review task APIs and connected investigation root-cause/behavior
   candidates to the review queue instead of treating model drafts as active
   product decisions.
