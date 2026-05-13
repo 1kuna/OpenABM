@@ -1219,6 +1219,60 @@ def test_v1_automation_run_creates_review_task_and_notification_preview(tmp_path
     assert retry_body["action_results"][0]["partial_failure_behavior"] == "continue"
     assert retry_body["action_results"][1]["status"] == "succeeded"
 
+    compensating = client.post(
+        "/v1/automations",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "name": "compensate after notification failure",
+            "trigger": {"type": "trace_completed"},
+            "conditions": {
+                "combine": "all",
+                "items": [{"field": "trace.status", "op": "eq", "value": "error"}],
+            },
+            "actions": [
+                {
+                    "type": "create_review_task",
+                    "task_type": "behavior_candidate",
+                    "compensation_actions": [
+                        {
+                            "type": "send_notification",
+                            "target_id": target.json()["target_id"],
+                            "message": "Review task needs manual cleanup",
+                            "group_key": "compensation-review-cleanup",
+                        }
+                    ],
+                },
+                {
+                    "type": "send_notification",
+                    "target_id": "missing_target",
+                    "message": "This should trigger compensation",
+                    "on_failure": "compensate",
+                },
+            ],
+        },
+    )
+    assert compensating.status_code == 201
+    compensation_run = client.post(
+        f"/v1/automations/{compensating.json()['automation_id']}/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": trace_id,
+            "idempotency_key": "auto-test-compensate",
+        },
+    )
+    assert compensation_run.status_code == 201
+    compensation_body = compensation_run.json()
+    assert compensation_body["status"] == "partial_failure"
+    failed_action = compensation_body["action_results"][1]
+    assert failed_action["status"] == "dead_lettered"
+    assert failed_action["partial_failure_behavior"] == "compensate"
+    assert failed_action["compensation_status"] == "succeeded"
+    assert failed_action["compensation_results"][0]["delivery_status"] == "preview_only"
+    assert failed_action["compensation_results"][0]["compensates_action_index"] == 0
+    assert failed_action["compensation_results"][0]["group_key"] == "compensation-review-cleanup"
+
 
 def test_v1_notification_targets_require_secret_refs(tmp_path) -> None:
     client = make_client(tmp_path)

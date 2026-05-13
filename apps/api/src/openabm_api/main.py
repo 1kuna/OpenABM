@@ -3522,7 +3522,18 @@ def _execute_automation_actions(
             result["partial_failure_behavior"] = behavior
             if behavior != "continue":
                 if behavior == "compensate":
-                    result["compensation_status"] = "not_configured"
+                    compensation_results = _execute_compensation_actions(
+                        store,
+                        settings,
+                        secret_cipher,
+                        project_id,
+                        trace_id,
+                        results,
+                    )
+                    result["compensation_results"] = compensation_results
+                    result["compensation_status"] = _compensation_status(
+                        compensation_results
+                    )
                 halted = True
     return results
 
@@ -3617,6 +3628,74 @@ def _execute_automation_action_once(
         return {**planned, "status": "unsupported", "reason": "unsupported action type"}
     except (KeyError, ValueError, RuntimeError) as exc:
         return {**planned, "status": "failed", "reason": str(exc)}
+
+
+def _execute_compensation_actions(
+    store: SQLiteStore,
+    settings: Settings,
+    secret_cipher: LocalSecretCipher,
+    project_id: str,
+    trace_id: str | None,
+    action_results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    results = []
+    for planned in _planned_compensation_actions(action_results):
+        results.append(
+            _execute_automation_action_with_retries(
+                store,
+                settings,
+                secret_cipher,
+                project_id,
+                planned,
+                trace_id,
+            )
+        )
+    return results
+
+
+def _planned_compensation_actions(action_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    planned: list[dict[str, Any]] = []
+    for result in reversed(action_results):
+        action = result.get("action") if isinstance(result.get("action"), dict) else {}
+        for offset, compensation in enumerate(_compensation_actions(action)):
+            if not isinstance(compensation, dict):
+                continue
+            source_index = result.get("index")
+            planned.append(
+                {
+                    "index": f"compensate:{source_index}:{offset}",
+                    "type": compensation.get("type"),
+                    "status": "planned",
+                    "idempotency_key": (
+                        f"{result.get('idempotency_key')}:compensation:{offset}"
+                    ),
+                    "action": compensation,
+                    "compensates_action_index": source_index,
+                }
+            )
+    return planned
+
+
+def _compensation_actions(action: dict[str, Any]) -> list[dict[str, Any]]:
+    value = (
+        action.get("compensation_actions")
+        or action.get("compensate_with")
+        or action.get("compensation")
+        or []
+    )
+    if isinstance(value, dict):
+        return [value]
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def _compensation_status(results: list[dict[str, Any]]) -> str:
+    if not results:
+        return "not_configured"
+    if any(_is_action_failure(result) for result in results):
+        return "partial_failure"
+    return "succeeded"
 
 
 def _execute_notification_action(

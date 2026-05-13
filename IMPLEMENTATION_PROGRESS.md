@@ -332,6 +332,10 @@ Done:
   encrypted secret ref for the endpoint URL. Delivery records audit IDs,
   grouping keys, HTTP status, transport failures, and retry/dead-letter state
   without rendering plaintext secrets.
+- Added explicit automation compensation actions. If an action fails with
+  `on_failure: compensate`, OpenABM executes configured `compensation_actions`
+  from the failed action and prior successful actions in reverse order, records
+  each compensation result, and keeps the original dead-lettered failure visible.
 
 ## Phase 7: Prompt Registry, MCP, And Investigation Agent
 
@@ -645,6 +649,10 @@ Verified after the latest implementation slices:
   payload only when external notifications are explicitly enabled, records an
   audit-backed delivery result, and keeps plaintext endpoint values out of the
   action result.
+- Automation compensation regression passed: a failed notification action with
+  `on_failure: compensate` ran an explicit notification compensation action for
+  a prior review-task action, preserved the original dead-lettered action, and
+  reported the compensation status/result on the failed action.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:
@@ -659,7 +667,8 @@ Known remaining gaps before calling the whole spec complete:
 - Automation definitions and local run execution include deterministic
   conditions, idempotency, preview notifications, opt-in live webhook delivery,
   review-task actions, cooldown skips, bounded retries, and dead-letter action
-  visibility; richer compensation handlers remain future work.
+  visibility, plus explicit compensation actions; typed rollback helpers for
+  specific external systems remain future work.
 - Passive novelty detection has deterministic exact-signature grouping plus
   optional model semantic grouping/naming with validated membership; larger
   clustering and embedding-backed discovery remain future work.
@@ -774,6 +783,8 @@ Implemented in this pass:
 - Added bounded retry attempts and visible dead-letter action results for
   automation actions, including configured `on_failure: continue` behavior for
   partial-failure runs.
+- Added configured `on_failure: compensate` behavior with explicit
+  `compensation_actions` executed in reverse order from failed/prior actions.
 - Added `/v1/grounding-checks` and `/v1/novelty-runs` paths for reviewable
   fabricated-value checks and passive behavior candidate discovery.
 - Added model-assisted `/v1/grounding-checks` claim extraction with persisted
