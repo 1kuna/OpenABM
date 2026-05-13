@@ -767,8 +767,9 @@ Verified after the latest implementation slices:
   `artifacts/ui-qa/openabm-ops-observability-mobile.png`.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
-- MCP stdio smoke: `tools/list` returned 35 tools and
-  `resources/templates/list` returned 14 resource templates.
+- MCP stdio smoke: `tools/list` returned 41 tools and
+  `resources/templates/list` returned 14 protocol-shaped JSON resource
+  templates.
 - Live LM Studio canaries completed for structured rubric output, semantic trace
   similarity, and investigation drafting with `openabm-qwen35-9b`.
 - Live LM Studio model-runtime benchmark completed with `qwen3.5-9b-mlx` against
