@@ -2510,9 +2510,11 @@ function PromptRegistryWorkspace(props: {
                   </button>
                 </div>
                 {diff ? <pre>{diff.text_diff || "No text changes"}</pre> : null}
+                {diff ? <pre>{JSON.stringify(diff.message_level_diff, null, 2)}</pre> : null}
                 {diff?.tag_movement_history.length ? (
                   <pre>{JSON.stringify(diff.tag_movement_history, null, 2)}</pre>
                 ) : null}
+                {diff ? <pre>{JSON.stringify(diff.linked_eval_result_diff, null, 2)}</pre> : null}
               </section>
             </div>
           </>

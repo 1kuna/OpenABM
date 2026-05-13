@@ -221,6 +221,15 @@ def _invalid_output_count(summary: dict[str, Any]) -> int:
     return int(summary.get("result_status_counts", {}).get("invalid_output", 0))
 
 
+def _nullable_delta(
+    candidate: int | float | None,
+    baseline: int | float | None,
+) -> float | None:
+    if candidate is None or baseline is None:
+        return None
+    return round(float(candidate) - float(baseline), 4)
+
+
 def _total_eval_examples(summary: dict[str, Any]) -> int:
     return int(summary.get("total_examples") or 0)
 
@@ -278,6 +287,26 @@ def _eval_group_summary(group_key: str, runs: list[dict[str, Any]]) -> dict[str,
         if total_examples == 0
         else invalid_outputs / total_examples,
     }
+
+
+def _messages_from_prompt_template(template_text: str) -> list[dict[str, str]] | None:
+    try:
+        parsed = json.loads(template_text)
+    except json.JSONDecodeError:
+        return None
+    messages = parsed.get("messages") if isinstance(parsed, dict) else parsed
+    if not isinstance(messages, list):
+        return None
+    normalized = []
+    for item in messages:
+        if not isinstance(item, dict):
+            return None
+        role = item.get("role")
+        content = item.get("content")
+        if not isinstance(role, str) or not isinstance(content, str):
+            return None
+        normalized.append({"role": role, "content": content})
+    return normalized
 
 
 def _group_eval_runs(
@@ -3491,13 +3520,95 @@ class SQLiteStore:
             "old_commit_id": old_commit_id,
             "new_commit_id": new_commit_id,
             "text_diff": text_diff,
+            "message_level_diff": self._prompt_message_level_diff(
+                old["template_text"],
+                new["template_text"],
+            ),
             "variables_schema_changed": old["variables_schema"] != new["variables_schema"],
             "tag_movement_history": self._prompt_tag_history_for_commits(
                 project_id,
                 prompt_id,
                 {old_commit_id, new_commit_id},
             ),
+            "linked_eval_result_diff": self._prompt_version_eval_diff(project_id, old, new),
         }
+
+    @staticmethod
+    def _prompt_message_level_diff(
+        old_text: str,
+        new_text: str,
+    ) -> dict[str, Any]:
+        old_messages = _messages_from_prompt_template(old_text)
+        new_messages = _messages_from_prompt_template(new_text)
+        if old_messages is None or new_messages is None:
+            return {
+                "status": "not_applicable",
+                "reason": "both prompt templates must be JSON message arrays",
+                "changes": [],
+            }
+        changes = []
+        for index in range(max(len(old_messages), len(new_messages))):
+            old = old_messages[index] if index < len(old_messages) else None
+            new = new_messages[index] if index < len(new_messages) else None
+            if old is None and new is not None:
+                changes.append({"index": index, "change_type": "added", "new": new})
+            elif old is not None and new is None:
+                changes.append({"index": index, "change_type": "removed", "old": old})
+            elif old != new:
+                changes.append({"index": index, "change_type": "changed", "old": old, "new": new})
+        return {
+            "status": "succeeded",
+            "message_count_delta": len(new_messages) - len(old_messages),
+            "changed_message_count": len(changes),
+            "changes": changes,
+        }
+
+    def _prompt_version_eval_diff(
+        self,
+        project_id: str,
+        old_version: dict[str, Any],
+        new_version: dict[str, Any],
+    ) -> dict[str, Any]:
+        old_summary = self._prompt_version_eval_summary(
+            project_id,
+            old_version["prompt_version_id"],
+        )
+        new_summary = self._prompt_version_eval_summary(
+            project_id,
+            new_version["prompt_version_id"],
+        )
+        return {
+            "old_prompt_version_id": old_version["prompt_version_id"],
+            "new_prompt_version_id": new_version["prompt_version_id"],
+            "old": old_summary,
+            "new": new_summary,
+            "pass_rate_delta": _nullable_delta(
+                new_summary.get("avg_pass_rate"),
+                old_summary.get("avg_pass_rate"),
+            ),
+            "invalid_output_count_delta": int(new_summary["invalid_output_count"])
+            - int(old_summary["invalid_output_count"]),
+            "run_count_delta": int(new_summary["run_count"]) - int(old_summary["run_count"]),
+        }
+
+    def _prompt_version_eval_summary(
+        self,
+        project_id: str,
+        prompt_version_id: str,
+    ) -> dict[str, Any]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM eval_runs
+                WHERE project_id = ? AND prompt_version_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id, prompt_version_id),
+            ).fetchall()
+        runs = [self._eval_run_from_row(row) for row in rows]
+        summary = _eval_group_summary(prompt_version_id, runs)
+        summary["eval_run_ids"] = [run["eval_run_id"] for run in runs]
+        return summary
 
     def list_prompt_tag_events(
         self,

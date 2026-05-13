@@ -4507,14 +4507,17 @@
                     "old_commit_id",
                     "new_commit_id",
                     "text_diff",
+                    "message_level_diff",
                     "variables_schema_changed",
-                    "tag_movement_history"
+                    "tag_movement_history",
+                    "linked_eval_result_diff"
                   ],
                   "properties": {
                     "prompt_id": {"type": "string"},
                     "old_commit_id": {"type": "string"},
                     "new_commit_id": {"type": "string"},
                     "text_diff": {"type": "string"},
+                    "message_level_diff": {"type": "object"},
                     "variables_schema_changed": {"type": "boolean"},
                     "tag_movement_history": {
                       "type": "array",
@@ -4539,7 +4542,8 @@
                           "created_at": {"type": "string", "format": "date-time"}
                         }
                       }
-                    }
+                    },
+                    "linked_eval_result_diff": {"type": "object"}
                   }
                 }
               }

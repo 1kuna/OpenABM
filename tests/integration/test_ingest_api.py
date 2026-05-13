@@ -1489,6 +1489,57 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
         version_2.json()["commit_id"],
     ]
     assert prod_tag_events[1]["previous_commit_id"] == version_1.json()["commit_id"]
+    assert diff_body["message_level_diff"]["status"] == "not_applicable"
+
+    message_prompt = client.post(
+        "/v1/prompts",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "name": "Message prompt"},
+    )
+    assert message_prompt.status_code == 201
+    message_prompt_id = message_prompt.json()["prompt_id"]
+    message_v1 = client.post(
+        f"/v1/prompts/{message_prompt_id}/versions",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "template_text": json.dumps(
+                [
+                    {"role": "system", "content": "Be brief."},
+                    {"role": "user", "content": "{{question}}"},
+                ]
+            ),
+            "variables_schema": {"type": "object", "required": ["question"]},
+        },
+    )
+    message_v2 = client.post(
+        f"/v1/prompts/{message_prompt_id}/versions",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "template_text": json.dumps(
+                [
+                    {"role": "system", "content": "Be precise."},
+                    {"role": "user", "content": "{{question}}"},
+                    {"role": "assistant", "content": "I will cite trace evidence."},
+                ]
+            ),
+            "variables_schema": {"type": "object", "required": ["question"]},
+            "parent_commit_id": message_v1.json()["commit_id"],
+        },
+    )
+    message_diff = client.post(
+        f"/v1/prompts/{message_prompt_id}/diff",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "old_commit_id": message_v1.json()["commit_id"],
+            "new_commit_id": message_v2.json()["commit_id"],
+        },
+    )
+    assert message_diff.json()["message_level_diff"]["status"] == "succeeded"
+    assert message_diff.json()["message_level_diff"]["message_count_delta"] == 1
+    assert message_diff.json()["message_level_diff"]["changed_message_count"] == 2
     fetched_prompt = client.get(
         f"/v1/prompts/{prompt_id}",
         params={"project_id": "proj_demo"},
@@ -1613,6 +1664,21 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
     assert provenance["candidate"]["runtime_context"]["deployment_context_id"] == (
         "deploy_refund_runtime_v2"
     )
+    diff_after_evals = client.post(
+        f"/v1/prompts/{prompt_id}/diff",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "old_commit_id": version_1.json()["commit_id"],
+            "new_commit_id": version_2.json()["commit_id"],
+        },
+    )
+    linked_eval_diff = diff_after_evals.json()["linked_eval_result_diff"]
+    assert linked_eval_diff["old"]["run_count"] == 1
+    assert linked_eval_diff["new"]["run_count"] == 1
+    assert linked_eval_diff["old"]["eval_run_ids"] == [baseline.json()["eval_run_id"]]
+    assert linked_eval_diff["new"]["eval_run_ids"] == [candidate.json()["eval_run_id"]]
+    assert linked_eval_diff["run_count_delta"] == 0
     analytics = client.get(
         "/v1/evals/analytics",
         params={"project_id": "proj_demo"},

@@ -247,6 +247,7 @@ export interface PromptDiffResult {
   old_commit_id: string;
   new_commit_id: string;
   text_diff: string;
+  message_level_diff: Record<string, unknown>;
   variables_schema_changed: boolean;
   tag_movement_history: Array<{
     prompt_tag_event_id: string;
@@ -257,6 +258,7 @@ export interface PromptDiffResult {
     new_commit_id: string;
     created_at: string;
   }>;
+  linked_eval_result_diff: Record<string, unknown>;
 }
 
 export interface PromptRenderResult {
