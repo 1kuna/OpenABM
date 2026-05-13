@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from openabm_api.main import create_app
 from openabm_api.settings import Settings
+from openabm_mcp.handlers import call_tool
 from openabm_worker.offline_eval import run_deterministic_eval
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1678,6 +1679,208 @@ def test_v1_investigation_adds_model_assistance_with_citations(tmp_path, monkeyp
     )
     task_types = {task["task_type"] for task in reviews.json()["data"]}
     assert {"root_cause_candidate", "behavior_candidate"} <= task_types
+
+
+def test_core_loop_acceptance_preserves_provenance_through_mcp(tmp_path, monkeypatch) -> None:
+    class StubProvider:
+        async def structured_completion(self, request, schema):
+            del request, schema
+            return {
+                "status": "succeeded",
+                "value": {
+                    "verdict": "fail",
+                    "score": 0.0,
+                    "confidence": 0.91,
+                    "reasoning": "Order lookup was used for a refund-policy decision.",
+                    "evidence_span_ids": ["span_wrong_tool_order_lookup"],
+                    "failure_mode": "wrong_tool_for_refund",
+                    "notes": None,
+                },
+                "provider": "stub",
+                "model": "stub-model",
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                "repaired": False,
+            }
+
+    monkeypatch.setattr(
+        "openabm_api.main.model_provider_from_settings",
+        lambda settings: StubProvider(),
+    )
+    client = make_client(tmp_path)
+    corpus = json.loads(FIXTURE_PATH.read_text())
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={
+            "traces": [fixture["trace"] for fixture in corpus["fixtures"][:2]],
+            "spans": [span for fixture in corpus["fixtures"][:2] for span in fixture["spans"]],
+        },
+    )
+
+    judge_definition = {
+        "judge_id": "judge_wrong_tool_acceptance",
+        "judge_type": "rubric_judge",
+        "name": "Wrong refund tool acceptance judge",
+        "require_span_citations": True,
+        "rubric": {
+            "pass": "Refund workflow uses policy lookup or no inappropriate lookup.",
+            "fail": "Refund workflow uses order lookup as the decisive tool.",
+            "unsure": "The trace lacks enough tool evidence.",
+        },
+    }
+    judge = client.post(
+        "/v1/judges/drafts",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "name": "Wrong refund tool acceptance judge",
+            "judge_type": "rubric_judge",
+            "definition": judge_definition,
+            "trace_id": "trace_wrong_tool",
+        },
+    )
+    assert judge.status_code == 201
+    version = client.post(
+        f"/v1/judges/{judge.json()['judge_id']}/versions",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "definition": judge_definition},
+    )
+    assert version.status_code == 201
+    judge_definition["judge_id"] = judge.json()["judge_id"]
+    judge_definition["judge_version_id"] = version.json()["judge_version_id"]
+
+    score = client.post(
+        "/v1/judges/rubric/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": "trace_wrong_tool",
+            "judge": judge_definition,
+        },
+    )
+    assert score.status_code == 201
+    assert score.json()["status"] == "succeeded"
+    assert score.json()["evidence_span_ids"] == ["span_wrong_tool_order_lookup"]
+
+    behavior = client.post(
+        "/v1/behaviors",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "name": "wrong_tool_for_refund",
+            "severity": "high",
+            "detector": {
+                "type": "rule",
+                "scope": "span",
+                "match_semantics": "any_match_is_behavior",
+                "conditions": {
+                    "combine": "all",
+                    "items": [
+                        {
+                            "field": "attributes.tool.name",
+                            "op": "eq",
+                            "value": "order_lookup",
+                        }
+                    ],
+                },
+            },
+        },
+    )
+    assert behavior.status_code == 201
+    backtest = client.post(
+        f"/v1/behaviors/{behavior.json()['behavior_id']}/backtest",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "filters": {"status": "error"}},
+    )
+    assert backtest.status_code == 200
+    assert backtest.json()["positive_examples"][0]["trace_id"] == "trace_wrong_tool"
+    assert backtest.json()["positive_examples"][0]["evidence_span_ids"] == [
+        "span_wrong_tool_order_lookup"
+    ]
+
+    dataset = client.post(
+        "/v1/datasets",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "name": "Core loop eval"},
+    )
+    assert dataset.status_code == 201
+    example = client.post(
+        f"/v1/datasets/{dataset.json()['dataset_id']}/examples/from-trace",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": "trace_wrong_tool",
+            "labels": ["wrong_tool_for_refund"],
+        },
+    )
+    assert example.status_code == 201
+    assert example.json()["source_trace_id"] == "trace_wrong_tool"
+
+    baseline = client.post(
+        "/v1/evals/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "dataset_version_id": dataset.json()["latest_version_id"],
+            "judges": [_wrong_tool_judge()],
+        },
+    )
+    candidate = client.post(
+        "/v1/evals/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "dataset_version_id": dataset.json()["latest_version_id"],
+            "judges": [_wrong_tool_judge()],
+            "baseline_eval_run_id": baseline.json()["eval_run_id"],
+        },
+    )
+    assert baseline.status_code == 201
+    assert candidate.status_code == 201
+    assert candidate.json()["results"][0]["offline_trace_id"] == "trace_wrong_tool"
+    comparison = client.post(
+        "/v1/evals/compare",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "baseline_eval_run_id": baseline.json()["eval_run_id"],
+            "candidate_eval_run_id": candidate.json()["eval_run_id"],
+        },
+    )
+    assert comparison.status_code == 200
+    assert comparison.json()["baseline_eval_run_id"] == baseline.json()["eval_run_id"]
+
+    mcp_trace = call_tool(
+        "get_trace",
+        {"project_id": "proj_demo", "trace_id": "trace_wrong_tool"},
+        client=_TestClientMcpAdapter(client),
+    )
+    scores = client.get(
+        "/v1/scores",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo", "trace_id": "trace_wrong_tool"},
+    )
+    assert scores.json()["data"][0]["score_id"] == score.json()["score_id"]
+    assert mcp_trace["trace"]["trace_id"] == "trace_wrong_tool"
+    assert mcp_trace["reconstruction"]["span_tree"][0]["children"][0]["span"][
+        "span_id"
+    ] == "span_wrong_tool_order_lookup"
+
+
+class _TestClientMcpAdapter:
+    def __init__(self, client: TestClient) -> None:
+        self.client = client
+
+    def request(self, method, path, *, params=None, json_body=None):
+        response = self.client.request(
+            method,
+            path,
+            params=params,
+            json=json_body,
+            headers=auth_headers(),
+        )
+        assert response.status_code < 400, response.text
+        return response.json()
 
 
 def _wrong_tool_judge() -> dict[str, object]:

@@ -502,8 +502,8 @@ Blocked:
 Verified after the latest implementation slices:
 
 - `make lint`: passed.
-- `make test`: passed, 50 tests after the model-benchmark and LangGraph
-  investigation-adapter slices.
+- `make test`: passed, 51 tests after the model-benchmark, LangGraph
+  investigation-adapter, and core-loop acceptance slices.
 - `npm --prefix apps/web run build`: passed.
 - Browser QA captured desktop and mobile Trace Detail, Operations, Issues, and
   Automations workspace screenshots under `artifacts/ui-qa/`; trace detail mode
@@ -554,6 +554,10 @@ Verified after the latest implementation slices:
   persist framework, graph version, candidate search queries, trace candidates,
   and tool-call inputs/outputs before model assistance and review tasks are
   layered on top.
+- Core loop acceptance regression passed: fixture ingest, explicit judge draft
+  and versioning, rubric judge execution, behavior creation/backtest, dataset
+  example creation, baseline/candidate eval runs, eval comparison, and MCP trace
+  retrieval all preserve trace/span/score/dataset/eval provenance.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:
