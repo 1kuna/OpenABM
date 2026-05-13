@@ -40,6 +40,9 @@ Scaffold-complete local surfaces:
   outbox, encrypted secret refs, audit logs, retention worker, worker
   heartbeats, MCP observability, Docker Compose reference deployment, and admin
   status surfaces are in place.
+- Decision-record lane: storage, search, model runtime, sandbox, local stack,
+  orchestration, similarity experiments, and production-reference deployment now
+  have explicit governance records with revisit triggers.
 
 Remaining blockers or explicit non-local-reference work:
 
@@ -82,6 +85,9 @@ In this pass:
 - Add an agent orchestration direction record that favors OpenABM-owned tool
   contracts first, then evaluating LangGraph/Deep Agents or Pi-style cores
   instead of reinventing a deep-agent runtime.
+- Add similarity-experiment and production-reference deployment decision
+  records so the spec's required revisit/evidence gates are represented
+  directly instead of only through adjacent search/local-stack records.
 - Source-check the current LangGraph, Deep Agents, and Pi/pi-agent-core project
   surfaces before adding any orchestration dependency; refreshed this read on
   2026-05-13 after Zach clarified the OSS-first preference.
