@@ -194,6 +194,10 @@ Done:
   trace/span continuation, preserving trace/span/session/user/project/
   environment/sampling/redaction handles without propagating prompts, outputs,
   or secrets.
+- Added Python SDK integration wrapper contracts and a registry so future
+  package-specific instrumentation plugins must declare supported versions,
+  hooks, captured metadata, payload/redaction behavior, known limitations,
+  example code, and acceptance checks before registration.
 - Added SDK and API backpressure/sampling controls: deterministic SDK trace
   sampling metadata, SDK payload and model-stream event sampling with visible
   omission markers, bounded HTTP exporter buffering, server-side inline payload

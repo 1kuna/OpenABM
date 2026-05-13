@@ -1,6 +1,13 @@
 import json
 
-from openabm import SamplingConfig, Tracer, extract_baggage, observe
+from openabm import (
+    IntegrationRegistry,
+    IntegrationWrapperContract,
+    SamplingConfig,
+    Tracer,
+    extract_baggage,
+    observe,
+)
 from openabm.exporters import HttpExporter, InMemoryExporter, OfflineJsonlExporter
 
 
@@ -227,3 +234,58 @@ def test_http_exporter_caps_buffer_and_preserves_high_priority_items() -> None:
 
     assert [span["span_id"] for span in exporter._spans] == ["span_error"]
     assert exporter.dropped_items[0]["reason"] == "evicted_for_high_priority_item"
+
+
+def test_sdk_integration_registry_validates_wrapper_contracts() -> None:
+    class EchoIntegration:
+        contract = IntegrationWrapperContract(
+            name="echo-agent",
+            supported_package="echo-agent",
+            supported_versions=">=1,<2",
+            instrumentation_hooks=("run",),
+            captured_metadata=("model", "tool.name"),
+            payload_capture_behavior="uses tracer capture settings before export",
+            redaction_behavior="delegates payloads to tracer redactors",
+            known_limitations=("test-only wrapper",),
+            example_code="registry.instrument('echo-agent', tracer, agent)",
+            acceptance_tests=("records a span around run()",),
+        )
+
+        def instrument(self, tracer, target, config=None):
+            return {"tracer": tracer, "target": target, "config": dict(config or {})}
+
+    registry = IntegrationRegistry([EchoIntegration()])
+    assert registry.list_contracts()[0]["name"] == "echo-agent"
+    assert registry.list_contracts()[0]["instrumentation_hooks"] == ["run"]
+
+    tracer = Tracer("proj_demo", exporter=InMemoryExporter())
+    instrumented = registry.instrument("echo-agent", tracer, object(), {"capture_payloads": False})
+    assert instrumented["tracer"] is tracer
+    assert instrumented["config"] == {"capture_payloads": False}
+
+    try:
+        registry.register(EchoIntegration())
+    except ValueError as exc:
+        assert "already registered" in str(exc)
+    else:  # pragma: no cover - defensive assertion
+        raise AssertionError("duplicate integration registration should fail")
+
+
+def test_sdk_integration_contract_rejects_incomplete_metadata() -> None:
+    contract = IntegrationWrapperContract(
+        name="bad-agent",
+        supported_package="bad-agent",
+        supported_versions=">=1",
+        instrumentation_hooks=(),
+        captured_metadata=("model",),
+        payload_capture_behavior="uses tracer capture settings before export",
+        redaction_behavior="delegates payloads to tracer redactors",
+        acceptance_tests=("records spans",),
+    )
+
+    try:
+        contract.validate()
+    except ValueError as exc:
+        assert "instrumentation_hooks" in str(exc)
+    else:  # pragma: no cover - defensive assertion
+        raise AssertionError("invalid integration contract should fail validation")
