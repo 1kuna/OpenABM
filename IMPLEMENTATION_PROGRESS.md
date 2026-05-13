@@ -489,6 +489,9 @@ Done:
   of truth. Investigation results now persist an `orchestration` record with
   graph version, framework name, candidate queries, trace candidates, and
   tool-call inputs/outputs for replay/audit.
+- Normalized LangGraph investigation orchestration events with status,
+  citation IDs, and MCP-readable resource URIs so deep-agent runners can follow
+  an investigation event directly to its trace/span/issue/report evidence.
 - Added a live Judge workspace in the web app with judge listing, immutable
   version inspection, calibration summaries, configurable promotion gates, and
   promotion results wired to `/v1/judges`.

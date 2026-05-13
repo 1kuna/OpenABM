@@ -2678,6 +2678,17 @@ def test_v1_investigation_adds_model_assistance_with_citations(tmp_path, monkeyp
         "run_full_text_search",
         "persist_investigation_run",
     ]
+    assert {event["status"] for event in orchestration["tool_calls"]} == {"succeeded"}
+    structured_event = orchestration["tool_calls"][1]
+    assert structured_event["citations"] == ["trace_wrong_tool"]
+    assert structured_event["resource_uris"] == ["trace://trace_wrong_tool"]
+    persist_event = orchestration["tool_calls"][-1]
+    assert f"investigation-run://{response.json()['investigation_run_id']}" in persist_event[
+        "resource_uris"
+    ]
+    assert f"impact-report://{orchestration['tool_calls'][-1]['output']['impact_report_id']}" in (
+        persist_event["resource_uris"]
+    )
     assistance = response.json()["result"]["model_assistance"]
     assert assistance["suspected_root_causes"][0]["evidence_span_ids"] == [
         "span_wrong_tool_order_lookup"
