@@ -884,6 +884,7 @@ export interface EvalAnalytics {
   by_deployment_context: EvalAnalyticsGroup[];
   recent_runs: Array<Record<string, unknown>>;
   trend: EvalAnalyticsTrendRow[];
+  trend_interpretation: EvalTrendInterpretation;
 }
 
 export interface EvalAnalyticsTrendRow {
@@ -901,6 +902,21 @@ export interface EvalAnalyticsTrendRow {
   deployment_context_id: string | null;
   created_at: string;
   completed_at: string | null;
+}
+
+export interface EvalTrendInterpretation {
+  status: string;
+  summary: string;
+  evidence_eval_run_ids: string[];
+  latest_pass_rate_delta: number | null;
+  latest_invalid_output_delta: number | null;
+  latest_eval_run_id?: string;
+  previous_eval_run_id?: string;
+  latest_runtime_context?: {
+    prompt_version_id?: string | null;
+    agent_config_version_id?: string | null;
+    deployment_context_id?: string | null;
+  };
 }
 
 export interface EvalResult {

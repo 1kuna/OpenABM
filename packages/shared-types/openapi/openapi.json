@@ -2215,7 +2215,70 @@
         ],
         "responses": {
           "200": {
-            "description": "Eval analytics."
+            "description": "Eval analytics.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "project_id",
+                    "run_count",
+                    "trend",
+                    "trend_interpretation"
+                  ],
+                  "properties": {
+                    "project_id": {
+                      "type": "string"
+                    },
+                    "run_count": {
+                      "type": "integer"
+                    },
+                    "trend": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "trend_interpretation": {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "summary",
+                        "evidence_eval_run_ids",
+                        "latest_pass_rate_delta",
+                        "latest_invalid_output_delta"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "string"
+                        },
+                        "summary": {
+                          "type": "string"
+                        },
+                        "evidence_eval_run_ids": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "latest_pass_rate_delta": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "latest_invalid_output_delta": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }

@@ -2114,6 +2114,17 @@ def test_v1_prompt_and_agent_config_registry_lifecycle(tmp_path) -> None:
     assert analytics_body["trend"][0]["pass_rate_delta"] is None
     assert analytics_body["trend"][1]["pass_rate_delta"] == 0.0
     assert analytics_body["trend"][1]["deployment_context_id"] == "deploy_refund_runtime_v2"
+    assert analytics_body["trend_interpretation"]["status"] == "stable"
+    assert analytics_body["trend_interpretation"]["evidence_eval_run_ids"] == [
+        baseline.json()["eval_run_id"],
+        candidate.json()["eval_run_id"],
+    ]
+    assert (
+        analytics_body["trend_interpretation"]["latest_runtime_context"][
+            "deployment_context_id"
+        ]
+        == "deploy_refund_runtime_v2"
+    )
 
     investigation = client.post(
         "/v1/investigations",

@@ -1004,8 +1004,9 @@ Known remaining gaps before calling the whole spec complete:
   comparison, judge calibration reporting, promotion gates, and the judge
   lifecycle workspace now exist. Prompt/config-linked eval launch, comparison
   provenance, behavior-distribution shifts, historical run drilldowns,
-  long-horizon trend rows, and runtime-version analytics are now wired; broader
-  pilot-scale trend interpretation remains future polish.
+  long-horizon trend rows, deterministic trend interpretation, and
+  runtime-version analytics are now wired; broader statistical pilot analytics
+  remain future polish.
 - Automation definitions and local run execution include deterministic
   conditions, idempotency, preview notifications, opt-in live webhook delivery,
   review-task actions, cooldown skips, bounded retries, and dead-letter action
@@ -1176,6 +1177,9 @@ Implemented in this pass:
 - Added eval analytics trend rows with pass-rate and invalid-output deltas over
   the latest 30 runs, and surfaced the newest trend rows in the Datasets/Evals
   workspace.
+- Added deterministic eval trend interpretation on top of the latest trend
+  rows, including status, summary, evidence eval run IDs, and latest runtime
+  context for pilot-scale scanning without statistical overclaiming.
 - Added affected-entity remediation controls to the Issues/Investigations
   impact workspace, backed by the canonical `/v1/affected-entities/{id}` update
   path and gated by the existing write-confirmation checkbox.

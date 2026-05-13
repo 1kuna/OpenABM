@@ -4213,7 +4213,10 @@ function DatasetEvalWorkspace(props: {
                     <span>{formatEvalAnalyticsGroup(topDeploymentAnalytics)}</span>
                   </div>
                 </div>
-                <EvalTrendRows trend={evalAnalytics?.trend ?? []} />
+                <EvalTrendRows
+                  interpretation={evalAnalytics?.trend_interpretation ?? null}
+                  trend={evalAnalytics?.trend ?? []}
+                />
                 <div className="evalRows">
                   {datasetRuns.map((run) => (
                     <button
@@ -4397,11 +4400,19 @@ function EvalBehaviorShiftRows(props: {
   );
 }
 
-function EvalTrendRows(props: { trend: EvalAnalytics["trend"] }) {
+function EvalTrendRows(props: {
+  interpretation?: EvalAnalytics["trend_interpretation"] | null;
+  trend: EvalAnalytics["trend"];
+}) {
   const rows = props.trend.slice(-6).reverse();
   return (
     <div className="comparisonShiftRows">
       <strong>Trend</strong>
+      {props.interpretation ? (
+        <span>
+          {props.interpretation.status.replaceAll("_", " ")} · {props.interpretation.summary}
+        </span>
+      ) : null}
       {rows.map((run) => (
         <div key={run.eval_run_id}>
           <div className="comparisonShiftHeader">

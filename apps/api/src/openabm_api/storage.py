@@ -327,6 +327,50 @@ def _eval_group_summary(group_key: str, runs: list[dict[str, Any]]) -> dict[str,
     }
 
 
+def _eval_trend_interpretation(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    if len(rows) < 2:
+        return {
+            "status": "insufficient_data",
+            "summary": "Need at least two eval runs before interpreting trend direction.",
+            "evidence_eval_run_ids": [row["eval_run_id"] for row in rows],
+            "latest_pass_rate_delta": None,
+            "latest_invalid_output_delta": None,
+        }
+    latest = rows[-1]
+    previous = rows[-2]
+    pass_delta = latest.get("pass_rate_delta")
+    invalid_delta = latest.get("invalid_output_delta")
+    if isinstance(invalid_delta, int) and invalid_delta > 0:
+        status = "invalid_output_regression"
+        summary = (
+            f"Latest run added {invalid_delta} invalid output"
+            f"{'' if invalid_delta == 1 else 's'} versus the prior run."
+        )
+    elif isinstance(pass_delta, int | float) and pass_delta <= -0.05:
+        status = "pass_rate_regression"
+        summary = f"Latest pass rate moved down by {abs(pass_delta):.1%}."
+    elif isinstance(pass_delta, int | float) and pass_delta >= 0.05:
+        status = "improving"
+        summary = f"Latest pass rate moved up by {pass_delta:.1%}."
+    else:
+        status = "stable"
+        summary = "Latest eval is stable against the prior run within the local threshold."
+    return {
+        "status": status,
+        "summary": summary,
+        "evidence_eval_run_ids": [previous["eval_run_id"], latest["eval_run_id"]],
+        "latest_pass_rate_delta": pass_delta,
+        "latest_invalid_output_delta": invalid_delta,
+        "latest_eval_run_id": latest["eval_run_id"],
+        "previous_eval_run_id": previous["eval_run_id"],
+        "latest_runtime_context": {
+            "prompt_version_id": latest.get("prompt_version_id"),
+            "agent_config_version_id": latest.get("agent_config_version_id"),
+            "deployment_context_id": latest.get("deployment_context_id"),
+        },
+    }
+
+
 def _messages_from_prompt_template(template_text: str) -> list[dict[str, str]] | None:
     try:
         parsed = json.loads(template_text)
@@ -3448,6 +3492,7 @@ class SQLiteStore:
 
     def eval_run_analytics(self, project_id: str) -> dict[str, Any]:
         runs = self.list_eval_runs(project_id)
+        trend = self._eval_run_trend_rows(runs)
         return {
             "project_id": project_id,
             "run_count": len(runs),
@@ -3483,7 +3528,8 @@ class SQLiteStore:
                 }
                 for run in runs[:10]
             ],
-            "trend": self._eval_run_trend_rows(runs),
+            "trend": trend,
+            "trend_interpretation": _eval_trend_interpretation(trend),
         }
 
     def _eval_run_trend_rows(
