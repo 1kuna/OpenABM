@@ -9,12 +9,28 @@
     "automation_run_id": {"type": "string"},
     "automation_id": {"type": "string"},
     "project_id": {"type": "string"},
+    "trigger_entity_type": {"type": ["string", "null"]},
+    "trigger_entity_id": {"type": ["string", "null"]},
+    "idempotency_key": {"type": ["string", "null"]},
     "trace_id": {"type": ["string", "null"]},
-    "status": {"enum": ["succeeded", "failed", "partial_failure", "skipped", "dead_lettered"]},
+    "cooldown_key": {"type": ["string", "null"]},
+    "status": {
+      "enum": [
+        "succeeded",
+        "failed",
+        "partial_failure",
+        "skipped",
+        "skipped_conditions",
+        "skipped_cooldown",
+        "dead_lettered"
+      ]
+    },
+    "condition_result": {"type": "object", "default": {}},
     "condition_results": {"type": "array", "items": {"type": "object"}, "default": []},
+    "cooldown_result": {"type": "object", "default": {"configured": false}},
     "action_results": {"type": "array", "items": {"type": "object"}, "default": []},
     "started_at": {"type": "string", "format": "date-time"},
+    "completed_at": {"type": ["string", "null"], "format": "date-time"},
     "ended_at": {"type": ["string", "null"], "format": "date-time"}
   }
 }
-

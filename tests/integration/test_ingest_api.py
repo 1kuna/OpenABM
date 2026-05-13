@@ -634,6 +634,7 @@ def test_v1_automation_run_creates_review_task_and_notification_preview(tmp_path
                 "combine": "all",
                 "items": [{"field": "trace.status", "op": "eq", "value": "error"}],
             },
+            "cooldown": {"seconds": 1800, "key": "automation_id + project_id"},
             "actions": [
                 {"type": "create_review_task", "task_type": "behavior_candidate"},
                 {
@@ -671,6 +672,21 @@ def test_v1_automation_run_creates_review_task_and_notification_preview(tmp_path
         },
     )
     assert duplicate.json()["duplicate"] is True
+
+    cooldown = client.post(
+        f"/v1/automations/{automation.json()['automation_id']}/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": trace_id,
+            "idempotency_key": "auto-test-2",
+        },
+    )
+    assert cooldown.status_code == 201
+    cooldown_body = cooldown.json()
+    assert cooldown_body["status"] == "skipped_cooldown"
+    assert cooldown_body["cooldown_result"]["active"] is True
+    assert cooldown_body["action_results"] == []
 
 
 def test_v1_grounding_checks_and_novelty_runs_are_reviewable(tmp_path) -> None:

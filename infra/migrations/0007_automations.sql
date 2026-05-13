@@ -20,8 +20,10 @@ CREATE TABLE IF NOT EXISTS automation_runs (
   trigger_entity_type TEXT,
   trigger_entity_id TEXT,
   idempotency_key TEXT,
+  cooldown_key TEXT,
   status TEXT NOT NULL,
   condition_result_json TEXT NOT NULL,
+  cooldown_result_json TEXT,
   action_results_json TEXT NOT NULL,
   started_at TEXT NOT NULL,
   completed_at TEXT

@@ -7,7 +7,12 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.routing import APIRoute
-from openabm_worker.automations import evaluate_automation_conditions, planned_automation_actions
+from openabm_worker.automations import (
+    evaluate_automation_conditions,
+    evaluate_automation_cooldown,
+    plan_automation_cooldown,
+    planned_automation_actions,
+)
 from openabm_worker.behaviors import backtest_behavior
 from openabm_worker.context_packs import build_agent_context_pack_content
 from openabm_worker.grounding import (
@@ -1748,12 +1753,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         spans = store.list_spans(project_id, trace_id) if trace_id else []
         condition_result = evaluate_automation_conditions(automation, trace, spans)
         planned = planned_automation_actions(automation, trace_id=trace_id)
-        action_results = (
-            _execute_automation_actions(store, project_id, planned, trace_id)
-            if condition_result["passed"]
-            else []
-        )
         now = utc_now()
+        cooldown_plan = plan_automation_cooldown(
+            automation,
+            project_id=project_id,
+            trace_id=trace_id,
+        )
+        latest_cooldown_run = (
+            store.get_latest_automation_run_for_cooldown(
+                project_id,
+                automation_id,
+                cooldown_plan["cooldown_key"],
+            )
+            if cooldown_plan.get("cooldown_key")
+            else None
+        )
+        cooldown_result = evaluate_automation_cooldown(
+            cooldown_plan,
+            latest_cooldown_run,
+            now=now,
+        )
+        if not condition_result["passed"]:
+            action_results = []
+            status = "skipped_conditions"
+        elif cooldown_result.get("active"):
+            action_results = []
+            status = "skipped_cooldown"
+        else:
+            action_results = _execute_automation_actions(store, project_id, planned, trace_id)
+            status = "succeeded"
         run = store.record_automation_run(
             {
                 "automation_run_id": new_id("automation_run"),
@@ -1762,8 +1790,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "trigger_entity_type": "trace" if trace_id else None,
                 "trigger_entity_id": trace_id,
                 "idempotency_key": idempotency_key,
-                "status": "succeeded" if condition_result["passed"] else "skipped_conditions",
+                "cooldown_key": cooldown_result.get("cooldown_key"),
+                "status": status,
                 "condition_result": condition_result,
+                "cooldown_result": cooldown_result,
                 "action_results": action_results,
                 "started_at": now,
                 "completed_at": now,

@@ -385,9 +385,10 @@ Known remaining gaps before calling the whole spec complete:
 - Judge registry, model-backed judge drafting, local eval launch, and eval
   comparison now exist; calibration workflows, judge version promotion policy,
   and UI workspaces are still early.
-- Automation definitions and local run execution exist, but full cooldown timing,
-  retries, dead-letter handling, and real external notification delivery still
-  need implementation beyond preview/audit mode.
+- Automation definitions and local run execution include deterministic
+  conditions, idempotency, preview notifications, review-task actions, and
+  cooldown skips; retries, dead-letter handling, and real external notification
+  delivery still need implementation beyond preview/audit mode.
 - Passive novelty detection has a deterministic exact-signature runner; semantic
   grouping and model-generated candidate naming remain future model-quality work.
 - Grounding/fabricated-value checks support explicit, deterministically split,
@@ -484,6 +485,9 @@ Implemented in this pass:
 - Added `/v1/notification-targets` and `/v1/automations` lifecycle/run paths
   with deterministic condition evaluation, idempotency, review-task actions, and
   preview-only notification action audits.
+- Added persisted automation cooldown checks keyed by configured scope so
+  repeated matching runs can be skipped before action execution without losing
+  the condition/cooldown audit record.
 - Added `/v1/grounding-checks` and `/v1/novelty-runs` paths for reviewable
   fabricated-value checks and passive behavior candidate discovery.
 - Added model-assisted `/v1/grounding-checks` claim extraction with persisted

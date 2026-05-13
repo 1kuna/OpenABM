@@ -123,7 +123,26 @@ class SQLiteStore:
         with self.connect() as conn:
             for migration in sorted(MIGRATION_DIR.glob("*.sql")):
                 conn.executescript(migration.read_text())
+            self._ensure_automation_run_cooldown_columns(conn)
             self.ensure_project("proj_demo", "Demo Project")
+
+    @staticmethod
+    def _ensure_automation_run_cooldown_columns(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(automation_runs)").fetchall()
+        }
+        if "cooldown_key" not in columns:
+            conn.execute("ALTER TABLE automation_runs ADD COLUMN cooldown_key TEXT")
+        if "cooldown_result_json" not in columns:
+            conn.execute("ALTER TABLE automation_runs ADD COLUMN cooldown_result_json TEXT")
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_automation_runs_cooldown
+              ON automation_runs(project_id, automation_id, cooldown_key, completed_at)
+              WHERE cooldown_key IS NOT NULL
+            """
+        )
 
     def ensure_project(self, project_id: str, name: str | None = None) -> None:
         now = utc_now()
@@ -1951,16 +1970,38 @@ class SQLiteStore:
             ).fetchone()
         return self._automation_run_from_row(row) if row else None
 
+    def get_latest_automation_run_for_cooldown(
+        self,
+        project_id: str,
+        automation_id: str,
+        cooldown_key: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM automation_runs
+                WHERE project_id = ?
+                  AND automation_id = ?
+                  AND cooldown_key = ?
+                  AND status IN ('succeeded', 'partial_failure')
+                ORDER BY completed_at DESC
+                LIMIT 1
+                """,
+                (project_id, automation_id, cooldown_key),
+            ).fetchone()
+        return self._automation_run_from_row(row) if row else None
+
     def record_automation_run(self, run: dict[str, Any]) -> dict[str, Any]:
         with self.connect() as conn:
             conn.execute(
                 """
                 INSERT INTO automation_runs(
                   automation_run_id, automation_id, project_id, trigger_entity_type,
-                  trigger_entity_id, idempotency_key, status, condition_result_json,
-                  action_results_json, started_at, completed_at
+                  trigger_entity_id, idempotency_key, cooldown_key, status,
+                  condition_result_json, cooldown_result_json, action_results_json,
+                  started_at, completed_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run["automation_run_id"],
@@ -1969,8 +2010,10 @@ class SQLiteStore:
                     run.get("trigger_entity_type"),
                     run.get("trigger_entity_id"),
                     run.get("idempotency_key"),
+                    run.get("cooldown_key"),
                     run["status"],
                     encode_json(run["condition_result"]),
+                    encode_json(run.get("cooldown_result") or {"configured": False}),
                     encode_json(run["action_results"]),
                     run["started_at"],
                     run.get("completed_at"),
@@ -2835,7 +2878,8 @@ class SQLiteStore:
 
     @staticmethod
     def _automation_run_from_row(row: sqlite3.Row) -> dict[str, Any]:
-        return {
+        keys = set(row.keys())
+        run = {
             "automation_run_id": row["automation_run_id"],
             "automation_id": row["automation_id"],
             "project_id": row["project_id"],
@@ -2848,6 +2892,11 @@ class SQLiteStore:
             "started_at": row["started_at"],
             "completed_at": row["completed_at"],
         }
+        if "cooldown_key" in keys:
+            run["cooldown_key"] = row["cooldown_key"]
+        if "cooldown_result_json" in keys:
+            run["cooldown_result"] = decode_json(row["cooldown_result_json"], {})
+        return run
 
     @staticmethod
     def _dataset_example_from_row(row: sqlite3.Row) -> dict[str, Any]:

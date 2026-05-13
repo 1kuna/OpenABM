@@ -785,6 +785,60 @@
         "x-required-scopes": [
           "automations:write"
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "name",
+                  "trigger",
+                  "actions"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "trigger": {
+                    "type": "object"
+                  },
+                  "conditions": {
+                    "type": "object"
+                  },
+                  "actions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "cooldown": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "seconds": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "key": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "status": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "Automation created."
@@ -827,10 +881,50 @@
     "/v1/automations/{automation_id}/run": {
       "post": {
         "operationId": "runAutomation",
-        "summary": "Run an automation once against a trigger entity.",
+        "summary": "Run an automation once against a trigger entity with idempotency and cooldown checks.",
         "x-required-scopes": [
           "automations:write"
         ],
+        "parameters": [
+          {
+            "name": "automation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "trace_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "idempotency_key": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "Automation run recorded."
