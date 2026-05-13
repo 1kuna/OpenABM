@@ -638,7 +638,8 @@ Verified after the latest implementation slices:
   reproducible context-packet hash in score provider metadata.
 - Contributor workflow regression passed locally: `make ci` covers lint, tests,
   OpenAPI JSON validation, docs link checks, and web build; GitHub Actions
-  mirrors those gates and adds PR dependency review.
+  mirrors those gates and adds PR dependency review. Dependency review is
+  non-blocking until GitHub dependency graph is enabled for the repository.
 - Live-notification regression passed with a monkeypatched webhook transport:
   automation delivery resolves an encrypted secret ref, sends a grouped webhook
   payload only when external notifications are explicitly enabled, records an
