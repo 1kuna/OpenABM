@@ -368,6 +368,16 @@ export interface InvestigationRun {
   updated_at: string;
 }
 
+export interface AgentContextPack {
+  context_pack_id: string;
+  project_id: string;
+  issue_id_nullable: string | null;
+  source_trace_ids: string[];
+  content: Record<string, unknown>;
+  classification: string;
+  created_at: string;
+}
+
 export interface ChatOpsInvestigationResult {
   status: string;
   response: string;

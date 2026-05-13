@@ -2,6 +2,7 @@ import type {
   AgentConfigCompareResult,
   AgentConfigDefinition,
   AgentConfigVersion,
+  AgentContextPack,
   AutomationDefinition,
   AutomationPreviewResult,
   AutomationRun,
@@ -134,6 +135,7 @@ export class OpenAbmClient {
       description?: string;
       sourceType?: string;
       seedTraceId?: string;
+      seedSessionId?: string;
     }
   ): Promise<IssueDefinition> {
     return this.post<IssueDefinition>("/v1/issues", {
@@ -141,7 +143,8 @@ export class OpenAbmClient {
       title: request.title,
       description: request.description || "",
       source_type: request.sourceType || "manual",
-      seed_trace_id_nullable: request.seedTraceId || null
+      seed_trace_id_nullable: request.seedTraceId || null,
+      seed_session_id_nullable: request.seedSessionId || null
     });
   }
 
@@ -166,12 +169,14 @@ export class OpenAbmClient {
   async chatopsInvestigate(
     projectId: string,
     message: string,
-    seedTraceId?: string
+    seedTraceId?: string,
+    seedSessionId?: string
   ): Promise<ChatOpsInvestigationResult> {
     return this.post<ChatOpsInvestigationResult>("/v1/chatops/investigate", {
       project_id: projectId,
       message,
-      seed_trace_id_nullable: seedTraceId || null
+      seed_trace_id_nullable: seedTraceId || null,
+      seed_session_id_nullable: seedSessionId || null
     });
   }
 
@@ -192,6 +197,7 @@ export class OpenAbmClient {
     request: {
       issueId?: string;
       seedTraceId?: string;
+      seedSessionId?: string;
       problem?: string;
       filters?: Record<string, unknown>;
     }
@@ -200,8 +206,34 @@ export class OpenAbmClient {
       project_id: projectId,
       issue_id_nullable: request.issueId || null,
       seed_trace_id_nullable: request.seedTraceId || null,
+      seed_session_id_nullable: request.seedSessionId || null,
       natural_language_problem_nullable: request.problem || null,
       filters: request.filters || {}
+    });
+  }
+
+  async listContextPacks(projectId: string, issueId?: string): Promise<AgentContextPack[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    if (issueId) params.set("issue_id", issueId);
+    const body = await this.get<{ data: AgentContextPack[] }>(`/v1/context-packs?${params.toString()}`);
+    return body.data;
+  }
+
+  async createContextPack(
+    projectId: string,
+    request: {
+      issueId?: string;
+      sourceTraceIds: string[];
+      allowedNextActions?: string[];
+      classification?: string;
+    }
+  ): Promise<AgentContextPack> {
+    return this.post<AgentContextPack>("/v1/context-packs", {
+      project_id: projectId,
+      issue_id_nullable: request.issueId || null,
+      source_trace_ids: request.sourceTraceIds,
+      allowed_next_actions: request.allowedNextActions || ["read", "draft_behavior", "draft_judge", "create_dataset"],
+      classification: request.classification || "internal"
     });
   }
 

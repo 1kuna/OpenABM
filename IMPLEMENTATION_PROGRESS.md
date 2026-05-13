@@ -330,6 +330,10 @@ Done:
 - Added agent context pack generation and persistence with model-backed
   summaries, citation validation, deterministic fallback when a model provider is
   unavailable, and `/v1/context-packs` API coverage.
+- Expanded the Issue/Investigation workspace with seed trace/session selectors,
+  candidate query/filter/cohort display, context-pack creation/preview, and
+  confirmation-gated behavior, judge, and dataset actions from investigation
+  drafts.
 - Added model-assisted investigation drafts for cited root-cause hypotheses,
   candidate behaviors, rubric drafts, uncertainty, and next actions, with
   citation filtering before model output becomes canonical.
@@ -472,6 +476,10 @@ Verified after the latest implementation slices:
   run history, dead-letter display, automation creation, and automation run-once
   flows completed against the live local API with no console errors or failing
   API responses.
+- Issue/Investigation QA covered seed trace/session selection, candidate
+  query/filter/cohort display, context-pack preview, model-assisted rubric draft
+  display, and confirmation-gated dataset/judge action controls against the live
+  local API with no console errors.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
 - MCP stdio smoke: `tools/list` returned 35 tools and

@@ -1861,6 +1861,13 @@ pre {
   padding-top: 8px;
 }
 
+.sectionRows button {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  text-align: left;
+}
+
 .exampleRows,
 .evalRows,
 .resultRows {

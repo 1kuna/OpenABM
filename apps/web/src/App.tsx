@@ -22,6 +22,7 @@ import { fixtureDetails, fixtureProjects, fixtureTraces } from "./fixtures";
 import type {
   AgentConfigCompareResult,
   AgentConfigDefinition,
+  AgentContextPack,
   AutomationDefinition,
   AutomationPreviewResult,
   AutomationRun,
@@ -940,11 +941,14 @@ function IssueInvestigationWorkspace(props: {
   const [issues, setIssues] = useState<IssueDefinition[]>([]);
   const [investigations, setInvestigations] = useState<InvestigationRun[]>([]);
   const [impactReports, setImpactReports] = useState<ImpactReport[]>([]);
+  const [contextPacks, setContextPacks] = useState<AgentContextPack[]>([]);
   const [selectedIssueId, setSelectedIssueId] = useState("");
   const [selectedInvestigationId, setSelectedInvestigationId] = useState("");
+  const [selectedContextPackId, setSelectedContextPackId] = useState("");
   const [issueTitle, setIssueTitle] = useState("Refund workflow uses the wrong tool");
   const [issueDescription, setIssueDescription] = useState("Customer refund path appears to route through order lookup.");
   const [seedTraceId, setSeedTraceId] = useState("");
+  const [seedSessionId, setSeedSessionId] = useState("");
   const [screenshotTitle, setScreenshotTitle] = useState("Screenshot shows refund failure");
   const [screenshotPayloadId, setScreenshotPayloadId] = useState("payload_screenshot_1");
   const [screenshotText, setScreenshotText] = useState("damaged order refund");
@@ -953,9 +957,11 @@ function IssueInvestigationWorkspace(props: {
   const [chatopsResult, setChatopsResult] = useState<ChatOpsInvestigationResult | null>(null);
   const [investigationProblem, setInvestigationProblem] = useState("refund failure");
   const [filterStatus, setFilterStatus] = useState("error");
+  const [writeConfirmation, setWriteConfirmation] = useState(false);
   const [stateText, setStateText] = useState("Issues need a live API");
 
   const selectedIssue = issues.find((issue) => issue.issue_id === selectedIssueId) ?? issues[0] ?? null;
+  const sessionIds = Array.from(new Set(traces.flatMap((trace) => (trace.session_id ? [trace.session_id] : [])))).sort();
   const issueInvestigations = selectedIssue
     ? investigations.filter((run) => run.issue_id_nullable === selectedIssue.issue_id)
     : investigations;
@@ -968,12 +974,21 @@ function IssueInvestigationWorkspace(props: {
     (selectedIssue
       ? impactReports.find((report) => report.issue_id === selectedIssue.issue_id) ?? null
       : impactReports[0] ?? null);
+  const selectedContextPack =
+    contextPacks.find((pack) => pack.context_pack_id === selectedContextPackId) ??
+    contextPacks[0] ??
+    null;
+  const evidenceTraceIds = stringsFromUnknown(selectedInvestigation?.result.evidence_trace_ids);
+  const assistance = asRecord(selectedInvestigation?.result.model_assistance);
+  const behaviorDrafts = recordsFrom(assistance.behavior_drafts);
+  const rubricDrafts = recordsFrom(assistance.rubric_drafts);
 
   async function loadIssues() {
     if (connection !== "live") {
       setIssues([]);
       setInvestigations([]);
       setImpactReports([]);
+      setContextPacks([]);
       setStateText("fixture mode");
       return;
     }
@@ -1006,13 +1021,37 @@ function IssueInvestigationWorkspace(props: {
     void loadIssues();
   }, [client, connection, projectId]);
 
+  async function loadContextPacks(issue: IssueDefinition | null = selectedIssue) {
+    if (connection !== "live") {
+      setContextPacks([]);
+      setSelectedContextPackId("");
+      return;
+    }
+    try {
+      const loaded = await client.listContextPacks(projectId, issue?.issue_id);
+      setContextPacks(loaded);
+      setSelectedContextPackId((current) =>
+        loaded.some((pack) => pack.context_pack_id === current)
+          ? current
+          : loaded[0]?.context_pack_id ?? ""
+      );
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "context packs unavailable");
+    }
+  }
+
+  useEffect(() => {
+    void loadContextPacks();
+  }, [client, connection, projectId, selectedIssue?.issue_id]);
+
   async function createManualIssue() {
     if (connection !== "live" || !issueTitle.trim()) return;
     try {
       const created = await client.createIssue(projectId, {
         title: issueTitle.trim(),
         description: issueDescription.trim(),
-        seedTraceId: seedTraceId || undefined
+        seedTraceId: seedTraceId || undefined,
+        seedSessionId: seedSessionId || undefined
       });
       setIssues((current) => [created, ...current.filter((issue) => issue.issue_id !== created.issue_id)]);
       setSelectedIssueId(created.issue_id);
@@ -1042,7 +1081,12 @@ function IssueInvestigationWorkspace(props: {
   async function runChatopsIntake() {
     if (connection !== "live" || !chatMessage.trim()) return;
     try {
-      const result = await client.chatopsInvestigate(projectId, chatMessage.trim(), seedTraceId || undefined);
+      const result = await client.chatopsInvestigate(
+        projectId,
+        chatMessage.trim(),
+        seedTraceId || undefined,
+        seedSessionId || undefined
+      );
       setChatopsResult(result);
       setIssues((current) => [result.issue, ...current.filter((issue) => issue.issue_id !== result.issue.issue_id)]);
       setInvestigations((current) => [
@@ -1060,10 +1104,12 @@ function IssueInvestigationWorkspace(props: {
   async function startSelectedInvestigation() {
     if (connection !== "live") return;
     const issueSeed = selectedIssue?.seed_trace_id_nullable || seedTraceId || undefined;
+    const sessionSeed = selectedIssue?.seed_session_id_nullable || seedSessionId || undefined;
     try {
       const run = await client.startInvestigation(projectId, {
         issueId: selectedIssue?.issue_id,
         seedTraceId: issueSeed,
+        seedSessionId: sessionSeed,
         problem: investigationProblem.trim() || selectedIssue?.title,
         filters: filterStatus ? { status: filterStatus } : {}
       });
@@ -1076,6 +1122,95 @@ function IssueInvestigationWorkspace(props: {
       setStateText(`investigation ${run.status}`);
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "investigation failed");
+    }
+  }
+
+  async function createSelectedContextPack() {
+    if (connection !== "live" || !selectedInvestigation) return;
+    const traceIds = evidenceTraceIds.length
+      ? evidenceTraceIds
+      : selectedIssue?.seed_trace_id_nullable
+        ? [selectedIssue.seed_trace_id_nullable]
+        : seedTraceId
+          ? [seedTraceId]
+          : [];
+    if (!traceIds.length) {
+      setStateText("context pack needs at least one source trace");
+      return;
+    }
+    try {
+      const pack = await client.createContextPack(projectId, {
+        issueId: selectedIssue?.issue_id,
+        sourceTraceIds: traceIds,
+        allowedNextActions: ["read", "draft_behavior", "draft_judge", "create_dataset"],
+        classification: "internal"
+      });
+      setContextPacks((current) => [pack, ...current.filter((item) => item.context_pack_id !== pack.context_pack_id)]);
+      setSelectedContextPackId(pack.context_pack_id);
+      setStateText(`context pack ${pack.context_pack_id}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "context pack failed");
+    }
+  }
+
+  async function createBehaviorFromDraft(draft: Record<string, unknown>) {
+    if (!writeConfirmation || !window.confirm("Create behavior draft from this investigation?")) return;
+    try {
+      const name = String(draft.name ?? "investigation_behavior");
+      const created = await client.createBehavior(projectId, {
+        name,
+        description: String(draft.description ?? "Investigation behavior draft."),
+        severity: "medium",
+        detector: { type: "manual_label", labels: [name] }
+      });
+      setStateText(`created behavior ${created.behavior_id}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "behavior draft action failed");
+    }
+  }
+
+  async function createJudgeFromDraft(draft: Record<string, unknown>) {
+    if (!writeConfirmation || !window.confirm("Create judge draft from this investigation?")) return;
+    try {
+      const name = String(draft.name ?? "Investigation rubric");
+      const created = await client.createJudgeDraft(projectId, {
+        name,
+        description: "Investigation rubric draft.",
+        judgeType: "rubric_judge",
+        definition: {
+          judge_type: "rubric_judge",
+          rubric: {
+            pass: String(draft.pass ?? "Trace satisfies the intended behavior."),
+            fail: String(draft.fail ?? "Trace violates the intended behavior."),
+            unsure: String(draft.unsure ?? "Trace lacks enough evidence.")
+          },
+          failure_modes: [name],
+          evidence_trace_ids: stringsFromUnknown(draft.evidence_trace_ids)
+        }
+      });
+      setStateText(`created judge ${created.judge_id}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "judge draft action failed");
+    }
+  }
+
+  async function createDatasetFromInvestigation() {
+    if (!writeConfirmation || !selectedInvestigation || !window.confirm("Create dataset from investigation traces?")) return;
+    const traceIds = evidenceTraceIds.length ? evidenceTraceIds : selectedImpact?.representative_trace_ids ?? [];
+    if (!traceIds.length) {
+      setStateText("dataset action needs evidence traces");
+      return;
+    }
+    try {
+      const dataset = await client.createDataset(
+        projectId,
+        `Investigation ${shortIdentifier(selectedInvestigation.investigation_run_id)}`,
+        selectedInvestigation.natural_language_problem_nullable ?? "Investigation evidence dataset"
+      );
+      await Promise.all(traceIds.map((traceId) => client.addTraceToDataset(projectId, dataset.dataset_id, traceId, ["investigation"])));
+      setStateText(`created dataset ${dataset.dataset_id}`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "dataset draft action failed");
     }
   }
 
@@ -1097,6 +1232,14 @@ function IssueInvestigationWorkspace(props: {
             {traces.map((trace) => (
               <option key={trace.trace_id} value={trace.trace_id}>
                 {trace.trace_id} · {trace.status}
+              </option>
+            ))}
+          </select>
+          <select value={seedSessionId} onChange={(event) => setSeedSessionId(event.target.value)}>
+            <option value="">No seed session</option>
+            {sessionIds.map((sessionId) => (
+              <option key={sessionId} value={sessionId}>
+                {sessionId}
               </option>
             ))}
           </select>
@@ -1162,6 +1305,7 @@ function IssueInvestigationWorkspace(props: {
             <div className="metricsRow issueMetrics">
               <Metric icon={<AlertTriangle />} label="Source" value={selectedIssue.source_type} />
               <Metric icon={<FileSearch />} label="Seed trace" value={selectedIssue.seed_trace_id_nullable ?? "none"} />
+              <Metric icon={<Database />} label="Seed session" value={selectedIssue.seed_session_id_nullable ?? "none"} />
               <Metric icon={<Activity />} label="Updated" value={formatTime(selectedIssue.updated_at)} />
             </div>
 
@@ -1205,6 +1349,37 @@ function IssueInvestigationWorkspace(props: {
                 </div>
               </section>
 
+              <section className="issueSection">
+                <h4>Candidate search and cohort</h4>
+                <dl className="reviewFacts compactFacts">
+                  <div>
+                    <dt>Query</dt>
+                    <dd>{selectedInvestigation?.natural_language_problem_nullable ?? investigationProblem}</dd>
+                  </div>
+                  <div>
+                    <dt>Filters</dt>
+                    <dd>{JSON.stringify(selectedInvestigation?.filters ?? (filterStatus ? { status: filterStatus } : {}))}</dd>
+                  </div>
+                  <div>
+                    <dt>Seed trace</dt>
+                    <dd>{selectedInvestigation?.seed_trace_id_nullable ?? selectedIssue.seed_trace_id_nullable ?? "none"}</dd>
+                  </div>
+                  <div>
+                    <dt>Seed session</dt>
+                    <dd>{selectedInvestigation?.seed_session_id_nullable ?? selectedIssue.seed_session_id_nullable ?? "none"}</dd>
+                  </div>
+                </dl>
+                <div className="sectionRows">
+                  {evidenceTraceIds.map((traceId) => (
+                    <div key={traceId}>
+                      <strong>{traceId}</strong>
+                      <span>matching trace cohort</span>
+                    </div>
+                  ))}
+                  {!evidenceTraceIds.length ? <p className="systemNote">No evidence traces selected</p> : null}
+                </div>
+              </section>
+
               <section className="issueSection impactSection">
                 <h4>Impact</h4>
                 {selectedImpact ? (
@@ -1236,6 +1411,30 @@ function IssueInvestigationWorkspace(props: {
               </section>
 
               <section className="issueSection">
+                <h4>Agent context pack preview</h4>
+                <button onClick={() => void createSelectedContextPack()}>
+                  <Braces size={15} />
+                  Build context pack
+                </button>
+                <div className="sectionRows">
+                  {contextPacks.map((pack) => (
+                    <button
+                      key={pack.context_pack_id}
+                      className={pack.context_pack_id === selectedContextPack?.context_pack_id ? "selectedInvestigation" : ""}
+                      onClick={() => setSelectedContextPackId(pack.context_pack_id)}
+                    >
+                      <strong>{pack.context_pack_id}</strong>
+                      <span>{pack.classification} · {pack.source_trace_ids.join(", ")}</span>
+                    </button>
+                  ))}
+                  {!contextPacks.length ? <p className="systemNote">No context packs</p> : null}
+                </div>
+                {selectedContextPack ? (
+                  <pre>{JSON.stringify(selectedContextPack.content, null, 2)}</pre>
+                ) : null}
+              </section>
+
+              <section className="issueSection">
                 <h4>Root cause and next actions</h4>
                 {selectedInvestigation ? (
                   <>
@@ -1256,6 +1455,48 @@ function IssueInvestigationWorkspace(props: {
                 ) : (
                   <p className="systemNote">Select or create an investigation</p>
                 )}
+              </section>
+
+              <section className="issueSection">
+                <h4>Draft behavior, judge, and dataset actions</h4>
+                <label className="toggleLabel">
+                  <input
+                    checked={writeConfirmation}
+                    onChange={(event) => setWriteConfirmation(event.target.checked)}
+                    type="checkbox"
+                  />
+                  Confirm writes
+                </label>
+                <div className="sectionRows">
+                  {behaviorDrafts.map((draft, index) => (
+                    <div key={`behavior-draft-${index}`}>
+                      <strong>{String(draft.name ?? "behavior draft")}</strong>
+                      <span>{String(draft.description ?? "no description")}</span>
+                      <button disabled={!writeConfirmation} onClick={() => void createBehaviorFromDraft(draft)}>
+                        <GitBranch size={15} />
+                        Create behavior
+                      </button>
+                    </div>
+                  ))}
+                  {rubricDrafts.map((draft, index) => (
+                    <div key={`rubric-draft-${index}`}>
+                      <strong>{String(draft.name ?? "rubric draft")}</strong>
+                      <span>{String(draft.fail ?? "no fail criterion")}</span>
+                      <button disabled={!writeConfirmation} onClick={() => void createJudgeFromDraft(draft)}>
+                        <Braces size={15} />
+                        Create judge
+                      </button>
+                    </div>
+                  ))}
+                  <div>
+                    <strong>Investigation dataset</strong>
+                    <span>{evidenceTraceIds.length} evidence traces</span>
+                    <button disabled={!writeConfirmation || !evidenceTraceIds.length} onClick={() => void createDatasetFromInvestigation()}>
+                      <Database size={15} />
+                      Create dataset
+                    </button>
+                  </div>
+                </div>
               </section>
             </div>
           </>
