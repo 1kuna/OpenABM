@@ -26,6 +26,8 @@ def test_tracer_records_nested_spans_in_memory() -> None:
     )
     assert child_span["parent_span_id"] == root_span["span_id"]
     assert root_span["attributes"]["openabm.project_id"] == "proj_demo"
+    assert root_span["attributes"]["openabm.span_type"] == "agent"
+    assert child_span["attributes"]["openabm.span_type"] == "tool"
 
 
 def test_payload_capture_can_be_disabled(tmp_path) -> None:

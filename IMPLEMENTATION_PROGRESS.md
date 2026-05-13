@@ -184,6 +184,9 @@ Done:
 - Added Python SDK with manual spans, sync/async `observe`, nested context,
   error events, payload capture controls, redaction hooks, offline JSONL export,
   in-memory export, and HTTP batch export.
+- Tightened the Python SDK OpenTelemetry-compatible attribute mapping so every
+  exported span carries `openabm.span_type` in addition to the top-level
+  `span_type` field.
 - Added SDK and API backpressure/sampling controls: deterministic SDK trace
   sampling metadata, SDK payload and model-stream event sampling with visible
   omission markers, bounded HTTP exporter buffering, server-side inline payload

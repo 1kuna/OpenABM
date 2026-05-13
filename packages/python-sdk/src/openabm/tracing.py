@@ -193,6 +193,7 @@ class Span:
             **tracer._base_attributes(),
             "openabm.sampling.sampled": sampled,
             **attributes,
+            "openabm.span_type": span_type,
         }
         self.input = input
         self.output: Any = None
