@@ -1130,6 +1130,109 @@
         }
       }
     },
+    "/v1/evals/run": {
+      "post": {
+        "operationId": "runEval",
+        "summary": "Run a local eval over a dataset version with explicit or registered judges.",
+        "x-required-scopes": [
+          "evals:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "dataset_version_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "dataset_version_id": {
+                    "type": "string"
+                  },
+                  "judges": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "judge_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "baseline_eval_run_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Eval run completed or recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/eval-run-config.schema.json"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Model provider unavailable for model-backed judges."
+          }
+        }
+      }
+    },
+    "/v1/evals/{eval_run_id}": {
+      "get": {
+        "operationId": "getEvalRun",
+        "summary": "Fetch a persisted eval run.",
+        "x-required-scopes": [
+          "evals:read"
+        ],
+        "parameters": [
+          {
+            "name": "eval_run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Eval run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/eval-run-config.schema.json"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/evals/{eval_run_id}/results": {
       "get": {
         "operationId": "listEvalResults",
@@ -1176,6 +1279,46 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/evals/compare": {
+      "post": {
+        "operationId": "compareEvalRuns",
+        "summary": "Compare two eval runs and report pass-rate, score, failure, and cost deltas.",
+        "x-required-scopes": [
+          "evals:read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "baseline_eval_run_id",
+                  "candidate_eval_run_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "baseline_eval_run_id": {
+                    "type": "string"
+                  },
+                  "candidate_eval_run_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Eval comparison."
           }
         }
       }
@@ -1933,6 +2076,175 @@
         "responses": {
           "201": {
             "description": "ChatOps investigation artifacts created."
+          }
+        }
+      }
+    },
+    "/v1/docs/search": {
+      "post": {
+        "operationId": "searchDocs",
+        "summary": "Search committed public OpenABM docs and schemas.",
+        "x-required-scopes": [
+          "docs:read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "query"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "default": 20
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Documentation search results."
+          }
+        }
+      }
+    },
+    "/v1/judges": {
+      "get": {
+        "operationId": "listJudges",
+        "summary": "List judges for a project.",
+        "x-required-scopes": [
+          "judges:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Judges."
+          }
+        }
+      }
+    },
+    "/v1/judges/{judge_id}": {
+      "get": {
+        "operationId": "getJudge",
+        "summary": "Fetch a judge with immutable versions.",
+        "x-required-scopes": [
+          "judges:read"
+        ],
+        "parameters": [
+          {
+            "name": "judge_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Judge."
+          }
+        }
+      }
+    },
+    "/v1/judges/drafts": {
+      "post": {
+        "operationId": "createJudgeDraft",
+        "summary": "Create a draft judge from an explicit definition or local-model request.",
+        "x-required-scopes": [
+          "judges:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "judge_type": {
+                    "type": "string"
+                  },
+                  "definition": {
+                    "type": "object"
+                  },
+                  "natural_language_request": {
+                    "type": "string"
+                  },
+                  "trace_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Draft judge created and review task queued."
+          },
+          "503": {
+            "description": "Model provider unavailable for natural-language drafting."
+          }
+        }
+      }
+    },
+    "/v1/judges/{judge_id}/versions": {
+      "post": {
+        "operationId": "commitJudgeVersion",
+        "summary": "Commit an immutable judge version.",
+        "x-required-scopes": [
+          "judges:write"
+        ],
+        "parameters": [
+          {
+            "name": "judge_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Judge version committed."
           }
         }
       }

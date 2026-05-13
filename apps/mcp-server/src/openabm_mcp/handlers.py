@@ -8,14 +8,7 @@ import httpx
 
 from openabm_mcp.tools import all_tool_definitions
 
-UNSUPPORTED_TOOLS = {
-    "list_judges": "Judge registry storage is not implemented yet.",
-    "get_judge": "Judge registry storage is not implemented yet.",
-    "create_judge_draft": "Judge draft storage is not implemented yet.",
-    "run_eval": "Eval runs are currently launched through the local runner, not MCP.",
-    "compare_eval_runs": "Eval comparison storage is not implemented yet.",
-    "search_docs": "Documentation search index is not implemented yet.",
-}
+UNSUPPORTED_TOOLS: dict[str, str] = {}
 
 
 RESOURCE_TEMPLATES = [
@@ -184,8 +177,28 @@ def call_tool(
             f"/v1/datasets/{arguments['dataset_id']}/examples/from-trace",
             json_body=arguments,
         )
+    if name == "list_judges":
+        return client.request(
+            "GET",
+            "/v1/judges",
+            params={"project_id": arguments["project_id"]},
+        )
+    if name == "get_judge":
+        return client.request(
+            "GET",
+            f"/v1/judges/{arguments['judge_id']}",
+            params={"project_id": arguments["project_id"]},
+        )
+    if name == "create_judge_draft":
+        return client.request("POST", "/v1/judges/drafts", json_body=arguments)
     if name == "run_judge":
         return client.request("POST", "/v1/judges/rubric/run", json_body=arguments)
+    if name == "run_eval":
+        return client.request("POST", "/v1/evals/run", json_body=arguments)
+    if name == "compare_eval_runs":
+        return client.request("POST", "/v1/evals/compare", json_body=arguments)
+    if name == "search_docs":
+        return client.request("POST", "/v1/docs/search", json_body=arguments)
     if name == "list_prompts":
         return client.request(
             "GET",

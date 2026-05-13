@@ -151,20 +151,29 @@ LLM-dependent deferrals:
 
 - Trace summarization by model.
 - Embeddings and reranking.
-- Judge calibration against model outputs.
+- Larger calibration studies against model outputs.
 
 Done:
 
 - Added disabled chat/structured/embedding provider adapters that fail closed.
 - Added OpenAI-compatible local model provider with strict JSON parsing,
   bounded repair, no generation timeout, and a minimum 32k context guard.
+- Added optional structured-output token caps for small JSON tasks to prevent
+  runaway completions without adding a timeout or reducing model context.
 - Added judge output validation for verdicts and span citations.
 - Added model-backed rubric judge execution with context packets, preserved-span
   citation validation, provider/model metadata, score persistence, and `/v1`
   API coverage.
+- Added judge registry storage/API for draft judges and immutable judge
+  versions, including explicit-definition drafts and local-model natural
+  language judge drafting that always creates human review work before use.
 - Verified a live LM Studio structured-output canary against
   `openabm-qwen35-9b`; output was valid JSON, unrepaired, and reported
   reasoning-token usage.
+- Verified a live LM Studio judge-draft canary against `openabm-qwen35-9b`;
+  after adding structured-output length control, the model returned a draft
+  rubric judge as valid unrepaired JSON with 4,605 total tokens and 4,120
+  reasoning tokens.
 - Added deterministic rule judge scaffold.
 - Added development-only code judge sandbox with scrubbed environment,
   temporary inputs/outputs, timeout handling, stdout/stderr capture, and explicit
@@ -184,7 +193,8 @@ Target for this pass:
 
 LLM-dependent deferrals:
 
-- Model-backed judge scoring during evals.
+- Command and HTTP runner execution beyond the local in-process runner.
+- Large-scale eval calibration and trend analysis beyond per-run comparison.
 
 Done:
 
@@ -196,6 +206,10 @@ Done:
 - Added persisted local offline eval runs/results and `make demo-eval`, which
   seeds fixtures, creates a dataset from a trace, runs one deterministic judge,
   and records the eval artifact without LLM calls.
+- Added `/v1/evals/run`, `/v1/evals/{eval_run_id}`, and `/v1/evals/compare`.
+  The local runner can execute deterministic rule judges and rubric judges via
+  the configured local model provider, then compare pass-rate, average-score,
+  failure set, invalid-output, latency, and token deltas.
 
 ## Phase 6: Behaviors And Automations
 
@@ -239,8 +253,9 @@ Target for this pass:
 
 LLM-dependent deferrals:
 
-- Investigation chat agent.
-- Drafting judges from natural-language user requests.
+- Full vendor-specific ChatOps connectors.
+- Rich semantic documentation search beyond the deterministic public-docs
+  search endpoint.
 
 Done:
 
@@ -280,6 +295,10 @@ Done:
 - Connected MCP handlers for prompt list/get/commit and agent config
   list/get/compare now that those APIs exist.
 - Connected MCP handlers for automation list/get now that automation APIs exist.
+- Connected the remaining MCP placeholders for judge list/get/draft, eval run
+  and compare, and docs search to API-backed routes.
+- Added deterministic `/v1/docs/search` over committed public docs and schemas;
+  the ignored implementation spec is intentionally excluded from search results.
 - Added web UI sections for judge runtime, behavior monitoring, datasets/evals,
   prompt registry, MCP, and ops status so unfinished surfaces are visible
   without pretending LLM-dependent capabilities exist.
@@ -326,7 +345,8 @@ Blocked:
 
 Verified after the latest implementation slices:
 
-- `make lint && make test`: passed, 37 tests.
+- `make lint && make test`: passed, 39 tests after the judge/eval/docs MCP
+  slice.
 - `npm --prefix apps/web run build`: passed.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
@@ -341,6 +361,9 @@ Known remaining gaps before calling the whole spec complete:
 - Prompt registry and agent runtime configuration registry now have storage/API
   and MCP-backed lifecycle flows, but the web UI still needs full version
   history, tag movement, and eval-linked comparison views.
+- Judge registry, model-backed judge drafting, local eval launch, and eval
+  comparison now exist; calibration workflows, judge version promotion policy,
+  and UI workspaces are still early.
 - Automation definitions and local run execution exist, but full cooldown timing,
   retries, dead-letter handling, and real external notification delivery still
   need implementation beyond preview/audit mode.
@@ -444,5 +467,9 @@ Implemented in this pass:
   fabricated-value checks and passive behavior candidate discovery.
 - Added `/v1/issues/from-screenshot` and `/v1/chatops/investigate` entrypoints
   for weak human reports and chat-originated investigations.
+- Added `/v1/judges`, `/v1/judges/drafts`, `/v1/evals/run`,
+  `/v1/evals/compare`, and `/v1/docs/search`, then wired the corresponding MCP
+  tool handlers so the agent surface no longer reports those paths as
+  unsupported.
 - Added an Issues/Investigations scaffold view in the web app so the v2 surface
   is visible without pretending the LLM-backed pieces are ready.

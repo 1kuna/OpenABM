@@ -12,6 +12,7 @@ from openabm_worker.behaviors import backtest_behavior
 from openabm_worker.context_packs import build_agent_context_pack_content
 from openabm_worker.grounding import claims_from_text, evaluate_grounding_claims
 from openabm_worker.investigation import assist_investigation
+from openabm_worker.judge_drafts import draft_judge_from_request
 from openabm_worker.judges import run_rubric_judge
 from openabm_worker.model_runtime import (
     ModelCallsDisabled,
@@ -19,10 +20,12 @@ from openabm_worker.model_runtime import (
     model_provider_from_settings,
 )
 from openabm_worker.novelty import detect_novel_behavior_candidates
+from openabm_worker.offline_eval import run_eval
 from openabm_worker.similarity import rank_similar_traces
 
 from openabm_api.auth import require_api_key
 from openabm_api.classification import classify_payload, normalize_classification, redact_if_needed
+from openabm_api.docs_search import search_public_docs
 from openabm_api.ids import new_id
 from openabm_api.metrics import Metrics
 from openabm_api.prompts import render_prompt
@@ -472,6 +475,152 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         del actor
         return {"data": store.list_scores(project_id, trace_id=trace_id)}
 
+    @app.get("/api/judges")
+    def list_judges(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["judges:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_judges(project_id)}
+
+    @app.get("/api/judges/{judge_id}")
+    def get_judge(
+        judge_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["judges:read"])),
+    ) -> dict[str, object]:
+        del actor
+        judge = store.get_judge(project_id, judge_id)
+        if judge is None:
+            raise HTTPException(status_code=404, detail=_error("not_found", "Judge not found."))
+        return judge
+
+    @app.post("/api/judges/drafts", status_code=201)
+    async def create_judge_draft(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["judges:write"])),
+    ) -> dict[str, object]:
+        del actor
+        if "project_id" not in request:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        if "definition" in request:
+            judge_type = request.get("judge_type") or request["definition"].get("judge_type")
+            if not judge_type:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    "judge_type is required for explicit judge definitions",
+                    "/judge_type",
+                )
+            draft = {
+                "name": request.get("name") or request["definition"].get("name") or "Draft judge",
+                "description": request.get("description")
+                or request["definition"].get("description"),
+                "judge_type": judge_type,
+                "definition": request["definition"],
+            }
+        else:
+            try:
+                provider = model_provider_from_settings(settings)
+            except ModelConfigurationError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=_error("model_unavailable", str(exc), retryable=True),
+                ) from exc
+            trace = None
+            spans = []
+            if request.get("trace_id"):
+                trace = store.get_trace(request["project_id"], request["trace_id"])
+                if trace is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=_error("not_found", "Trace not found."),
+                    )
+                spans = (
+                    store.list_spans(request["project_id"], request["trace_id"]) if trace else []
+                )
+            try:
+                draft = await draft_judge_from_request(
+                    provider,
+                    request=request,
+                    trace=trace,
+                    spans=spans,
+                )
+            except ModelCallsDisabled as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=_error("model_unavailable", str(exc), retryable=True),
+                ) from exc
+            if draft["status"] != "succeeded":
+                raise HTTPException(
+                    status_code=422,
+                    detail=_error("invalid_model_output", "Judge draft model output was invalid."),
+                )
+        judge = store.create_judge(
+            {
+                "project_id": request["project_id"],
+                "name": draft["name"],
+                "description": draft.get("description"),
+                "judge_type": draft["judge_type"],
+                "status": "draft",
+            },
+            definition=draft["definition"],
+            created_by=request.get("created_by"),
+        )
+        if draft.get("model_metadata"):
+            judge["model_metadata"] = draft["model_metadata"]
+        store.create_review_task(
+            {
+                "project_id": request["project_id"],
+                "task_type": "judge_output",
+                "source_entity_type": "judge",
+                "source_entity_id": judge["judge_id"],
+                "evidence_ids": [request["trace_id"]] if request.get("trace_id") else [],
+            }
+        )
+        store.append_audit(
+            "create_judge_draft",
+            "judge",
+            request["project_id"],
+            judge["judge_id"],
+        )
+        return judge
+
+    @app.post("/api/judges/{judge_id}/versions", status_code=201)
+    def commit_judge_version(
+        judge_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["judges:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "definition"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        try:
+            version = store.commit_judge_version(
+                request["project_id"],
+                judge_id,
+                definition=request["definition"],
+                created_by=request.get("created_by"),
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
+        store.append_audit(
+            "commit_judge_version",
+            "judge",
+            request["project_id"],
+            judge_id,
+            {"judge_version_id": version["judge_version_id"]},
+        )
+        return version
+
     @app.post("/api/judges/rubric/run", status_code=201)
     async def run_rubric_judge_endpoint(
         request: dict[str, Any],
@@ -730,6 +879,73 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         del actor
         return {"data": store.list_eval_runs(project_id)}
 
+    @app.post("/api/evals/run", status_code=201)
+    async def run_eval_endpoint(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["evals:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "dataset_version_id"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        judges = _eval_judges_from_request(store, request)
+        if not judges:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "At least one judge or judge_id is required",
+                "/judges",
+            )
+        provider = None
+        if any(judge.get("judge_type") == "rubric_judge" for judge in judges):
+            try:
+                provider = model_provider_from_settings(settings)
+            except ModelConfigurationError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=_error("model_unavailable", str(exc), retryable=True),
+                ) from exc
+        try:
+            run = await run_eval(
+                store,
+                project_id=request["project_id"],
+                dataset_version_id=request["dataset_version_id"],
+                judges=judges,
+                runner=request.get("runner"),
+                provider=provider,
+                token_budget=settings.max_trace_tokens_for_judge,
+                baseline_eval_run_id=request.get("baseline_eval_run_id"),
+                prompt_version_id=request.get("prompt_version_id"),
+            )
+        except ModelCallsDisabled as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=_error("model_unavailable", str(exc), retryable=True),
+            ) from exc
+        store.append_audit(
+            "run_eval",
+            "eval_run",
+            request["project_id"],
+            run["eval_run_id"],
+            {"dataset_version_id": request["dataset_version_id"]},
+        )
+        return run
+
+    @app.get("/api/evals/{eval_run_id}")
+    def get_eval_run(
+        eval_run_id: str,
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["evals:read"])),
+    ) -> dict[str, object]:
+        del actor
+        run = store.get_eval_run(project_id, eval_run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail=_error("not_found", "Eval run not found."))
+        return run
+
     @app.get("/api/evals/{eval_run_id}/results")
     def list_eval_results(
         eval_run_id: str,
@@ -738,6 +954,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict[str, object]:
         del actor
         return {"data": store.list_eval_results(project_id, eval_run_id)}
+
+    @app.post("/api/evals/compare")
+    def compare_eval_runs(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["evals:read"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "baseline_eval_run_id", "candidate_eval_run_id"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        try:
+            comparison = store.compare_eval_runs(
+                request["project_id"],
+                request["baseline_eval_run_id"],
+                request["candidate_eval_run_id"],
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=_error("not_found", str(exc))) from exc
+        return comparison
+
+    @app.post("/api/docs/search")
+    def search_docs(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["docs:read"])),
+    ) -> dict[str, object]:
+        del actor
+        if "query" not in request:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "query is required",
+                "/query",
+            )
+        return search_public_docs(str(request["query"]), limit=int(request.get("limit", 20)))
 
     @app.get("/api/saved-searches")
     def list_saved_searches(
@@ -1861,6 +2114,27 @@ def _behavior_backtest_evidence_ids(result: dict[str, Any]) -> list[str]:
         evidence_ids.append(example["trace_id"])
         evidence_ids.extend(example.get("evidence_span_ids", []))
     return sorted(set(evidence_ids))
+
+
+def _eval_judges_from_request(store: SQLiteStore, request: dict[str, Any]) -> list[dict[str, Any]]:
+    judges = [dict(judge) for judge in request.get("judges", [])]
+    for judge_id in request.get("judge_ids", []):
+        judge = store.get_judge(request["project_id"], judge_id)
+        if judge is None or not judge.get("versions"):
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", f"Judge not found or has no versions: {judge_id}"),
+            )
+        version = judge["versions"][0]
+        definition = dict(version["definition"])
+        definition.setdefault("judge_id", judge["judge_id"])
+        definition.setdefault("judge_version_id", version["judge_version_id"])
+        definition.setdefault("project_id", judge["project_id"])
+        definition.setdefault("name", judge["name"])
+        definition.setdefault("description", judge.get("description"))
+        definition.setdefault("judge_type", judge["judge_type"])
+        judges.append(definition)
+    return judges
 
 
 def _screenshot_seed_trace_candidates(

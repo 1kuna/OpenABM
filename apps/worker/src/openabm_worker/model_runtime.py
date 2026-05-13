@@ -142,7 +142,7 @@ class OpenAICompatibleModelProvider:
             "model": request.get("model") or self.chat_model,
             "messages": request["messages"],
         }
-        for key in ["temperature", "top_p", "metadata"]:
+        for key in ["temperature", "top_p", "metadata", "max_tokens", "max_completion_tokens"]:
             if key in request:
                 payload[key] = request[key]
         return await self._post_chat(payload)
@@ -162,6 +162,7 @@ class OpenAICompatibleModelProvider:
                 "model": request.get("model") or self.chat_model,
                 "messages": messages,
                 "temperature": request.get("temperature", 0.1),
+                **_completion_length(request),
             }
         )
         text = _message_text(response)
@@ -222,6 +223,7 @@ class OpenAICompatibleModelProvider:
                 "model": request.get("model") or self.chat_model,
                 "messages": [*messages, repair_prompt],
                 "temperature": request.get("temperature", 0.1),
+                **_completion_length(request),
             }
         )
 
@@ -273,6 +275,14 @@ def _with_structured_output_instruction(
         ),
     }
     return [instruction, *messages]
+
+
+def _completion_length(request: dict[str, Any]) -> dict[str, int]:
+    if "max_completion_tokens" in request:
+        return {"max_completion_tokens": int(request["max_completion_tokens"])}
+    if "max_tokens" in request:
+        return {"max_tokens": int(request["max_tokens"])}
+    return {}
 
 
 def _message_text(response: dict[str, Any]) -> str:

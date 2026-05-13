@@ -323,6 +323,148 @@ def test_v1_eval_runs_are_queryable(tmp_path) -> None:
     assert results.json()["data"][0]["scores"][0]["failure_mode"] == "wrong_tool_for_refund"
 
 
+def test_v1_judge_registry_eval_compare_and_docs_search(tmp_path) -> None:
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    store = client.app.state.store
+    dataset = store.create_dataset("proj_demo", "Refund judge registry eval")
+    store.add_trace_to_dataset("proj_demo", dataset["dataset_id"], fixture["trace"]["trace_id"])
+
+    judge = client.post(
+        "/v1/judges/drafts",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "name": "Wrong tool for refund",
+            "judge_type": "deterministic_rule",
+            "definition": _wrong_tool_judge(),
+        },
+    )
+    assert judge.status_code == 201
+    judge_id = judge.json()["judge_id"]
+    fetched = client.get(
+        f"/v1/judges/{judge_id}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert fetched.status_code == 200
+    assert fetched.json()["versions"][0]["definition"]["rule"]["failure_mode"] == (
+        "wrong_tool_for_refund"
+    )
+
+    baseline = client.post(
+        "/v1/evals/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "dataset_version_id": dataset["latest_version_id"],
+            "judge_ids": [judge_id],
+        },
+    )
+    assert baseline.status_code == 201
+    candidate = client.post(
+        "/v1/evals/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "dataset_version_id": dataset["latest_version_id"],
+            "judges": [_order_lookup_present_judge()],
+            "baseline_eval_run_id": baseline.json()["eval_run_id"],
+        },
+    )
+    assert candidate.status_code == 201
+    fetched_run = client.get(
+        f"/v1/evals/{candidate.json()['eval_run_id']}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert fetched_run.json()["baseline_eval_run_id"] == baseline.json()["eval_run_id"]
+
+    comparison = client.post(
+        "/v1/evals/compare",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "baseline_eval_run_id": baseline.json()["eval_run_id"],
+            "candidate_eval_run_id": candidate.json()["eval_run_id"],
+        },
+    )
+    assert comparison.status_code == 200
+    assert comparison.json()["pass_rate_delta"] == 1.0
+    assert comparison.json()["avg_score_delta"] == 1.0
+    assert comparison.json()["fixed_failures"]
+
+    docs = client.post(
+        "/v1/docs/search",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "query": "judge registry", "limit": 5},
+    )
+    assert docs.status_code == 200
+    assert docs.json()["results"]
+    all_paths = [*docs.json()["searched_paths"], *[item["path"] for item in docs.json()["results"]]]
+    assert "openabm_implementation_spec.md" not in all_paths
+
+
+def test_v1_model_backed_judge_draft_requires_review(tmp_path, monkeypatch) -> None:
+    class StubProvider:
+        async def structured_completion(self, request, schema):
+            del request, schema
+            return {
+                "status": "succeeded",
+                "value": {
+                    "name": "Refund rubric",
+                    "description": "Checks whether refund traces use the right evidence.",
+                    "judge_type": "rubric_judge",
+                    "definition": {
+                        "judge_id": "draft_refund_rubric",
+                        "judge_type": "rubric_judge",
+                        "rubric": {
+                            "pass": "Refund policy evidence supports the action.",
+                            "fail": "The trace uses unrelated order lookup evidence.",
+                            "unsure": "The trace lacks enough evidence.",
+                        },
+                        "require_span_citations": True,
+                    },
+                    "uncertainty": "single trace draft; human review required",
+                },
+                "provider": "stub",
+                "model": "stub-model",
+                "usage": None,
+                "repaired": False,
+            }
+
+    monkeypatch.setattr(
+        "openabm_api.main.model_provider_from_settings",
+        lambda settings: StubProvider(),
+    )
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    response = client.post(
+        "/v1/judges/drafts",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": fixture["trace"]["trace_id"],
+            "natural_language_request": "Draft a rubric for refund tool misuse.",
+        },
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["judge_type"] == "rubric_judge"
+    assert body["status"] == "draft"
+    assert body["model_metadata"]["model"] == "stub-model"
+
+
 def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
     client = make_client(tmp_path)
     fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
@@ -875,6 +1017,20 @@ def _wrong_tool_judge() -> dict[str, object]:
         "rule": {
             "match_semantics": "any_match_is_fail",
             "failure_mode": "wrong_tool_for_refund",
+            "conditions": {
+                "combine": "all",
+                "items": [{"field": "attributes.tool.name", "op": "eq", "value": "order_lookup"}],
+            },
+        },
+    }
+
+
+def _order_lookup_present_judge() -> dict[str, object]:
+    return {
+        "judge_id": "judge_order_lookup_present",
+        "judge_type": "deterministic_rule",
+        "rule": {
+            "match_semantics": "any_match_is_pass",
             "conditions": {
                 "combine": "all",
                 "items": [{"field": "attributes.tool.name", "op": "eq", "value": "order_lookup"}],

@@ -59,6 +59,55 @@ def _agent_config_commit_id(
     return f"agent_config_{digest[:32]}"
 
 
+def _first_eval_verdict(result: dict[str, Any] | None) -> str | None:
+    if not result or not result.get("scores"):
+        return None
+    return (result["scores"][0].get("value") or {}).get("verdict")
+
+
+def _pass_rate(summary: dict[str, Any]) -> float:
+    verdicts = summary.get("score_verdict_counts", {})
+    total = sum(int(count) for count in verdicts.values())
+    if total == 0:
+        return 0.0
+    return int(verdicts.get("pass", 0)) / total
+
+
+def _invalid_delta(baseline: dict[str, Any], candidate: dict[str, Any]) -> int:
+    baseline_invalid = int(baseline.get("result_status_counts", {}).get("invalid_output", 0))
+    candidate_invalid = int(candidate.get("result_status_counts", {}).get("invalid_output", 0))
+    return candidate_invalid - baseline_invalid
+
+
+def _average_score(results: Iterable[dict[str, Any]]) -> float | None:
+    scores = []
+    for result in results:
+        for score in result.get("scores", []):
+            value = score.get("value") or {}
+            if isinstance(value.get("score"), int | float):
+                scores.append(float(value["score"]))
+    if not scores:
+        return None
+    return sum(scores) / len(scores)
+
+
+def _sum_latency(results: Iterable[dict[str, Any]]) -> int:
+    return sum(int(result.get("latency_ms") or 0) for result in results)
+
+
+def _sum_token_usage(results: Iterable[dict[str, Any]]) -> int | None:
+    total = 0
+    saw_usage = False
+    for result in results:
+        for score in result.get("scores", []):
+            usage = ((score.get("cost") or {}).get("usage") or {}) if score.get("cost") else {}
+            tokens = usage.get("total_tokens")
+            if isinstance(tokens, int | float):
+                saw_usage = True
+                total += int(tokens)
+    return total if saw_usage else None
+
+
 class SQLiteStore:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
@@ -370,6 +419,140 @@ class SQLiteStore:
                 ),
             )
         return score
+
+    def create_judge(
+        self,
+        request: dict[str, Any],
+        *,
+        definition: dict[str, Any] | None = None,
+        created_by: str | None = None,
+    ) -> dict[str, Any]:
+        self.ensure_project(request["project_id"])
+        now = utc_now()
+        judge = {
+            "judge_id": request.get("judge_id") or new_id("judge"),
+            "project_id": request["project_id"],
+            "name": request["name"],
+            "description": request.get("description"),
+            "judge_type": request["judge_type"],
+            "status": request.get("status") or "draft",
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO judges(
+                  judge_id, project_id, name, description, judge_type, status,
+                  created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    judge["judge_id"],
+                    judge["project_id"],
+                    judge["name"],
+                    judge["description"],
+                    judge["judge_type"],
+                    judge["status"],
+                    judge["created_at"],
+                    judge["updated_at"],
+                ),
+            )
+        if definition is not None:
+            version = self.commit_judge_version(
+                judge["project_id"],
+                judge["judge_id"],
+                definition=definition,
+                created_by=created_by,
+            )
+            judge["versions"] = [version]
+        return judge
+
+    def commit_judge_version(
+        self,
+        project_id: str,
+        judge_id: str,
+        *,
+        definition: dict[str, Any],
+        created_by: str | None = None,
+    ) -> dict[str, Any]:
+        if self.get_judge(project_id, judge_id) is None:
+            raise KeyError(f"judge not found: {judge_id}")
+        with self.connect() as conn:
+            latest = conn.execute(
+                """
+                SELECT COALESCE(MAX(version), 0) AS latest
+                FROM judge_versions
+                WHERE project_id = ? AND judge_id = ?
+                """,
+                (project_id, judge_id),
+            ).fetchone()
+            version_number = int(latest["latest"]) + 1
+            now = utc_now()
+            version = {
+                "judge_version_id": new_id("judge_version"),
+                "judge_id": judge_id,
+                "project_id": project_id,
+                "version": version_number,
+                "definition": definition,
+                "created_by": created_by,
+                "created_at": now,
+            }
+            conn.execute(
+                """
+                INSERT INTO judge_versions(
+                  judge_version_id, judge_id, project_id, version,
+                  definition_json, created_by, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    version["judge_version_id"],
+                    judge_id,
+                    project_id,
+                    version_number,
+                    encode_json(definition),
+                    created_by,
+                    now,
+                ),
+            )
+        return version
+
+    def list_judges(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM judges
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._judge_from_row(row) for row in rows]
+
+    def get_judge(self, project_id: str, judge_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM judges
+                WHERE project_id = ? AND judge_id = ?
+                """,
+                (project_id, judge_id),
+            ).fetchone()
+            versions = conn.execute(
+                """
+                SELECT * FROM judge_versions
+                WHERE project_id = ? AND judge_id = ?
+                ORDER BY version DESC
+                """,
+                (project_id, judge_id),
+            ).fetchall()
+        if row is None:
+            return None
+        judge = self._judge_from_row(row)
+        judge["versions"] = [self._judge_version_from_row(version) for version in versions]
+        return judge
 
     def list_behaviors(self, project_id: str) -> list[dict[str, Any]]:
         with self.connect() as conn:
@@ -791,6 +974,74 @@ class SQLiteStore:
                 (project_id, eval_run_id),
             ).fetchall()
         return [self._eval_result_from_row(row) for row in rows]
+
+    def get_eval_run(self, project_id: str, eval_run_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM eval_runs
+                WHERE project_id = ? AND eval_run_id = ?
+                """,
+                (project_id, eval_run_id),
+            ).fetchone()
+        return self._eval_run_from_row(row) if row else None
+
+    def compare_eval_runs(
+        self,
+        project_id: str,
+        baseline_eval_run_id: str,
+        candidate_eval_run_id: str,
+    ) -> dict[str, Any]:
+        baseline = self.get_eval_run(project_id, baseline_eval_run_id)
+        candidate = self.get_eval_run(project_id, candidate_eval_run_id)
+        if baseline is None or candidate is None:
+            raise KeyError("eval run not found")
+        baseline_results = {
+            result["dataset_example_id"]: result
+            for result in self.list_eval_results(project_id, baseline_eval_run_id)
+        }
+        candidate_results = {
+            result["dataset_example_id"]: result
+            for result in self.list_eval_results(project_id, candidate_eval_run_id)
+        }
+        example_ids = sorted(set(baseline_results) | set(candidate_results))
+        new_failures = []
+        fixed_failures = []
+        unchanged_failures = []
+        for example_id in example_ids:
+            old_verdict = _first_eval_verdict(baseline_results.get(example_id))
+            new_verdict = _first_eval_verdict(candidate_results.get(example_id))
+            if old_verdict != "fail" and new_verdict == "fail":
+                new_failures.append(example_id)
+            elif old_verdict == "fail" and new_verdict != "fail":
+                fixed_failures.append(example_id)
+            elif old_verdict == "fail" and new_verdict == "fail":
+                unchanged_failures.append(example_id)
+        baseline_score = _average_score(baseline_results.values())
+        candidate_score = _average_score(candidate_results.values())
+        baseline_tokens = _sum_token_usage(baseline_results.values())
+        candidate_tokens = _sum_token_usage(candidate_results.values())
+        return {
+            "baseline_eval_run_id": baseline_eval_run_id,
+            "candidate_eval_run_id": candidate_eval_run_id,
+            "baseline_summary": baseline["summary"],
+            "candidate_summary": candidate["summary"],
+            "pass_rate_delta": _pass_rate(candidate["summary"]) - _pass_rate(baseline["summary"]),
+            "avg_score_delta": None
+            if baseline_score is None or candidate_score is None
+            else candidate_score - baseline_score,
+            "new_failures": new_failures,
+            "fixed_failures": fixed_failures,
+            "unchanged_failures": unchanged_failures,
+            "invalid_judge_output_delta": _invalid_delta(baseline["summary"], candidate["summary"]),
+            "cost_delta": None,
+            "latency_delta": _sum_latency(candidate_results.values())
+            - _sum_latency(baseline_results.values()),
+            "token_delta": None
+            if baseline_tokens is None or candidate_tokens is None
+            else candidate_tokens - baseline_tokens,
+            "behavior_distribution_shift": {},
+        }
 
     def add_trace_dimension(
         self,
@@ -2132,6 +2383,8 @@ class SQLiteStore:
             "spans": spans,
             "payloads": payloads if include_payloads else _payload_metadata_only(payloads),
             "scores": self.list_scores(project_id),
+            "judges": self.list_judges(project_id),
+            "eval_runs": self.list_eval_runs(project_id),
             "behaviors": self.list_behaviors(project_id),
             "datasets": self.list_datasets(project_id),
             "issues": self.list_issues(project_id),
@@ -2461,6 +2714,30 @@ class SQLiteStore:
             "failure_mode": row["failure_mode"],
             "cost": decode_json(row["cost_json"], None),
             "latency_ms": row["latency_ms"],
+            "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _judge_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "judge_id": row["judge_id"],
+            "project_id": row["project_id"],
+            "name": row["name"],
+            "description": row["description"],
+            "judge_type": row["judge_type"],
+            "status": row["status"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _judge_version_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "judge_version_id": row["judge_version_id"],
+            "judge_id": row["judge_id"],
+            "version": row["version"],
+            "definition": decode_json(row["definition_json"], {}),
+            "created_by": row["created_by"],
             "created_at": row["created_at"],
         }
 
