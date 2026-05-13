@@ -284,7 +284,15 @@ export function App() {
         ) : activeView === "datasets" ? (
           <DatasetEvalWorkspace client={client} connection={connection} projectId={projectId} />
         ) : activeView === "behaviors" ? (
-          <BehaviorWorkspace client={client} connection={connection} projectId={projectId} />
+          <BehaviorWorkspace
+            client={client}
+            connection={connection}
+            projectId={projectId}
+            onOpenTrace={(traceId) => {
+              setSelectedTraceId(traceId);
+              setActiveView("traces");
+            }}
+          />
         ) : activeView === "automations" ? (
           <AutomationWorkspace client={client} connection={connection} projectId={projectId} traces={traces} />
         ) : activeView === "prompts" ? (
@@ -1545,9 +1553,13 @@ function BehaviorWorkspace(props: {
   client: OpenAbmClient;
   connection: ConnectionState;
   projectId: string;
+  onOpenTrace: (traceId: string) => void;
 }) {
   const { client, connection, projectId } = props;
   const [behaviors, setBehaviors] = useState<BehaviorDefinition[]>([]);
+  const [matches, setMatches] = useState<BehaviorMatch[]>([]);
+  const [reviewTasks, setReviewTasks] = useState<ReviewTask[]>([]);
+  const [automations, setAutomations] = useState<AutomationDefinition[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [name, setName] = useState("wrong_tool_for_refund");
   const [description, setDescription] = useState("Refund workflow uses an unrelated order lookup.");
@@ -1562,10 +1574,19 @@ function BehaviorWorkspace(props: {
   const [stateText, setStateText] = useState("Behavior monitoring needs a live API");
 
   const selectedBehavior = behaviors.find((behavior) => behavior.behavior_id === selectedId) ?? behaviors[0] ?? null;
+  const matchStatusCounts = countLabels(matches.map((match) => match.status));
+  const reviewLabelCounts = countLabels(reviewTasks.map((task) => behaviorReviewLabel(task)));
+  const relatedAutomations = selectedBehavior
+    ? automations.filter((automation) => automationReferencesBehavior(automation, selectedBehavior))
+    : [];
+  const latestMatch = matches[0] ?? null;
 
   async function loadBehaviors() {
     if (connection !== "live") {
       setBehaviors([]);
+      setMatches([]);
+      setReviewTasks([]);
+      setAutomations([]);
       setSelectedId("");
       setBacktest(null);
       setStateText("fixture mode");
@@ -1588,6 +1609,37 @@ function BehaviorWorkspace(props: {
   useEffect(() => {
     void loadBehaviors();
   }, [client, connection, projectId]);
+
+  async function loadBehaviorDetail(behavior: BehaviorDefinition | null = selectedBehavior) {
+    if (connection !== "live" || !behavior) {
+      setMatches([]);
+      setReviewTasks([]);
+      setAutomations([]);
+      return;
+    }
+    try {
+      const [loadedMatches, loadedReviews, loadedAutomations] = await Promise.all([
+        client.listBehaviorMatches(projectId, { behaviorId: behavior.behavior_id }),
+        client.listReviewTasks(projectId, { taskType: "behavior_candidate" }),
+        client.listAutomations(projectId)
+      ]);
+      setMatches(loadedMatches);
+      setReviewTasks(
+        loadedReviews.filter(
+          (task) =>
+            task.source_entity_type === "behavior" &&
+            task.source_entity_id === behavior.behavior_id
+        )
+      );
+      setAutomations(loadedAutomations);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "behavior detail refresh failed");
+    }
+  }
+
+  useEffect(() => {
+    void loadBehaviorDetail();
+  }, [client, connection, projectId, selectedBehavior?.behavior_id]);
 
   async function createBehavior() {
     if (connection !== "live" || !name.trim()) return;
@@ -1612,6 +1664,8 @@ function BehaviorWorkspace(props: {
       setBehaviors((current) => [created, ...current]);
       setSelectedId(created.behavior_id);
       setBacktest(null);
+      setMatches([]);
+      setReviewTasks([]);
       setStateText(`created ${created.name}`);
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "behavior creation failed");
@@ -1629,6 +1683,7 @@ function BehaviorWorkspace(props: {
       });
       setBacktest(result);
       setStateText(`backtest ${result.status}: ${result.positive_count}/${result.trace_count} positives`);
+      void loadBehaviorDetail(selectedBehavior);
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "backtest failed");
     }
@@ -1707,13 +1762,35 @@ function BehaviorWorkspace(props: {
             <p className="entityDescription">{selectedBehavior.description ?? selectedBehavior.behavior_id}</p>
             <div className="metricsRow behaviorMetrics">
               <Metric icon={<GitBranch />} label="Detector" value={String(selectedBehavior.detector.type ?? "unknown")} />
-              <Metric icon={<Shield />} label="Status" value={selectedBehavior.status} />
+              <Metric icon={<Shield />} label="Matches" value={String(matches.length)} />
+              <Metric icon={<CheckCircle2 />} label="Reviews" value={String(reviewTasks.length)} />
               <Metric icon={<Activity />} label="Backtest" value={backtest ? `${backtest.positive_count}/${backtest.trace_count}` : "not run"} />
             </div>
             <div className="behaviorSections">
               <section className="behaviorSection">
                 <h4>Detector</h4>
                 <pre>{JSON.stringify(selectedBehavior.detector, null, 2)}</pre>
+              </section>
+              <section className="behaviorSection">
+                <h4>Trend</h4>
+                <dl className="reviewFacts compactFacts">
+                  <div>
+                    <dt>Status</dt>
+                    <dd>{selectedBehavior.status}</dd>
+                  </div>
+                  <div>
+                    <dt>Match labels</dt>
+                    <dd>{formatCounts(matchStatusCounts)}</dd>
+                  </div>
+                  <div>
+                    <dt>Review labels</dt>
+                    <dd>{formatCounts(reviewLabelCounts)}</dd>
+                  </div>
+                  <div>
+                    <dt>Latest match</dt>
+                    <dd>{latestMatch ? formatTime(latestMatch.created_at) : "none"}</dd>
+                  </div>
+                </dl>
               </section>
               <section className="behaviorSection">
                 <h4>Backtest</h4>
@@ -1742,9 +1819,61 @@ function BehaviorWorkspace(props: {
                     <strong>{backtest.status}</strong>
                     <span>{backtest.positive_count} positives · {backtest.negative_count} negatives · {formatRate(backtest.detection_rate)}</span>
                     {backtest.review_task ? <span>Review task: {backtest.review_task.review_task_id}</span> : null}
+                    {backtest.persisted_behavior_matches?.length ? <span>{backtest.persisted_behavior_matches.length} persisted matches</span> : null}
                     {backtest.unsupported_reason ? <span>{backtest.unsupported_reason}</span> : null}
                   </div>
                 ) : null}
+              </section>
+              <section className="behaviorSection">
+                <h4>Matched traces</h4>
+                <div className="exampleRows">
+                  {matches.slice(0, 12).map((match) => (
+                    <div key={match.behavior_match_id}>
+                      <strong>{match.trace_id}</strong>
+                      <span>{match.status} · {match.span_id ?? "trace-level"} · {formatTime(match.created_at)}</span>
+                      <small>{match.evidence_span_ids.join(", ") || "no cited spans"}</small>
+                      <button onClick={() => props.onOpenTrace(match.trace_id)}>
+                        <FileSearch size={14} />
+                        Open trace
+                      </button>
+                    </div>
+                  ))}
+                  {!matches.length ? <p className="systemNote">No persisted matches</p> : null}
+                </div>
+              </section>
+              <section className="behaviorSection">
+                <h4>False-positive review labels</h4>
+                <div className="sectionRows">
+                  {reviewTasks.map((task) => (
+                    <div key={task.review_task_id}>
+                      <strong>{behaviorReviewLabel(task)}</strong>
+                      <span>{task.review_task_id} · {task.status} · {formatTime(task.updated_at)}</span>
+                      <span>{task.decision_nullable ?? "no decision"}</span>
+                      <small>{task.evidence_ids.join(", ") || "no evidence ids"}</small>
+                    </div>
+                  ))}
+                  {!reviewTasks.length ? <p className="systemNote">No behavior review labels</p> : null}
+                </div>
+              </section>
+              <section className="behaviorSection">
+                <h4>Actions and automations</h4>
+                <div className="sectionRows">
+                  {relatedAutomations.map((automation) => (
+                    <div key={automation.automation_id}>
+                      <strong>{automation.name}</strong>
+                      <span>{automation.status} · {automation.actions.length} actions</span>
+                      <small>{automation.automation_id}</small>
+                    </div>
+                  ))}
+                  {backtest?.review_task ? (
+                    <div>
+                      <strong>{backtest.review_task.task_type}</strong>
+                      <span>{backtest.review_task.status} · {backtest.review_task.review_task_id}</span>
+                      <small>{backtest.review_task.evidence_ids.join(", ") || "no evidence ids"}</small>
+                    </div>
+                  ) : null}
+                  {!relatedAutomations.length && !backtest?.review_task ? <p className="systemNote">No linked actions</p> : null}
+                </div>
               </section>
               <section className="behaviorSection positiveExamples">
                 <h4>Positive examples</h4>
@@ -1757,6 +1886,20 @@ function BehaviorWorkspace(props: {
                     </div>
                   ))}
                   {backtest && !backtest.positive_examples.length ? <p className="systemNote">No positives</p> : null}
+                  {!backtest ? <p className="systemNote">Run a backtest to populate examples</p> : null}
+                </div>
+              </section>
+              <section className="behaviorSection positiveExamples">
+                <h4>Negative examples</h4>
+                <div className="exampleRows">
+                  {(backtest?.negative_examples ?? []).map((example) => (
+                    <div key={example.trace_id}>
+                      <strong>{example.trace_id}</strong>
+                      <span>{example.reason}</span>
+                      <small>{example.evidence_span_ids.join(", ") || "no cited spans"}</small>
+                    </div>
+                  ))}
+                  {backtest && !backtest.negative_examples.length ? <p className="systemNote">No negatives</p> : null}
                   {!backtest ? <p className="systemNote">Run a backtest to populate examples</p> : null}
                 </div>
               </section>
@@ -4155,6 +4298,23 @@ function codeErrorAttributes(span: SpanEnvelope) {
     input_redaction: span.input?.redaction_state ?? span.input?.mode ?? null,
     output_redaction: span.output?.redaction_state ?? span.output?.mode ?? null
   };
+}
+
+function behaviorReviewLabel(task: ReviewTask) {
+  if (task.status === "rejected") return "false_positive";
+  if (task.status === "accepted") return "accepted_positive";
+  return task.status;
+}
+
+function automationReferencesBehavior(automation: AutomationDefinition, behavior: BehaviorDefinition) {
+  const haystack = JSON.stringify({
+    trigger: automation.trigger,
+    conditions: automation.conditions,
+    actions: automation.actions
+  }).toLowerCase();
+  return [behavior.behavior_id, behavior.name]
+    .filter((value) => value.trim().length > 0)
+    .some((value) => haystack.includes(value.toLowerCase()));
 }
 
 function groupByTraceId<T extends { trace_id: string }>(items: T[]) {

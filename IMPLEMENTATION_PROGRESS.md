@@ -284,6 +284,10 @@ Done:
 - Added draft behavior creation, deterministic rule/manual-label/judge detector
   backtesting, persisted backtest-positive behavior matches, and review-task
   creation for candidate positives.
+- Expanded the Behavior Detail workspace with persisted match lists, trace links,
+  match/review trend counts, false-positive review label display, backtest
+  positive/negative examples, persisted-match summaries, and linked review/
+  automation actions.
 - Added a live Automations workspace in the web app with notification-target
   creation, automation definition creation, run-once execution, idempotency-key
   input, cooldown/action result inspection, and target listing wired to
@@ -442,8 +446,8 @@ Blocked:
 
 Verified after the latest implementation slices:
 
-- `make lint && make test`: passed, 43 tests after the operations workspace
-  slice.
+- `make lint && make test`: passed, 45 tests after the Behavior Detail
+  workspace slice.
 - `npm --prefix apps/web run build`: passed.
 - Browser QA captured desktop and mobile Trace Detail, Operations, Issues, and
   Automations workspace screenshots under `artifacts/ui-qa/`; trace detail mode
@@ -453,9 +457,11 @@ Verified after the latest implementation slices:
   trace-detail behavior labeling, deterministic assertion checks, similar trace
   result rendering, and local qwen-backed rubric judge execution, retention
   dry-run, export manifest, classification, issue intake, screenshot intake,
-  ChatOps investigation, Judge Editor draft creation/version commit, notification
-  target creation, automation creation, and automation run-once flows completed
-  against the live local API with no console errors or failing API responses.
+  ChatOps investigation, Judge Editor draft creation/version commit, Behavior
+  Detail backtest/match/review/action rendering, matched-trace navigation,
+  notification target creation, automation creation, and automation run-once
+  flows completed against the live local API with no console errors or failing
+  API responses.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
 - MCP stdio smoke: `tools/list` returned 35 tools and

@@ -261,9 +261,14 @@ export class OpenAbmClient {
     });
   }
 
-  async listBehaviorMatches(projectId: string, traceId?: string): Promise<BehaviorMatch[]> {
+  async listBehaviorMatches(
+    projectId: string,
+    filters: string | { traceId?: string; behaviorId?: string } = {}
+  ): Promise<BehaviorMatch[]> {
     const params = new URLSearchParams({ project_id: projectId });
-    if (traceId) params.set("trace_id", traceId);
+    const normalized = typeof filters === "string" ? { traceId: filters } : filters;
+    if (normalized.traceId) params.set("trace_id", normalized.traceId);
+    if (normalized.behaviorId) params.set("behavior_id", normalized.behaviorId);
     const body = await this.get<{ data: BehaviorMatch[] }>(`/v1/behavior-matches?${params.toString()}`);
     return body.data;
   }

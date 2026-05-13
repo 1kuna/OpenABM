@@ -1550,6 +1550,8 @@ pre {
 .evalForm input,
 .behaviorCreate input,
 .behaviorCreate select,
+.behaviorSection input,
+.behaviorSection select,
 .issueCreate input,
 .issueCreate select,
 .automationCreate input,
@@ -1785,6 +1787,7 @@ pre {
   padding: 0 10px;
 }
 
+.behaviorSection button,
 .issueSection button,
 .automationSection button {
   display: inline-flex;
@@ -1836,6 +1839,12 @@ pre {
   overflow-wrap: anywhere;
 }
 
+.sectionRows small {
+  color: #6b7280;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .sectionRows div {
   display: grid;
   gap: 3px;
@@ -1860,6 +1869,10 @@ pre {
   border-radius: 7px;
   min-width: 0;
   padding: 9px;
+}
+
+.compactFacts {
+  margin: 0;
 }
 
 .exampleRows strong,
