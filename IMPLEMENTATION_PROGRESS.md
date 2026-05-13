@@ -66,18 +66,19 @@ Remaining blockers or explicit non-local-reference work:
 
 Current validation gate:
 
-- Latest local gates: `make ci` and `make deploy-config-check` passed after
-  `d048a48`; the later `1849dae` slice was documentation-only and passed docs
-  link validation.
-- Latest pushed commit: `1849dae Update completion audit status`.
-- Latest GitHub Actions run: `25825343855` completed successfully on `main`.
+- Latest full implementation gates: `make ci` and `make deploy-config-check`
+  passed after `d048a48`; later audit-only documentation refreshes passed docs
+  link validation before commit.
+- Remote CI has been checked after each push and remained green; use
+  `gh run list --repo 1kuna/OpenABM --branch main --limit 5` for the current
+  head run.
 
 Prompt-to-artifact checklist:
 
 | Requirement | Evidence | Status |
 | --- | --- | --- |
 | Preserve ignored implementation spec as SSOT | `.gitignore` excludes `openabm_implementation_spec.md`; progress doc records the guardrail; no spec file is staged or committed. | Complete |
-| Make coherent commits as progress lands | `git log` shows focused slices through `1849dae`, including classification access, export redaction, trend analytics, affected-entity review tasks, audit metadata, and completion-audit cleanup. | Complete |
+| Make coherent commits as progress lands | `git log` shows focused slices on `main`, including classification access, export redaction, trend analytics, affected-entity review tasks, audit metadata, and completion-audit cleanup. | Complete |
 | Document progress and blockers | This `IMPLEMENTATION_PROGRESS.md` tracks phases, completed slices, validation, blockers, and deferrals. | Complete |
 | Use local LM Studio/qwen lane for semantic work | Model runtime ADR accepts OpenAI-compatible local providers; live canary notes cover `qwen3.5-9b-mlx`; settings/docs preserve no-timeout/high-context rules and `OPENABM_MODEL_MIN_AVAILABLE_MEMORY_MB`. | Complete for local reference |
 | Prefer OSS orchestration over reinvention | `docs/decisions/0006-agent-orchestration-framework.md`; LangGraph investigation adapter in `apps/worker/src/openabm_worker/investigation_workflow.py`; MCP remains the audited tool boundary. | Complete for current local reference |
