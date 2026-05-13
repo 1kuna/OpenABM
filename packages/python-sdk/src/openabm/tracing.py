@@ -5,7 +5,7 @@ import functools
 import hashlib
 import inspect
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, ParamSpec, TypeVar
@@ -29,6 +29,17 @@ PayloadRedactor = Callable[[Any], Any]
 HIGH_PRIORITY_VALUES = {"high", "critical", "p0", "p1"}
 ALWAYS_KEEP_STATUSES = {"error", "timeout", "cancelled"}
 STREAM_EVENT_HINTS = ("stream", "delta", "token")
+BAGGAGE_KEYS = {
+    "trace_id": "openabm-trace-id",
+    "span_id": "openabm-span-id",
+    "session_id": "openabm-session-id",
+    "user_external_id": "openabm-user-external-id",
+    "project_id": "openabm-project-id",
+    "environment": "openabm-environment",
+    "sampling_priority": "openabm-sampling-priority",
+    "sampling_sampled": "openabm-sampling-sampled",
+    "redaction_policy_handle": "openabm-redaction-policy",
+}
 
 
 @dataclass(frozen=True)
@@ -49,6 +60,9 @@ class Tracer:
         capture_payloads: bool = True,
         redactors: list[PayloadRedactor] | None = None,
         sampling: SamplingConfig | None = None,
+        session_id: str | None = None,
+        user_external_id: str | None = None,
+        redaction_policy_handle: str | None = None,
         sdk_name: str = "openabm-python",
         sdk_version: str = "0.0.0",
         resource: dict[str, Any] | None = None,
@@ -63,6 +77,9 @@ class Tracer:
         self.capture_payloads = capture_payloads
         self.redactors = redactors or []
         self.sampling = sampling or SamplingConfig()
+        self.session_id = session_id
+        self.user_external_id = user_external_id
+        self.redaction_policy_handle = redaction_policy_handle
         self.sdk_name = sdk_name
         self.sdk_version = sdk_version
         self.resource = resource or {}
@@ -101,6 +118,53 @@ class Tracer:
             input=input,
             sampled=sampled,
         )
+
+    def continue_from_baggage(
+        self,
+        name: str,
+        carrier: Mapping[str, str],
+        *,
+        span_type: str = "function",
+        attributes: dict[str, Any] | None = None,
+        input: Any = None,
+    ) -> Span:
+        context = extract_baggage(carrier)
+        trace_id = context.get("trace_id") or new_trace_id()
+        sampled = _baggage_sampled(context.get("sampling_sampled"))
+        if sampled is None:
+            sampled = self._trace_is_sampled(trace_id, attributes or {})
+        return Span(
+            tracer=self,
+            trace_id=trace_id,
+            span_id=new_span_id(),
+            parent_span_id=context.get("span_id"),
+            name=name,
+            span_type=span_type,
+            attributes=attributes or {},
+            input=input,
+            sampled=sampled,
+        )
+
+    def inject_baggage(self, span: Span | None = None) -> dict[str, str]:
+        active_span = span or _current_span.get()
+        values = {
+            "trace_id": active_span.trace_id if active_span else None,
+            "span_id": active_span.span_id if active_span else None,
+            "session_id": self.session_id,
+            "user_external_id": self.user_external_id,
+            "project_id": self.project_id,
+            "environment": self.environment,
+            "sampling_priority": (
+                _sampling_priority(active_span.attributes) if active_span else "default"
+            ),
+            "sampling_sampled": str(active_span.sampled).lower() if active_span else None,
+            "redaction_policy_handle": self.redaction_policy_handle,
+        }
+        return {
+            BAGGAGE_KEYS[key]: value
+            for key, raw_value in values.items()
+            if (value := _safe_baggage_value(raw_value)) is not None
+        }
 
     def flush(self) -> None:
         self.exporter.flush()
@@ -156,6 +220,12 @@ class Tracer:
             attributes["deployment_context_id"] = self.deployment_context_id
         if self.tool_version_ids:
             attributes["tool_version_ids"] = self.tool_version_ids
+        if self.session_id:
+            attributes["openabm.session_id"] = self.session_id
+        if self.user_external_id:
+            attributes["openabm.user_external_id"] = self.user_external_id
+        if self.redaction_policy_handle:
+            attributes["openabm.redaction_policy_handle"] = self.redaction_policy_handle
         return attributes
 
     def _trace_is_sampled(self, trace_id: str, attributes: dict[str, Any]) -> bool:
@@ -283,8 +353,8 @@ class Span:
             trace_payload = {
                 "trace_id": self.trace_id,
                 "project_id": self.tracer.project_id,
-                "session_id": None,
-                "user_external_id": None,
+                "session_id": self.tracer.session_id,
+                "user_external_id": self.tracer.user_external_id,
                 "root_span_id": self.span_id,
                 "environment": self.tracer.environment,
                 "status": self.status,
@@ -351,6 +421,14 @@ def observe(
         return wrapper
 
     return decorator
+
+
+def extract_baggage(carrier: Mapping[str, str]) -> dict[str, str]:
+    return {
+        key: value
+        for key, baggage_key in BAGGAGE_KEYS.items()
+        if (value := _safe_baggage_value(carrier.get(baggage_key))) is not None
+    }
 
 
 def _attributes_are_high_priority(attributes: dict[str, Any]) -> bool:
@@ -459,3 +537,32 @@ def _truthy(value: Any) -> bool:
     if isinstance(value, str):
         return value.lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def _safe_baggage_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text[:256]
+
+
+def _baggage_sampled(value: str | None) -> bool | None:
+    if value is None:
+        return None
+    lowered = value.lower()
+    if lowered in {"1", "true", "yes", "sampled"}:
+        return True
+    if lowered in {"0", "false", "no", "not_sampled"}:
+        return False
+    return None
+
+
+def _sampling_priority(attributes: dict[str, Any]) -> str:
+    priority = _safe_baggage_value(attributes.get("openabm.priority"))
+    if priority:
+        return priority
+    if _attributes_are_high_priority(attributes):
+        return "high"
+    return "default"

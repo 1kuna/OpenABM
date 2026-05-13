@@ -190,6 +190,10 @@ Done:
 - Added explicit OpenTelemetry-style span `resource` preservation across the
   span envelope schema, Python SDK export, SQLite storage, and trace-detail
   reconstruction path.
+- Added safe Python SDK baggage propagation helpers for cross-process
+  trace/span continuation, preserving trace/span/session/user/project/
+  environment/sampling/redaction handles without propagating prompts, outputs,
+  or secrets.
 - Added SDK and API backpressure/sampling controls: deterministic SDK trace
   sampling metadata, SDK payload and model-stream event sampling with visible
   omission markers, bounded HTTP exporter buffering, server-side inline payload

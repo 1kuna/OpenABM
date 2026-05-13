@@ -1,6 +1,6 @@
 import json
 
-from openabm import SamplingConfig, Tracer, observe
+from openabm import SamplingConfig, Tracer, extract_baggage, observe
 from openabm.exporters import HttpExporter, InMemoryExporter, OfflineJsonlExporter
 
 
@@ -95,6 +95,9 @@ def test_sdk_exports_runtime_provenance_on_root_trace() -> None:
         "proj_demo",
         environment="test",
         exporter=exporter,
+        session_id="session_runtime",
+        user_external_id="user_external_1",
+        redaction_policy_handle="redaction_policy_default",
         prompt_version_id="prompt_version_prod",
         agent_config_version_id="agent_config_runtime_v2",
         deployment_context_id="deploy_runtime_v2",
@@ -106,10 +109,58 @@ def test_sdk_exports_runtime_provenance_on_root_trace() -> None:
 
     trace_payload = next(item["payload"] for item in exporter.items if item["type"] == "trace")
     assert trace_payload["prompt_version_id"] == "prompt_version_prod"
+    assert trace_payload["session_id"] == "session_runtime"
+    assert trace_payload["user_external_id"] == "user_external_1"
     assert trace_payload["agent_config_version_id"] == "agent_config_runtime_v2"
     assert trace_payload["deployment_context_id"] == "deploy_runtime_v2"
     assert trace_payload["tool_version_ids"] == ["tool_lookup_v1"]
     assert trace_payload["attributes"]["agent_config_version_id"] == "agent_config_runtime_v2"
+    assert trace_payload["attributes"]["openabm.session_id"] == "session_runtime"
+    assert trace_payload["attributes"]["openabm.redaction_policy_handle"] == (
+        "redaction_policy_default"
+    )
+
+
+def test_sdk_baggage_continuation_preserves_parent_child_without_payloads() -> None:
+    upstream_exporter = InMemoryExporter()
+    upstream = Tracer(
+        "proj_demo",
+        environment="prod",
+        exporter=upstream_exporter,
+        session_id="session_1",
+        user_external_id="user_1",
+        redaction_policy_handle="redaction_policy_v1",
+    )
+
+    with upstream.span(
+        "upstream_agent",
+        span_type="agent",
+        attributes={"openabm.priority": "p1"},
+        input={"prompt": "never propagate me"},
+    ) as span:
+        baggage = upstream.inject_baggage(span)
+        span.set_output({"answer": "do not propagate"})
+
+    assert baggage["openabm-project-id"] == "proj_demo"
+    assert baggage["openabm-environment"] == "prod"
+    assert baggage["openabm-session-id"] == "session_1"
+    assert baggage["openabm-user-external-id"] == "user_1"
+    assert baggage["openabm-sampling-priority"] == "p1"
+    assert baggage["openabm-redaction-policy"] == "redaction_policy_v1"
+    assert "prompt" not in json.dumps(baggage)
+    assert extract_baggage({"openabm-trace-id": baggage["openabm-trace-id"], "secret": "x"}) == {
+        "trace_id": baggage["openabm-trace-id"]
+    }
+
+    downstream_exporter = InMemoryExporter()
+    downstream = Tracer("proj_demo", environment="prod", exporter=downstream_exporter)
+    with downstream.continue_from_baggage("downstream_tool", baggage, span_type="tool"):
+        pass
+
+    downstream_span = next(item["payload"] for item in downstream_exporter.items)
+    assert downstream_span["trace_id"] == baggage["openabm-trace-id"]
+    assert downstream_span["parent_span_id"] == baggage["openabm-span-id"]
+    assert downstream_span["attributes"]["openabm.project_id"] == "proj_demo"
 
 
 def test_sdk_probabilistic_sampling_preserves_metadata_and_omits_bodies() -> None:
