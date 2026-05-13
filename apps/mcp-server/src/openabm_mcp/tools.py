@@ -83,6 +83,7 @@ def _tool(
 
 REQUIRED_TOOL_NAMES = [
     "search_traces",
+    "search_spans",
     "get_trace",
     "get_span",
     "list_saved_searches",
@@ -137,6 +138,17 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         scopes=READ_TRACE_SCOPE,
         example_request={"project_id": "proj_demo", "query": "wrong tool", "limit": 20},
         example_response={"data": [{"trace_id": "trace_wrong_tool"}]},
+    ),
+    _tool(
+        "search_spans",
+        "Search spans by structured filters and full-text query.",
+        _schema(
+            ["project_id"],
+            {"project_id": STRING, "query": STRING, "filters": OBJECT, "limit": LIMIT},
+        ),
+        scopes=READ_TRACE_SCOPE,
+        example_request={"project_id": "proj_demo", "query": "order lookup", "limit": 20},
+        example_response={"data": [{"span_id": "span_wrong_tool_order_lookup"}]},
     ),
     _tool(
         "get_trace",

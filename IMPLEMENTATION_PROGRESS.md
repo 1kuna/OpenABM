@@ -643,6 +643,8 @@ Done:
   list/decision tools, and affected-entity remediation tools so investigation
   agents can act through audited review/remediation APIs instead of only reading
   trace evidence.
+- Added concrete MCP `search_spans` support backed by `/v1/search/spans`, and
+  added coverage that the local agent-flow smoke only advertises real MCP tools.
 - Corrected the MCP prompt-commit contract to use `template_text` and
   `variables_schema`, and added a prompt-render MCP tool so prompt lifecycle
   work is executable through tool calls.

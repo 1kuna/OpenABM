@@ -5,7 +5,11 @@ from pathlib import Path
 import httpx
 import pytest
 from openabm_api.settings import Settings
-from openabm_worker.agent_flow_smoke import run_agent_flow_tool_smoke
+from openabm_mcp.tools import all_tool_definitions
+from openabm_worker.agent_flow_smoke import (
+    OPENABM_AGENT_FLOW_TOOL_NAMES,
+    run_agent_flow_tool_smoke,
+)
 from openabm_worker.context_packets import build_trace_context_packet
 from openabm_worker.investigation import assist_investigation
 from openabm_worker.judges import run_rubric_judge
@@ -216,6 +220,11 @@ def test_agent_flow_tool_smoke_validates_required_tool_call() -> None:
     assert result["requested_tool"] == "record_agent_flow_plan"
     assert result["provider_health"]["context_length"] == 262144
     assert result["provider_health"]["memory_guard_status"] == "ready"
+
+
+def test_agent_flow_tool_choices_are_real_mcp_tools() -> None:
+    mcp_tool_names = {tool["name"] for tool in all_tool_definitions()}
+    assert set(OPENABM_AGENT_FLOW_TOOL_NAMES) <= mcp_tool_names
 
 
 def test_agent_flow_tool_smoke_rejects_missing_required_arguments() -> None:

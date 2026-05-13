@@ -225,6 +225,8 @@ def _call_tool_impl(
         }
     if name == "search_traces":
         return client.request("POST", "/v1/search/traces", json_body=arguments)
+    if name == "search_spans":
+        return client.request("POST", "/v1/search/spans", json_body=arguments)
     if name == "get_trace":
         return client.request(
             "GET",
