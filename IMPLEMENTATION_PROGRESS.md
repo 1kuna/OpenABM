@@ -243,7 +243,6 @@ Target for this pass:
 
 LLM-dependent deferrals:
 
-- Command and HTTP runner execution beyond the local in-process runner.
 - Large-scale eval calibration and trend analysis beyond per-run comparison.
 
 Done:
@@ -260,6 +259,11 @@ Done:
   The local runner can execute deterministic rule judges and rubric judges via
   the configured local model provider, then compare pass-rate, average-score,
   failure set, invalid-output, latency, and token deltas.
+- Added command and HTTP endpoint eval runner execution contracts. Runners
+  receive a JSON packet containing the dataset example plus source trace/spans,
+  may return either an existing `offline_trace_id` or a new trace/span bundle,
+  and OpenABM ingests returned offline traces before applying deterministic or
+  rubric judges.
 - Expanded the Eval Comparison UI with baseline/candidate selectors, pass and
   score deltas, invalid-output/cost/latency/token deltas, new/fixed/unchanged
   failure lists, and trace links back to source examples.
@@ -518,9 +522,9 @@ Blocked:
 Verified after the latest implementation slices:
 
 - `make lint`: passed.
-- `make test`: passed, 53 tests after the model-benchmark, LangGraph
+- `make test`: passed, 54 tests after the model-benchmark, LangGraph
   investigation-adapter, core-loop acceptance, and reported-incident acceptance
-  and retention-worker slices.
+  retention-worker, MCP observability, and command-runner eval slices.
 - `npm --prefix apps/web run build`: passed.
 - Browser QA captured desktop and mobile Trace Detail, Operations, Issues, and
   Automations workspace screenshots under `artifacts/ui-qa/`; trace detail mode
@@ -588,6 +592,10 @@ Verified after the latest implementation slices:
 - MCP observability regression passed: MCP tool calls record latency/status
   observations without changing tool results, `/v1/ops/status` summarizes those
   observations, and the observation list endpoint returns the recorded rows.
+- Command eval runner regression passed: a command runner received the dataset
+  example plus source trace/spans, returned an offline trace/span bundle, OpenABM
+  ingested that offline trace, and the deterministic judge scored the returned
+  offline trace rather than the original source trace.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:
