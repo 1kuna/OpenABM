@@ -31,6 +31,7 @@ import type {
   RetentionApplyResult,
   RetentionPolicy,
   ReviewTask,
+  SavedSearch,
   ScreenshotIssueResult,
   TraceDetail,
   TraceEnvelope
@@ -525,6 +526,31 @@ export class OpenAbmClient {
       project_id: projectId,
       trace_id: traceId,
       labels
+    });
+  }
+
+  async listSavedSearches(projectId: string): Promise<SavedSearch[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: SavedSearch[] }>(`/v1/saved-searches?${params.toString()}`);
+    return body.data;
+  }
+
+  async getSavedSearch(projectId: string, savedSearchId: string): Promise<SavedSearch> {
+    const params = new URLSearchParams({ project_id: projectId });
+    return this.get<SavedSearch>(`/v1/saved-searches/${savedSearchId}?${params.toString()}`);
+  }
+
+  async createSavedSearch(
+    projectId: string,
+    name: string,
+    query: Record<string, unknown>,
+    visibility: SavedSearch["visibility"] = "project"
+  ): Promise<SavedSearch> {
+    return this.post<SavedSearch>("/v1/saved-searches", {
+      project_id: projectId,
+      name,
+      query,
+      visibility
     });
   }
 

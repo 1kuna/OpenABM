@@ -277,13 +277,49 @@ button {
 
 .traceList {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .traceList .toolbar,
 .reviewList .toolbar {
   border-bottom: 1px solid #e5e7eb;
   padding: 12px;
+}
+
+.traceListActions {
+  display: grid;
+  gap: 8px;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 12px;
+}
+
+.savedSearchControls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.savedSearchControls input,
+.savedSearchControls select {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  color: #111827;
+  padding: 0 9px;
+}
+
+.savedSearchControls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  padding: 0 10px;
 }
 
 .reviewList {
@@ -1865,7 +1901,8 @@ pre {
 
   .conversationRow,
   .toolStep,
-  .toolStep dl {
+  .toolStep dl,
+  .savedSearchControls {
     grid-template-columns: 1fr;
   }
 

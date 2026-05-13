@@ -100,6 +100,18 @@ export interface DatasetExample {
   created_at: string;
 }
 
+export interface SavedSearch {
+  saved_search_id: string;
+  project_id: string;
+  name: string;
+  query: Record<string, unknown>;
+  owner_user_id: string | null;
+  visibility: "private" | "project";
+  query_contract_version: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface BehaviorDefinition {
   behavior_id: string;
   project_id: string;

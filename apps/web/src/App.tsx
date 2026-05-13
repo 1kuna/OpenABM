@@ -49,6 +49,7 @@ import type {
   RetentionApplyResult,
   RetentionPolicy,
   ReviewTask,
+  SavedSearch,
   ScreenshotIssueResult,
   SpanEnvelope,
   SpanNode,
@@ -176,6 +177,22 @@ export function App() {
     setSimilarState(result.disabled ? result.reason ?? "disabled" : "ready");
   }
 
+  async function applySavedSearch(savedSearch: SavedSearch) {
+    const savedQuery = asRecord(savedSearch.query);
+    const filters = asRecord(savedQuery.filters);
+    const nextStatus = typeof filters.status === "string" ? filters.status : "";
+    const nextQuery = typeof savedQuery.full_text_query === "string" ? savedQuery.full_text_query : "";
+    setQuery(nextQuery);
+    setStatus(nextStatus);
+    if (connection !== "live") return;
+    const loaded = nextQuery
+      ? await client.searchTraces(projectId, nextQuery)
+      : await client.listTraces(projectId, nextStatus || undefined);
+    setTraces(loaded);
+    setSelectedTraceId(loaded[0]?.trace_id ?? "");
+    if (!loaded[0]) setDetail(null);
+  }
+
   return (
     <main className="shell">
       <aside className="sidebar">
@@ -240,9 +257,13 @@ export function App() {
             status={status}
             selectedTraceId={selectedTraceId}
             similarState={similarState}
+            client={client}
+            connection={connection}
+            projectId={projectId}
             onQueryChange={setQuery}
             onStatusChange={setStatus}
             onSearch={() => void refreshTraces()}
+            onApplySavedSearch={(savedSearch) => void applySavedSearch(savedSearch)}
             onSelectTrace={setSelectedTraceId}
             onCheckSimilarity={() => void checkSimilarity()}
           />
@@ -2620,15 +2641,107 @@ function TraceExplorer(props: {
   status: string;
   selectedTraceId: string;
   similarState: string;
+  client: OpenAbmClient;
+  connection: ConnectionState;
+  projectId: string;
   onQueryChange: (value: string) => void;
   onStatusChange: (value: string) => void;
   onSearch: () => void;
+  onApplySavedSearch: (savedSearch: SavedSearch) => void;
   onSelectTrace: (traceId: string) => void;
   onCheckSimilarity: () => void;
 }) {
   const { traces, detail } = props;
   const [detailMode, setDetailMode] = useState<TraceDetailMode>("timeline");
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
+  const [datasets, setDatasets] = useState<DatasetDefinition[]>([]);
+  const [savedSearchName, setSavedSearchName] = useState("Current trace search");
+  const [selectedSavedSearchId, setSelectedSavedSearchId] = useState("");
+  const [datasetName, setDatasetName] = useState("Trace review set");
+  const [selectedDatasetId, setSelectedDatasetId] = useState("");
+  const [traceListState, setTraceListState] = useState("Trace list ready");
   const selectedSpan = detail?.spans[0] ?? null;
+  const selectedSavedSearch = savedSearches.find((item) => item.saved_search_id === selectedSavedSearchId) ?? null;
+  const selectedDataset = datasets.find((dataset) => dataset.dataset_id === selectedDatasetId) ?? datasets[0] ?? null;
+
+  async function loadTraceListTools() {
+    if (props.connection !== "live") {
+      setSavedSearches([]);
+      setDatasets([]);
+      setTraceListState("fixture mode");
+      return;
+    }
+    try {
+      const [loadedSearches, loadedDatasets] = await Promise.all([
+        props.client.listSavedSearches(props.projectId),
+        props.client.listDatasets(props.projectId)
+      ]);
+      setSavedSearches(loadedSearches);
+      setDatasets(loadedDatasets);
+      setSelectedSavedSearchId((current) =>
+        loadedSearches.some((search) => search.saved_search_id === current)
+          ? current
+          : loadedSearches[0]?.saved_search_id ?? ""
+      );
+      setSelectedDatasetId((current) =>
+        loadedDatasets.some((dataset) => dataset.dataset_id === current)
+          ? current
+          : loadedDatasets[0]?.dataset_id ?? ""
+      );
+      setTraceListState(`${loadedSearches.length} saved searches · ${loadedDatasets.length} datasets`);
+    } catch (error) {
+      setTraceListState(error instanceof Error ? error.message : "trace list tools failed");
+    }
+  }
+
+  useEffect(() => {
+    void loadTraceListTools();
+  }, [props.client, props.connection, props.projectId]);
+
+  async function createSavedSearch() {
+    if (props.connection !== "live" || !savedSearchName.trim()) return;
+    const queryObject = {
+      filters: props.status ? { status: props.status } : {},
+      full_text_query: props.query || null
+    };
+    try {
+      const created = await props.client.createSavedSearch(props.projectId, savedSearchName.trim(), queryObject);
+      setSavedSearches((current) => [created, ...current.filter((search) => search.saved_search_id !== created.saved_search_id)]);
+      setSelectedSavedSearchId(created.saved_search_id);
+      setTraceListState(`saved ${created.name}`);
+    } catch (error) {
+      setTraceListState(error instanceof Error ? error.message : "saved search creation failed");
+    }
+  }
+
+  async function createDatasetForTraceList() {
+    if (props.connection !== "live" || !datasetName.trim()) return null;
+    try {
+      const created = await props.client.createDataset(props.projectId, datasetName.trim(), "Created from trace list bulk action.");
+      setDatasets((current) => [created, ...current.filter((dataset) => dataset.dataset_id !== created.dataset_id)]);
+      setSelectedDatasetId(created.dataset_id);
+      setTraceListState(`created ${created.name}`);
+      return created;
+    } catch (error) {
+      setTraceListState(error instanceof Error ? error.message : "dataset creation failed");
+      return null;
+    }
+  }
+
+  async function addVisibleTracesToDataset() {
+    if (props.connection !== "live" || !traces.length) return;
+    const dataset = selectedDataset ?? (await createDatasetForTraceList());
+    if (!dataset) return;
+    try {
+      const examples = await Promise.all(
+        traces.map((trace) => props.client.addTraceToDataset(props.projectId, dataset.dataset_id, trace.trace_id, ["trace_list_bulk"]))
+      );
+      setTraceListState(`added ${examples.length} traces to ${dataset.name}`);
+    } catch (error) {
+      setTraceListState(error instanceof Error ? error.message : "bulk dataset action failed");
+    }
+  }
+
   return (
     <div className="traceGrid">
       <section className="traceList panel">
@@ -2654,6 +2767,47 @@ function TraceExplorer(props: {
           <button className="iconButton" onClick={props.onSearch} aria-label="Run trace search">
             <Play size={16} />
           </button>
+        </div>
+        <div className="traceListActions">
+          <div className="savedSearchControls">
+            <input value={savedSearchName} onChange={(event) => setSavedSearchName(event.target.value)} placeholder="Saved search name" />
+            <button onClick={() => void createSavedSearch()}>
+              <FileSearch size={15} />
+              Save
+            </button>
+            <select value={selectedSavedSearchId} onChange={(event) => setSelectedSavedSearchId(event.target.value)}>
+              <option value="">Select saved search</option>
+              {savedSearches.map((savedSearch) => (
+                <option key={savedSearch.saved_search_id} value={savedSearch.saved_search_id}>
+                  {savedSearch.name}
+                </option>
+              ))}
+            </select>
+            <button onClick={() => selectedSavedSearch ? props.onApplySavedSearch(selectedSavedSearch) : undefined}>
+              <Search size={15} />
+              Apply
+            </button>
+          </div>
+          <div className="savedSearchControls">
+            <input value={datasetName} onChange={(event) => setDatasetName(event.target.value)} placeholder="Dataset name" />
+            <button onClick={() => void createDatasetForTraceList()}>
+              <Database size={15} />
+              New dataset
+            </button>
+            <select value={selectedDataset?.dataset_id ?? ""} onChange={(event) => setSelectedDatasetId(event.target.value)}>
+              <option value="">Select dataset</option>
+              {datasets.map((dataset) => (
+                <option key={dataset.dataset_id} value={dataset.dataset_id}>
+                  {dataset.name}
+                </option>
+              ))}
+            </select>
+            <button onClick={() => void addVisibleTracesToDataset()}>
+              <CheckCircle2 size={15} />
+              Add visible
+            </button>
+          </div>
+          <p className="systemNote">{traceListState}</p>
         </div>
         <div className="tableWrap">
           <table>
