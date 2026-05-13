@@ -2,6 +2,7 @@ import asyncio
 import textwrap
 
 import pytest
+from jsonschema import Draft202012Validator
 from openabm_api.classification import classify_payload, redact_if_needed
 from openabm_api.prompts import diff_prompt_text, prompt_commit_id, render_prompt
 from openabm_mcp.handlers import call_tool, tool_manifest
@@ -173,10 +174,22 @@ def test_mcp_tool_contracts_cover_required_names() -> None:
     assert "get_agent_context_pack" in by_name
     for tool in tools:
         assert tool["description"]
+        assert "scaffold tool contract" not in tool["description"]
         assert "input_schema" in tool
         assert "output_schema" in tool
         assert "required_scopes" in tool
+        assert tool["required_scopes"]
+        assert tool["required_scopes"] != ["drafts:write"]
         assert "confirmation_required" in tool
+        assert "project_id" in tool["input_schema"].get("properties", {})
+        assert tool["example_request"]
+        assert tool["example_response"]
+        Draft202012Validator.check_schema(tool["input_schema"])
+        Draft202012Validator.check_schema(tool["output_schema"])
+    assert by_name["commit_prompt"]["confirmation_required"] is True
+    assert by_name["run_eval"]["confirmation_required"] is True
+    assert by_name["search_traces"]["side_effects"] is False
+    assert by_name["create_issue"]["side_effects"] is True
 
 
 def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:

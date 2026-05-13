@@ -471,6 +471,10 @@ Done:
 - Connected MCP handlers for automation list/get now that automation APIs exist.
 - Connected the remaining MCP placeholders for judge list/get/draft, eval run
   and compare, and docs search to API-backed routes.
+- Hardened the MCP tool manifest from placeholder contracts into concrete input
+  schemas, required scopes, side-effect flags, confirmation metadata, and
+  examples for every required tool so LangGraph/Deep Agents/Pi-style runners
+  have a real tool surface to consume.
 - Added deterministic `/v1/docs/search` over committed public docs and schemas;
   the ignored implementation spec is intentionally excluded from search results.
 - Added web UI sections for judge runtime, behavior monitoring, datasets/evals,
