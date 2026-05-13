@@ -326,7 +326,7 @@ Blocked:
 
 Verified after the latest implementation slices:
 
-- `make lint && make test`: passed, 33 tests.
+- `make lint && make test`: passed, 37 tests.
 - `npm --prefix apps/web run build`: passed.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
@@ -334,6 +334,7 @@ Verified after the latest implementation slices:
   `resources/templates/list` returned 14 resource templates.
 - Live LM Studio canaries completed for structured rubric output, semantic trace
   similarity, and investigation drafting with `openabm-qwen35-9b`.
+- Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:
 
