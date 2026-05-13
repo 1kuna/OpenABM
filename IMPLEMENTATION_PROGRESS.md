@@ -55,9 +55,8 @@ Remaining blockers or explicit non-local-reference work:
   adapters, vendor-specific ChatOps connectors, production observability
   exporters, and external deployment supervision remain integration work beyond
   the local reference implementation.
-- Real OCR/binary attachment parsing, production vector-store/ANN choices,
-  broader clustering experiments, and broader UI usability polish remain future
-  hardening.
+- Image OCR, production vector-store/ANN choices, broader clustering
+  experiments, and broader UI usability polish remain future hardening.
 - Any semantic task that the local 9B model cannot handle after prompt/runtime
   tuning should be deferred for a heavier model rather than replaced with
   brittle deterministic heuristics.
@@ -1023,9 +1022,10 @@ Known remaining gaps before calling the whole spec complete:
   of scope.
 - Screenshot issue intake and ChatOps-style issue/investigation creation exist;
   screenshot/attachment metadata, extracted text, local text-like attachment
-  parsing, base64 text decoding, and JSON flattening are preserved as evidence,
-  while real OCR, binary/deep document parsing, and vendor-specific chat
-  connectors are still future integration work.
+  parsing, base64 text decoding, JSON flattening, PDF text extraction, and DOCX
+  text extraction are preserved as evidence, while image OCR, deeper document
+  parsing, and vendor-specific chat connectors are still future integration
+  work.
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
   broader usability polish; behavior review actions, impact-report drilldowns,
   eval comparison behavior-shift drilldown, prompt/config diff summaries, and

@@ -1,6 +1,8 @@
 import base64
 import copy
+import io
 import json
+import zipfile
 from pathlib import Path
 
 import httpx
@@ -12,6 +14,55 @@ from openabm_worker.offline_eval import run_deterministic_eval
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PATH = ROOT / "evals" / "golden-fixtures" / "trace_fixtures.json"
+
+
+def _pdf_base64(text: str) -> str:
+    escaped = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    content = f"BT /F1 24 Tf 100 700 Td ({escaped}) Tj ET".encode()
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        (
+            b"<< /Type /Page /Parent 2 0 R "
+            b"/Resources << /Font << /F1 4 0 R >> >> "
+            b"/MediaBox [0 0 612 792] /Contents 5 0 R >>"
+        ),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream",
+    ]
+    output = io.BytesIO()
+    output.write(b"%PDF-1.4\n")
+    offsets = [0]
+    for index, obj in enumerate(objects, start=1):
+        offsets.append(output.tell())
+        output.write(f"{index} 0 obj\n".encode())
+        output.write(obj)
+        output.write(b"\nendobj\n")
+    xref_offset = output.tell()
+    output.write(f"xref\n0 {len(objects) + 1}\n".encode())
+    output.write(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        output.write(f"{offset:010d} 00000 n \n".encode())
+    output.write(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+        f"startxref\n{xref_offset}\n%%EOF\n".encode()
+    )
+    return base64.b64encode(output.getvalue()).decode("ascii")
+
+
+def _docx_base64(text: str) -> str:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(
+            "word/document.xml",
+            (
+                '<w:document xmlns:w="http://schemas.openxmlformats.org/'
+                'wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>'
+                f"{text}"
+                "</w:t></w:r></w:p></w:body></w:document>"
+            ),
+        )
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
 def auth_headers() -> dict[str, str]:
@@ -2542,6 +2593,25 @@ def test_v1_screenshot_issue_and_chatops_create_canonical_artifacts(tmp_path) ->
                             }
                         ).encode("utf-8")
                     ).decode("ascii"),
+                },
+                {
+                    "payload_id": "payload_pdf_1",
+                    "content_type": "application/pdf",
+                    "filename": "support-escalation.pdf",
+                    "content_base64": _pdf_base64(
+                        "uploaded PDF says damaged order refund needs escalation"
+                    ),
+                },
+                {
+                    "payload_id": "payload_docx_1",
+                    "content_type": (
+                        "application/vnd.openxmlformats-officedocument."
+                        "wordprocessingml.document"
+                    ),
+                    "filename": "support-summary.docx",
+                    "content_base64": _docx_base64(
+                        "uploaded DOCX says refund blocked by order lookup"
+                    ),
                 }
             ],
         },
@@ -2553,14 +2623,28 @@ def test_v1_screenshot_issue_and_chatops_create_canonical_artifacts(tmp_path) ->
     assert screenshot_body["intake_evidence"]["attachment_payload_ids"] == [
         "payload_screenshot_1",
         "payload_log_1",
+        "payload_pdf_1",
+        "payload_docx_1",
     ]
     assert "damaged order refund" in screenshot_body["intake_evidence"]["query"]
     assert "order lookup" in screenshot_body["intake_evidence"]["query"]
-    assert screenshot_body["intake_evidence"]["source_counts"]["parsed_attachments"] == 1
-    assert screenshot_body["intake_evidence"]["attachment_parse_results"][0]["status"] == "parsed"
+    assert "uploaded PDF says damaged order refund" in screenshot_body["intake_evidence"]["query"]
+    assert "uploaded DOCX says refund blocked" in screenshot_body["intake_evidence"]["query"]
+    assert screenshot_body["intake_evidence"]["source_counts"]["parsed_attachments"] == 3
+    parse_results = {
+        result["payload_id"]: result
+        for result in screenshot_body["intake_evidence"]["attachment_parse_results"]
+    }
+    assert parse_results["payload_log_1"]["status"] == "parsed"
     assert screenshot_body["intake_evidence"]["attachment_parse_results"][0][
         "extracted_fields"
     ][:2] == ["content_base64", "content_base64:parsed_json:0"]
+    assert parse_results["payload_pdf_1"]["status"] == "parsed"
+    assert parse_results["payload_pdf_1"]["binary_like"] is True
+    assert parse_results["payload_pdf_1"]["extracted_fields"] == ["content_base64"]
+    assert parse_results["payload_docx_1"]["status"] == "parsed"
+    assert parse_results["payload_docx_1"]["binary_like"] is True
+    assert parse_results["payload_docx_1"]["extracted_fields"] == ["content_base64"]
     screenshot_links = client.get(
         f"/v1/issues/{screenshot_body['issue_id']}/links",
         headers=auth_headers(),
@@ -2573,6 +2657,8 @@ def test_v1_screenshot_issue_and_chatops_create_canonical_artifacts(tmp_path) ->
     }
     assert ("payload_object", "payload_screenshot_1", "screenshot_payload") in screenshot_targets
     assert ("payload_object", "payload_log_1", "source_attachment") in screenshot_targets
+    assert ("payload_object", "payload_pdf_1", "source_attachment") in screenshot_targets
+    assert ("payload_object", "payload_docx_1", "source_attachment") in screenshot_targets
 
     chatops = client.post(
         "/v1/chatops/investigate",

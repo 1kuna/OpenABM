@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import base64
 import binascii
+import io
 import json
 import sqlite3
 import time
+import zipfile
 from collections.abc import Callable
 from typing import Any
+from xml.etree import ElementTree
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -53,6 +56,7 @@ from openabm_worker.similarity import (
     rank_similar_traces_by_embeddings,
     rank_similar_traces_from_vectors,
 )
+from pypdf import PdfReader
 
 from openabm_api.auth import (
     SESSION_COOKIE_POLICY,
@@ -3893,8 +3897,17 @@ TEXTUAL_ATTACHMENT_TYPES = {
     "application/x-yaml",
     "application/csv",
 }
+BINARY_ATTACHMENT_SUFFIXES = (".pdf", ".docx")
+PDF_ATTACHMENT_TYPES = {"application/pdf"}
+DOCX_ATTACHMENT_TYPES = {
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+IMAGE_ATTACHMENT_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".tif", ".tiff")
+IMAGE_ATTACHMENT_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/tiff"}
 MAX_ATTACHMENT_TEXT_CHARS = 16_000
 MAX_JSON_ATTACHMENT_SEARCH_TOKENS = 80
+MAX_BINARY_ATTACHMENT_BYTES = 2_000_000
+MAX_PDF_ATTACHMENT_PAGES = 20
 
 
 def _is_textual_attachment(content_type: str | None, filename: str | None) -> bool:
@@ -3909,13 +3922,46 @@ def _is_textual_attachment(content_type: str | None, filename: str | None) -> bo
     return any(normalized_name.endswith(suffix) for suffix in TEXTUAL_ATTACHMENT_SUFFIXES)
 
 
+def _normalized_content_type(content_type: str | None) -> str:
+    return (content_type or "").split(";")[0].strip().lower()
+
+
 def _is_json_attachment(content_type: str | None, filename: str | None) -> bool:
-    normalized_type = (content_type or "").split(";")[0].strip().lower()
+    normalized_type = _normalized_content_type(content_type)
     if normalized_type in {"application/json", "application/ld+json", "application/x-ndjson"}:
         return True
     if normalized_type.endswith("+json"):
         return True
     return (filename or "").lower().endswith((".json", ".jsonl"))
+
+
+def _is_pdf_attachment(content_type: str | None, filename: str | None) -> bool:
+    return _normalized_content_type(content_type) in PDF_ATTACHMENT_TYPES or (
+        filename or ""
+    ).lower().endswith(".pdf")
+
+
+def _is_docx_attachment(content_type: str | None, filename: str | None) -> bool:
+    return _normalized_content_type(content_type) in DOCX_ATTACHMENT_TYPES or (
+        filename or ""
+    ).lower().endswith(".docx")
+
+
+def _is_binary_attachment(content_type: str | None, filename: str | None) -> bool:
+    normalized_name = (filename or "").lower()
+    return (
+        _is_pdf_attachment(content_type, filename)
+        or _is_docx_attachment(content_type, filename)
+        or any(normalized_name.endswith(suffix) for suffix in BINARY_ATTACHMENT_SUFFIXES)
+    )
+
+
+def _is_image_attachment(content_type: str | None, filename: str | None) -> bool:
+    normalized_type = _normalized_content_type(content_type)
+    normalized_name = (filename or "").lower()
+    return normalized_type in IMAGE_ATTACHMENT_TYPES or any(
+        normalized_name.endswith(suffix) for suffix in IMAGE_ATTACHMENT_SUFFIXES
+    )
 
 
 def _trim_attachment_text(text: str) -> str:
@@ -3924,15 +3970,63 @@ def _trim_attachment_text(text: str) -> str:
     return text[:MAX_ATTACHMENT_TEXT_CHARS].rstrip()
 
 
-def _decode_base64_text(value: str) -> tuple[str | None, str | None]:
+def _decode_base64_bytes(value: str) -> tuple[bytes | None, str | None]:
     try:
-        decoded = base64.b64decode(value, validate=True)
+        return base64.b64decode(value, validate=True), None
     except (binascii.Error, ValueError) as exc:
         return None, f"invalid base64 content: {exc}"
+
+
+def _decode_base64_text(value: str) -> tuple[str | None, str | None]:
+    decoded, error = _decode_base64_bytes(value)
+    if error is not None:
+        return None, error
+    assert decoded is not None
     try:
         return decoded.decode("utf-8"), None
     except UnicodeDecodeError as exc:
         return None, f"base64 content is not UTF-8 text: {exc}"
+
+
+def _pdf_attachment_text(content: bytes) -> tuple[str | None, str | None]:
+    if len(content) > MAX_BINARY_ATTACHMENT_BYTES:
+        return None, f"PDF exceeds {MAX_BINARY_ATTACHMENT_BYTES} byte parser limit"
+    try:
+        reader = PdfReader(io.BytesIO(content))
+        page_texts = [
+            page.extract_text() or ""
+            for page in reader.pages[:MAX_PDF_ATTACHMENT_PAGES]
+        ]
+    except Exception as exc:
+        return None, f"PDF text extraction failed: {exc}"
+    text = "\n".join(piece.strip() for piece in page_texts if piece.strip())
+    if not text:
+        return None, "PDF did not contain extractable text"
+    return text, None
+
+
+def _docx_attachment_text(content: bytes) -> tuple[str | None, str | None]:
+    if len(content) > MAX_BINARY_ATTACHMENT_BYTES:
+        return None, f"DOCX exceeds {MAX_BINARY_ATTACHMENT_BYTES} byte parser limit"
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            document_xml = archive.read("word/document.xml")
+    except (KeyError, zipfile.BadZipFile) as exc:
+        return None, f"DOCX text extraction failed: {exc}"
+    try:
+        root = ElementTree.fromstring(document_xml)
+    except ElementTree.ParseError as exc:
+        return None, f"DOCX XML parse failed: {exc}"
+    namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    pieces = [
+        node.text.strip()
+        for node in root.findall(".//w:t", namespace)
+        if node.text and node.text.strip()
+    ]
+    text = " ".join(pieces)
+    if not text:
+        return None, "DOCX did not contain extractable text"
+    return text, None
 
 
 def _json_attachment_search_texts(value: Any) -> list[str]:
@@ -3977,6 +4071,8 @@ def _parse_attachment_content_sources(
     warnings: list[str] = []
     text_like = _is_textual_attachment(content_type, filename)
     json_like = _is_json_attachment(content_type, filename)
+    binary_like = _is_binary_attachment(content_type, filename)
+    image_like = _is_image_attachment(content_type, filename)
     content_encoding = (_text_or_none(attachment.get("content_encoding")) or "").lower()
 
     def add_extracted(field: str, text: str, parser: str) -> None:
@@ -3996,11 +4092,37 @@ def _parse_attachment_content_sources(
         for index, flattened in enumerate(_json_attachment_search_texts(parsed)):
             add_extracted(f"{field}:parsed_json:{index}", flattened, "json")
 
+    def add_binary_extracted(field: str, value: str) -> bool:
+        content, error = _decode_base64_bytes(value)
+        if error is not None:
+            warnings.append(f"{field} {error}")
+            return False
+        assert content is not None
+        if _is_pdf_attachment(content_type, filename):
+            text, parse_error = _pdf_attachment_text(content)
+            parser = "pdf_text"
+        elif _is_docx_attachment(content_type, filename):
+            text, parse_error = _docx_attachment_text(content)
+            parser = "docx_text"
+        else:
+            text = None
+            parse_error = "unsupported binary attachment parser"
+            parser = "binary_text"
+        if parse_error is not None:
+            warnings.append(f"{field} {parse_error}")
+            return False
+        assert text is not None
+        add_extracted(field, text, parser)
+        return True
+
     for field in ATTACHMENT_RAW_TEXT_FIELDS:
         text = _text_or_none(attachment.get(field))
         if text is None:
             continue
         if content_encoding == "base64":
+            if binary_like:
+                add_binary_extracted(f"{field}:base64_decoded", text)
+                continue
             decoded, error = _decode_base64_text(text)
             if error is not None:
                 warnings.append(f"{field} {error}")
@@ -4020,6 +4142,9 @@ def _parse_attachment_content_sources(
         text = _text_or_none(attachment.get(field))
         if text is None:
             continue
+        if binary_like:
+            add_binary_extracted(field, text)
+            continue
         if not text_like:
             warnings.append(f"{field} skipped because attachment is not text-like")
             continue
@@ -4035,12 +4160,17 @@ def _parse_attachment_content_sources(
         status = "parsed_with_warnings" if warnings else "parsed"
     elif warnings:
         status = "failed"
+    elif image_like:
+        warnings.append("image OCR parser is not configured in the local reference")
+        status = "skipped"
     else:
         status = "skipped"
     return extracted, {
         "status": status,
         "text_like": text_like,
         "json_like": json_like,
+        "binary_like": binary_like,
+        "image_like": image_like,
         "extracted_fields": [source["field"] for source in extracted],
         "warnings": warnings,
     }
