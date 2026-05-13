@@ -1973,6 +1973,22 @@ function IssueInvestigationWorkspace(props: {
     }
   }
 
+  async function createAffectedEntityReviewTask(affectedEntityId: string) {
+    if (!writeConfirmation) {
+      setStateText("enable Confirm writes before review task creation");
+      return;
+    }
+    if (!window.confirm("Create a review task for this affected entity?")) return;
+    try {
+      const task = await client.createAffectedEntityReviewTask(projectId, affectedEntityId, {
+        notesNullable: `Review affected entity ${affectedEntityId} from impact workspace.`
+      });
+      setStateText(`review task ${shortIdentifier(task.review_task_id)} created`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "affected entity review task failed");
+    }
+  }
+
   async function exportSelectedAffectedEntities(format: "json" | "csv") {
     if (connection !== "live") return;
     try {
@@ -2223,6 +2239,9 @@ function IssueInvestigationWorkspace(props: {
                         onNotify={(affectedEntityId, targetId) =>
                           void notifyAffectedEntity(affectedEntityId, targetId)
                         }
+                        onReview={(affectedEntityId) =>
+                          void createAffectedEntityReviewTask(affectedEntityId)
+                        }
                         onUpdateStatus={(affectedEntityId, status) =>
                           void updateAffectedEntityStatus(affectedEntityId, status)
                         }
@@ -2365,6 +2384,7 @@ function ImpactAffectedEntityRows(props: {
   notificationTargets: NotificationTarget[];
   onOpenTrace: (traceId: string) => void;
   onNotify?: (affectedEntityId: string, targetId: string) => void;
+  onReview?: (affectedEntityId: string) => void;
   onUpdateStatus?: (affectedEntityId: string, status: AffectedEntity["status"]) => void;
 }) {
   if (!props.entities.length) {
@@ -2405,6 +2425,15 @@ function ImpactAffectedEntityRows(props: {
                     {affectedEntityStatusLabel(nextStatus)}
                   </button>
                 ))}
+                {props.onReview ? (
+                  <button
+                    disabled={!props.canWrite}
+                    onClick={() => props.onReview?.(affectedEntityId)}
+                  >
+                    <CheckCircle2 size={15} />
+                    Review task
+                  </button>
+                ) : null}
                 {notificationTarget ? (
                   <button
                     disabled={!props.canWrite}
@@ -6052,7 +6081,7 @@ function moduleFixtureSummary(view: ViewKey): ModuleSummary {
     datasets: { label: "Evals", value: "ready", detail: "Eval runs can link prompt and runtime config versions" },
     prompts: { label: "Prompts", value: "ready", detail: "Versions, tags, render, and diff are API-backed" },
     configs: { label: "Configs", value: "ready", detail: "Runtime config versions and comparisons are API-backed" },
-    mcp: { label: "MCP", value: "52 tools", detail: "Tools and JSON resources are routed" },
+    mcp: { label: "MCP", value: "53 tools", detail: "Tools and JSON resources are routed" },
     ops: { label: "Ops", value: "ready", detail: "Health, export, retention, and tombstones are wired" }
   };
   return summaries[view];

@@ -562,6 +562,21 @@ export class OpenAbmClient {
     });
   }
 
+  async createAffectedEntityReviewTask(
+    projectId: string,
+    affectedEntityId: string,
+    request: {
+      notesNullable?: string | null;
+      assignedToNullable?: string | null;
+    } = {}
+  ): Promise<ReviewTask> {
+    return this.post<ReviewTask>(`/v1/affected-entities/${affectedEntityId}/review-task`, {
+      project_id: projectId,
+      notes_nullable: request.notesNullable ?? null,
+      assigned_to_nullable: request.assignedToNullable ?? null
+    });
+  }
+
   async notifyAffectedEntity(
     projectId: string,
     affectedEntityId: string,

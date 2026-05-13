@@ -133,6 +133,7 @@ REQUIRED_QUERY_PATHS = {
     "/v1/affected-entities",
     "/v1/affected-entities/export",
     "/v1/affected-entities/{affected_entity_id}",
+    "/v1/affected-entities/{affected_entity_id}/review-task",
     "/v1/affected-entities/{affected_entity_id}/notifications",
     "/v1/retention-policies",
     "/v1/exports/project",

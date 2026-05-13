@@ -361,6 +361,29 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
         "/v1/affected-entities/affected_entity_1/notifications"
     )
     assert "confirmed" not in client.calls[-2]["json_body"]
+    affected_review_gate = call_tool(
+        "create_affected_entity_review_task",
+        {
+            "project_id": "proj_demo",
+            "affected_entity_id": "affected_entity_1",
+        },
+        client=client,
+    )
+    assert affected_review_gate["status"] == "confirmation_required"
+    confirmed_affected_review = call_tool(
+        "create_affected_entity_review_task",
+        {
+            "project_id": "proj_demo",
+            "affected_entity_id": "affected_entity_1",
+            "notes_nullable": "Review remediation evidence.",
+            "confirmed": True,
+        },
+        client=client,
+    )
+    assert confirmed_affected_review["path"] == (
+        "/v1/affected-entities/affected_entity_1/review-task"
+    )
+    assert "confirmed" not in client.calls[-2]["json_body"]
     prompt_result = call_tool("list_prompts", {"project_id": "proj_demo"}, client=client)
     assert prompt_result["path"] == "/v1/prompts"
     agent_config_result = call_tool(

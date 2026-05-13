@@ -2847,6 +2847,68 @@
         }
       }
     },
+    "/v1/affected-entities/{affected_entity_id}/review-task": {
+      "post": {
+        "operationId": "createAffectedEntityReviewTask",
+        "summary": "Create a human review task for an affected entity.",
+        "x-required-scopes": [
+          "investigations:read",
+          "reviews:write"
+        ],
+        "parameters": [
+          {
+            "name": "affected_entity_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "notes_nullable": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "assigned_to_nullable": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Review task created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "../schemas/review-task.schema.json"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/affected-entities/{affected_entity_id}/notifications": {
       "post": {
         "operationId": "notifyAffectedEntity",

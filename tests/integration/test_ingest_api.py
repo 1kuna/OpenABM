@@ -3919,6 +3919,53 @@ def test_reported_incident_investigation_acceptance_links_artifacts(
         client=_TestClientMcpAdapter(client),
     )
     assert mcp_remediated["status"] == "contacted"
+    affected_review_task = client.post(
+        f"/v1/affected-entities/{affected_entity['affected_entity_id']}/review-task",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "notes_nullable": "Review remediation evidence before closeout.",
+        },
+    )
+    assert affected_review_task.status_code == 201
+    affected_review_task_body = affected_review_task.json()
+    assert affected_review_task_body["task_type"] == "affected_entity"
+    assert affected_review_task_body["source_entity_type"] == "affected_entity"
+    assert affected_review_task_body["source_entity_id"] == affected_entity[
+        "affected_entity_id"
+    ]
+    assert set(affected_review_task_body["evidence_ids"]) == set(affected_entity["trace_ids"])
+    affected_review_tasks = client.get(
+        "/v1/review-tasks",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo", "task_type": "affected_entity"},
+    )
+    assert affected_review_tasks.status_code == 200
+    assert {
+        task["review_task_id"] for task in affected_review_tasks.json()["data"]
+    } >= {affected_review_task_body["review_task_id"]}
+    mcp_review_gate = call_tool(
+        "create_affected_entity_review_task",
+        {
+            "project_id": "proj_demo",
+            "affected_entity_id": affected_entity["affected_entity_id"],
+            "notes_nullable": "MCP remediation review.",
+        },
+        client=_TestClientMcpAdapter(client),
+    )
+    assert mcp_review_gate["status"] == "confirmation_required"
+    mcp_review_task = call_tool(
+        "create_affected_entity_review_task",
+        {
+            "project_id": "proj_demo",
+            "affected_entity_id": affected_entity["affected_entity_id"],
+            "notes_nullable": "MCP remediation review.",
+            "confirmed": True,
+        },
+        client=_TestClientMcpAdapter(client),
+    )
+    assert mcp_review_task["task_type"] == "affected_entity"
+    assert mcp_review_task["source_entity_id"] == affected_entity["affected_entity_id"]
     ticket_target = client.post(
         "/v1/notification-targets",
         headers=auth_headers(),

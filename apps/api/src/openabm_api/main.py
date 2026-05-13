@@ -3818,6 +3818,63 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return entity
 
+    @app.post("/api/affected-entities/{affected_entity_id}/review-task", status_code=201)
+    def create_affected_entity_review_task(
+        affected_entity_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(
+            auth_dependency(["investigations:read", "reviews:write"])
+        ),
+    ) -> dict[str, object]:
+        del actor
+        project_id = request.get("project_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        requested_task_type = request.get("task_type")
+        if requested_task_type and requested_task_type != "affected_entity":
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "task_type must be affected_entity",
+                "/task_type",
+            )
+        entity = store.get_affected_entity(project_id, affected_entity_id)
+        if entity is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", "Affected entity not found."),
+            )
+        task = store.create_review_task(
+            {
+                "project_id": project_id,
+                "task_type": "affected_entity",
+                "source_entity_type": "affected_entity",
+                "source_entity_id": affected_entity_id,
+                "assigned_to_nullable": request.get("assigned_to_nullable"),
+                "notes_nullable": request.get("notes_nullable")
+                or (
+                    f"Review remediation status for {entity['entity_type']} "
+                    f"{entity['entity_id']}."
+                ),
+                "evidence_ids": entity["trace_ids"],
+            }
+        )
+        store.append_audit(
+            "create_affected_entity_review_task",
+            "review_task",
+            project_id,
+            task["review_task_id"],
+            {
+                "affected_entity_id": affected_entity_id,
+                "issue_id": entity["issue_id"],
+                "evidence_ids": entity["trace_ids"],
+            },
+        )
+        return task
+
     @app.post("/api/affected-entities/{affected_entity_id}/notifications", status_code=201)
     def notify_affected_entity(
         affected_entity_id: str,

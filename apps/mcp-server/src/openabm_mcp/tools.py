@@ -106,6 +106,7 @@ REQUIRED_TOOL_NAMES = [
     "export_affected_entities",
     "get_affected_entity",
     "update_affected_entity",
+    "create_affected_entity_review_task",
     "notify_affected_entity",
     "get_agent_context_pack",
     "create_agent_context_pack",
@@ -464,6 +465,28 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "remediation_target_id": "eval_run_123",
         },
         example_response={"affected_entity_id": "affected_entity_123", "status": "fixed"},
+    ),
+    _tool(
+        "create_affected_entity_review_task",
+        "Create a cited human review task for an affected entity remediation decision.",
+        _schema(
+            ["project_id", "affected_entity_id"],
+            {
+                "project_id": STRING,
+                "affected_entity_id": STRING,
+                "notes_nullable": NULLABLE_STRING,
+                "assigned_to_nullable": NULLABLE_STRING,
+            },
+        ),
+        scopes=READ_INVESTIGATION_SCOPE + WRITE_REVIEW_SCOPE,
+        side_effects=True,
+        confirmation_required=True,
+        example_request={
+            "project_id": "proj_demo",
+            "affected_entity_id": "affected_entity_123",
+            "confirmed": True,
+        },
+        example_response={"review_task_id": "review_task_123", "task_type": "affected_entity"},
     ),
     _tool(
         "notify_affected_entity",

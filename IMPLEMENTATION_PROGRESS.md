@@ -864,7 +864,7 @@ Verified after the latest implementation slices:
   `artifacts/ui-qa/openabm-ops-observability-mobile.png`.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
-- MCP manifest/stdio smoke: the current tool surface exposes 52 tools and
+- MCP manifest/stdio smoke: the current tool surface exposes 53 tools and
   `resources/templates/list` returns 15 protocol-shaped JSON resource
   templates.
 - Live LM Studio canaries completed for structured rubric output, semantic trace
@@ -1036,9 +1036,10 @@ Known remaining gaps before calling the whole spec complete:
   impact-report affected-entity remediation actions and direct affected-entity
   resource fetches are now available, deployment context registry/API/MCP/export
   access and code context registry/API/MCP/export access are now available, and
-  affected-entity notifications can now target the configured workflow/adapter
-  registry from API/MCP/UI paths while preserving audit records. Scoped affected
-  entity JSONL/CSV exports are available from API/MCP/UI paths. Trace detail resolves captured
+  affected-entity notifications and review-task creation can now target the
+  configured workflow/review surfaces from API/MCP/UI paths while preserving
+  audit records and trace evidence. Scoped affected entity JSONL/CSV exports
+  are available from API/MCP/UI paths. Trace detail resolves captured
   prompt/config/deployment/tool runtime context.
 - External IdP/OAuth login, vendor-specific invite providers, and production
   secret-manager provider adapters remain beyond the local reference scaffold;
@@ -1187,6 +1188,10 @@ Implemented in this pass:
 - Added scoped affected-entity exports through `/v1/affected-entities/export`,
   with manifest hashes, JSONL and CSV payloads, UI export buttons, and MCP
   `export_affected_entities`.
+- Added affected-entity review task creation through
+  `/v1/affected-entities/{id}/review-task`, the impact workspace, and MCP
+  `create_affected_entity_review_task`, preserving source entity and trace
+  evidence IDs for remediation review.
 - Notification target creation now rejects plaintext config blobs and validates
   `config_secret_refs`; active targets require at least one secret ref, while
   paused placeholders can be created without mounting secrets.

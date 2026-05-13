@@ -343,6 +343,12 @@ def _call_tool_impl(
             f"/v1/affected-entities/{arguments['affected_entity_id']}",
             json_body=arguments,
         )
+    if name == "create_affected_entity_review_task":
+        return client.request(
+            "POST",
+            f"/v1/affected-entities/{arguments['affected_entity_id']}/review-task",
+            json_body=arguments,
+        )
     if name == "notify_affected_entity":
         return client.request(
             "POST",
