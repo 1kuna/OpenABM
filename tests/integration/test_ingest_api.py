@@ -531,6 +531,51 @@ def test_v1_automation_run_creates_review_task_and_notification_preview(tmp_path
     assert duplicate.json()["duplicate"] is True
 
 
+def test_v1_grounding_checks_and_novelty_runs_are_reviewable(tmp_path) -> None:
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    trace_id = fixture["trace"]["trace_id"]
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    grounding = client.post(
+        "/v1/grounding-checks",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": trace_id,
+            "claims": [
+                {"claim": "delivered"},
+                {"claim": "refund policy approved"},
+            ],
+        },
+    )
+    assert grounding.status_code == 201
+    assert grounding.json()["status"] == "needs_review"
+    statuses = {claim["claim"]: claim["status"] for claim in grounding.json()["claims"]}
+    assert statuses["delivered"] == "supported"
+    assert statuses["refund policy approved"] == "missing_evidence"
+
+    novelty = client.post(
+        "/v1/novelty-runs",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "filters": {"status": "error"}},
+    )
+    assert novelty.status_code == 201
+    candidates = novelty.json()["result"]["new_behavior_candidates"]
+    assert candidates[0]["representative_positive_traces"] == [trace_id]
+    reviews = client.get(
+        "/v1/review-tasks",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert {"grounding_check", "behavior_candidate"} <= {
+        task["task_type"] for task in reviews.json()["data"]
+    }
+
+
 def test_v1_rubric_judge_run_persists_cited_score(tmp_path, monkeypatch) -> None:
     class StubProvider:
         async def structured_completion(self, request, schema):

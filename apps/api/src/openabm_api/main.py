@@ -10,6 +10,7 @@ from fastapi.routing import APIRoute
 from openabm_worker.automations import evaluate_automation_conditions, planned_automation_actions
 from openabm_worker.behaviors import backtest_behavior
 from openabm_worker.context_packs import build_agent_context_pack_content
+from openabm_worker.grounding import claims_from_text, evaluate_grounding_claims
 from openabm_worker.investigation import assist_investigation
 from openabm_worker.judges import run_rubric_judge
 from openabm_worker.model_runtime import (
@@ -17,6 +18,7 @@ from openabm_worker.model_runtime import (
     ModelConfigurationError,
     model_provider_from_settings,
 )
+from openabm_worker.novelty import detect_novel_behavior_candidates
 from openabm_worker.similarity import rank_similar_traces
 
 from openabm_api.auth import require_api_key
@@ -1612,6 +1614,113 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "investigation_run",
             request["project_id"],
             run["investigation_run_id"],
+        )
+        return run
+
+    @app.get("/api/grounding-checks")
+    def list_grounding_checks(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["grounding:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_grounding_checks(project_id)}
+
+    @app.post("/api/grounding-checks", status_code=201)
+    def create_grounding_check(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["grounding:write"])),
+    ) -> dict[str, object]:
+        del actor
+        for key in ["project_id", "trace_id"]:
+            if key not in request:
+                raise SchemaValidationFailure(
+                    "schema_validation_failed",
+                    f"{key} is required",
+                    f"/{key}",
+                )
+        trace = store.get_trace(request["project_id"], request["trace_id"])
+        if trace is None:
+            raise HTTPException(status_code=404, detail=_error("not_found", "Trace not found."))
+        spans = store.list_spans(request["project_id"], request["trace_id"])
+        claims = request.get("claims") or claims_from_text(request.get("text", ""))
+        result = evaluate_grounding_claims(claims, spans)
+        check = store.create_grounding_check(
+            request["project_id"],
+            request["trace_id"],
+            result,
+            span_id=request.get("span_id_nullable"),
+        )
+        if check["status"] == "needs_review":
+            store.create_review_task(
+                {
+                    "project_id": request["project_id"],
+                    "task_type": "grounding_check",
+                    "source_entity_type": "grounding_check",
+                    "source_entity_id": check["grounding_check_id"],
+                    "evidence_ids": [request["trace_id"], *check["evidence_span_ids"]],
+                }
+            )
+        store.append_audit(
+            "create_grounding_check",
+            "grounding_check",
+            request["project_id"],
+            check["grounding_check_id"],
+        )
+        return check
+
+    @app.get("/api/novelty-runs")
+    def list_novelty_runs(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["behaviors:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_novelty_runs(project_id)}
+
+    @app.post("/api/novelty-runs", status_code=201)
+    def create_novelty_run(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["behaviors:write"])),
+    ) -> dict[str, object]:
+        del actor
+        project_id = request.get("project_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        traces = store.search_traces(
+            project_id,
+            filters=request.get("filters") or {"status": "error"},
+            full_text_query=request.get("query"),
+            limit=int(request.get("limit", 100)),
+        )
+        spans_by_trace = {
+            trace["trace_id"]: store.list_spans(project_id, trace["trace_id"])
+            for trace in traces
+        }
+        result = detect_novel_behavior_candidates(
+            traces,
+            spans_by_trace,
+            store.list_behaviors(project_id),
+        )
+        run = store.create_novelty_run(project_id, request, result)
+        for index, candidate in enumerate(result["new_behavior_candidates"]):
+            store.create_review_task(
+                {
+                    "project_id": project_id,
+                    "task_type": "behavior_candidate",
+                    "source_entity_type": "novelty_run",
+                    "source_entity_id": f"{run['novelty_run_id']}#candidate:{index}",
+                    "evidence_ids": candidate["representative_positive_traces"],
+                }
+            )
+        store.append_audit(
+            "create_novelty_run",
+            "novelty_run",
+            project_id,
+            run["novelty_run_id"],
+            {"candidate_count": len(result["new_behavior_candidates"])},
         )
         return run
 

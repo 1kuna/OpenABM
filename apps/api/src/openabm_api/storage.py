@@ -2019,6 +2019,104 @@ class SQLiteStore:
             ).fetchone()
         return self._impact_report_from_row(row) if row else None
 
+    def create_grounding_check(
+        self,
+        project_id: str,
+        trace_id: str,
+        result: dict[str, Any],
+        span_id: str | None = None,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        check = {
+            "grounding_check_id": new_id("grounding_check"),
+            "project_id": project_id,
+            "trace_id": trace_id,
+            "span_id_nullable": span_id,
+            "status": result["status"],
+            "claims": result["claims"],
+            "evidence_span_ids": result["evidence_span_ids"],
+            "created_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO grounding_checks(
+                  grounding_check_id, project_id, trace_id, span_id_nullable,
+                  status, claims_json, evidence_span_ids_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    check["grounding_check_id"],
+                    project_id,
+                    trace_id,
+                    span_id,
+                    check["status"],
+                    encode_json(check["claims"]),
+                    encode_json(check["evidence_span_ids"]),
+                    now,
+                ),
+            )
+        return check
+
+    def list_grounding_checks(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM grounding_checks
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._grounding_check_from_row(row) for row in rows]
+
+    def create_novelty_run(
+        self,
+        project_id: str,
+        input_payload: dict[str, Any],
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = utc_now()
+        run = {
+            "novelty_run_id": new_id("novelty_run"),
+            "project_id": project_id,
+            "input": input_payload,
+            "result": result,
+            "status": "succeeded",
+            "created_at": now,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO novel_behavior_detection_runs(
+                  novelty_run_id, project_id, input_json, result_json, status, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run["novelty_run_id"],
+                    project_id,
+                    encode_json(input_payload),
+                    encode_json(result),
+                    run["status"],
+                    now,
+                ),
+            )
+        return run
+
+    def list_novelty_runs(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM novel_behavior_detection_runs
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._novelty_run_from_row(row) for row in rows]
+
     def export_project_bundle(
         self,
         project_id: str,
@@ -2041,6 +2139,8 @@ class SQLiteStore:
             "impact_reports": self.list_impact_reports(project_id),
             "context_packs": self.list_agent_context_packs(project_id),
             "review_tasks": self.list_review_tasks(project_id),
+            "grounding_checks": self.list_grounding_checks(project_id),
+            "novelty_runs": self.list_novelty_runs(project_id),
         }
         manifest = {
             "export_id": new_id("export"),
@@ -2621,6 +2721,30 @@ class SQLiteStore:
             "suspected_root_causes": decode_json(row["suspected_root_causes_json"], []),
             "representative_trace_ids": decode_json(row["representative_trace_ids_json"], []),
             "generated_summary": row["generated_summary"],
+            "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _grounding_check_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "grounding_check_id": row["grounding_check_id"],
+            "project_id": row["project_id"],
+            "trace_id": row["trace_id"],
+            "span_id_nullable": row["span_id_nullable"],
+            "status": row["status"],
+            "claims": decode_json(row["claims_json"], []),
+            "evidence_span_ids": decode_json(row["evidence_span_ids_json"], []),
+            "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _novelty_run_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "novelty_run_id": row["novelty_run_id"],
+            "project_id": row["project_id"],
+            "input": decode_json(row["input_json"], {}),
+            "result": decode_json(row["result_json"], {}),
+            "status": row["status"],
             "created_at": row["created_at"],
         }
 

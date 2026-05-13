@@ -260,6 +260,10 @@ Done:
 - Added model-assisted investigation drafts for cited root-cause hypotheses,
   candidate behaviors, rubric drafts, uncertainty, and next actions, with
   citation filtering before model output becomes canonical.
+- Added grounding check storage/API for explicit claims, deterministic trace-span
+  evidence matching, unsupported-claim review task creation, and export coverage.
+- Added passive novelty detection runs that group unknown error/tool signatures,
+  persist candidate outputs, and create review tasks for behavior candidates.
 - Verified a live LM Studio investigation canary with `openabm-qwen35-9b`; the
   prompt revision produced a cited root cause, behavior draft, and rubric draft
   as valid unrepaired JSON with reasoning-token usage.
@@ -335,10 +339,11 @@ Known remaining gaps before calling the whole spec complete:
 - Automation definitions and local run execution exist, but full cooldown timing,
   retries, dead-letter handling, and real external notification delivery still
   need implementation beyond preview/audit mode.
-- Passive novelty detection has contract/schema coverage, but the recurring
-  unknown-failure discovery run is not implemented yet.
-- Grounding/fabricated-value checks have schema coverage only; model-backed
-  claim extraction and evidence mapping still need a real implementation.
+- Passive novelty detection has a deterministic exact-signature runner; semantic
+  grouping and model-generated candidate naming remain future model-quality work.
+- Grounding/fabricated-value checks support explicit/deterministically split
+  claims and exact evidence matching; model-backed claim extraction and
+  contradiction detection still need implementation.
 - Screenshot issue intake and ChatOps are still contract/scaffold level.
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
   behavior detail, automation builder, impact report, review queue, prompt
@@ -428,5 +433,7 @@ Implemented in this pass:
 - Added `/v1/notification-targets` and `/v1/automations` lifecycle/run paths
   with deterministic condition evaluation, idempotency, review-task actions, and
   preview-only notification action audits.
+- Added `/v1/grounding-checks` and `/v1/novelty-runs` paths for reviewable
+  fabricated-value checks and passive behavior candidate discovery.
 - Added an Issues/Investigations scaffold view in the web app so the v2 surface
   is visible without pretending the LLM-backed pieces are ready.

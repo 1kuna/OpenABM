@@ -1180,6 +1180,78 @@
         }
       }
     },
+    "/v1/grounding-checks": {
+      "get": {
+        "operationId": "listGroundingChecks",
+        "summary": "List grounding checks for a project.",
+        "x-required-scopes": [
+          "grounding:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Grounding checks."
+          }
+        }
+      },
+      "post": {
+        "operationId": "createGroundingCheck",
+        "summary": "Check claims against trace evidence.",
+        "x-required-scopes": [
+          "grounding:write"
+        ],
+        "responses": {
+          "201": {
+            "description": "Grounding check created."
+          }
+        }
+      }
+    },
+    "/v1/novelty-runs": {
+      "get": {
+        "operationId": "listNoveltyRuns",
+        "summary": "List passive novelty detection runs.",
+        "x-required-scopes": [
+          "behaviors:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Novelty runs."
+          }
+        }
+      },
+      "post": {
+        "operationId": "createNoveltyRun",
+        "summary": "Run passive novelty detection over recent traces.",
+        "x-required-scopes": [
+          "behaviors:write"
+        ],
+        "responses": {
+          "201": {
+            "description": "Novelty run created."
+          }
+        }
+      }
+    },
     "/v1/impact-reports": {
       "get": {
         "operationId": "listImpactReports",

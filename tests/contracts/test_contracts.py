@@ -104,6 +104,8 @@ REQUIRED_QUERY_PATHS = {
     "/v1/automations",
     "/v1/automations/{automation_id}",
     "/v1/automations/{automation_id}/run",
+    "/v1/grounding-checks",
+    "/v1/novelty-runs",
     "/v1/data-classification-policies",
     "/v1/data-classification/classify",
     "/v1/context-packs",
