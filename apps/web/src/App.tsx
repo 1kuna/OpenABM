@@ -26,6 +26,7 @@ import type {
   AuthApiKey,
   AuthContract,
   AuthInvite,
+  AuthInviteDelivery,
   AuthSession,
   AuthUser,
   AutomationDefinition,
@@ -603,6 +604,7 @@ function OpsWorkspace(props: {
   const [authApiKeys, setAuthApiKeys] = useState<AuthApiKey[]>([]);
   const [authUsers, setAuthUsers] = useState<AuthUser[]>([]);
   const [authInvites, setAuthInvites] = useState<AuthInvite[]>([]);
+  const [authInviteDeliveries, setAuthInviteDeliveries] = useState<AuthInviteDelivery[]>([]);
   const [authSessions, setAuthSessions] = useState<AuthSession[]>([]);
   const [apiKeyName, setApiKeyName] = useState("Local evaluator key");
   const [apiKeyRole, setApiKeyRole] = useState("developer");
@@ -681,6 +683,7 @@ function OpsWorkspace(props: {
       setAuthApiKeys([]);
       setAuthUsers([]);
       setAuthInvites([]);
+      setAuthInviteDeliveries([]);
       setAuthSessions([]);
       setSecretBackend(null);
       setSecretRefs([]);
@@ -702,6 +705,7 @@ function OpsWorkspace(props: {
         apiKeys,
         users,
         invites,
+        inviteDeliveries,
         sessions,
         secretStatus,
         secrets,
@@ -718,6 +722,7 @@ function OpsWorkspace(props: {
         client.listAuthApiKeys(projectId),
         client.listAuthUsers(projectId),
         client.listAuthInvites(projectId),
+        client.listAuthInviteDeliveries(projectId),
         client.listAuthSessions(projectId),
         client.getSecretBackend(),
         client.listSecretRefs(projectId),
@@ -734,6 +739,7 @@ function OpsWorkspace(props: {
       setAuthApiKeys(apiKeys);
       setAuthUsers(users);
       setAuthInvites(invites);
+      setAuthInviteDeliveries(inviteDeliveries);
       setAuthSessions(sessions);
       setSecretBackend(secretStatus);
       setSecretRefs(secrets);
@@ -857,6 +863,9 @@ function OpsWorkspace(props: {
     try {
       const created = await client.createAuthInvite(projectId, authEmail.trim(), authRole);
       setAuthInvites([created, ...authInvites]);
+      if (created.delivery) {
+        setAuthInviteDeliveries([created.delivery, ...authInviteDeliveries]);
+      }
       setStateText(`invited ${created.email}`);
     } catch (error) {
       setStateText(error instanceof Error ? error.message : "invite creation failed");
@@ -1270,9 +1279,21 @@ function OpsWorkspace(props: {
               {authInvites.slice(0, 3).map((invite) => (
                 <div key={invite.invite_id}>
                   <strong>{invite.email}</strong>
-                  <span>{invite.role} invite · {invite.status}</span>
+                  <span>
+                    {invite.role} invite · {invite.status} · {invite.delivery?.delivery_status ?? "not queued"}
+                  </span>
                 </div>
               ))}
+            </div>
+            <div className="sectionRows">
+              {authInviteDeliveries.slice(0, 3).map((delivery) => (
+                <div key={delivery.invite_delivery_id}>
+                  <strong>{delivery.recipient_email}</strong>
+                  <span>{delivery.delivery_channel} · {delivery.delivery_status}</span>
+                  <small>{formatTime(delivery.created_at)}</small>
+                </div>
+              ))}
+              {!authInviteDeliveries.length ? <div className="emptyState">No invite deliveries</div> : null}
             </div>
           </section>
 

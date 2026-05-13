@@ -321,6 +321,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         del actor
         return {"data": store.list_auth_invites(project_id)}
 
+    @app.get("/api/auth/invite-deliveries")
+    def list_auth_invite_deliveries(
+        project_id: str,
+        actor: dict[str, object] = Depends(auth_dependency(["invites:read"])),
+    ) -> dict[str, object]:
+        del actor
+        return {"data": store.list_auth_invite_deliveries(project_id)}
+
     @app.post("/api/auth/invites", status_code=201)
     def create_auth_invite(
         request: dict[str, Any],

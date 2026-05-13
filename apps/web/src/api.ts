@@ -6,6 +6,7 @@ import type {
   AuthApiKey,
   AuthContract,
   AuthInvite,
+  AuthInviteDelivery,
   AuthSession,
   AuthUser,
   AutomationDefinition,
@@ -163,6 +164,12 @@ export class OpenAbmClient {
   async listAuthInvites(projectId: string): Promise<AuthInvite[]> {
     const params = new URLSearchParams({ project_id: projectId });
     const body = await this.get<{ data: AuthInvite[] }>(`/v1/auth/invites?${params.toString()}`);
+    return body.data;
+  }
+
+  async listAuthInviteDeliveries(projectId: string): Promise<AuthInviteDelivery[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: AuthInviteDelivery[] }>(`/v1/auth/invite-deliveries?${params.toString()}`);
     return body.data;
   }
 

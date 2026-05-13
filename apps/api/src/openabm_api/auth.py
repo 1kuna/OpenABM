@@ -148,7 +148,7 @@ def auth_contract(
         },
         "invites": {
             "status": "implemented_reference_model",
-            "delivery": "out_of_band",
+            "delivery": "local_outbox",
         },
         "role_matrix": role_matrix(),
         "decision_records": decision_records or [],

@@ -537,6 +537,21 @@ export interface AuthInvite {
   accepted_at: string | null;
   created_at: string;
   updated_at: string;
+  delivery?: AuthInviteDelivery;
+  deliveries?: AuthInviteDelivery[];
+}
+
+export interface AuthInviteDelivery {
+  invite_delivery_id: string;
+  invite_id: string;
+  project_id: string;
+  delivery_channel: string;
+  delivery_status: string;
+  recipient_email: string;
+  payload: Record<string, unknown>;
+  error_nullable: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface AuthSession {

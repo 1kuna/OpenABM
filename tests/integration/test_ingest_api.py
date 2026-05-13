@@ -58,6 +58,7 @@ def test_auth_contract_api_keys_roles_sessions_and_revocation(tmp_path) -> None:
     contract = client.get("/v1/auth/contract")
     assert contract.status_code == 200
     assert contract.json()["password_or_passwordless_decision"] == "passwordless_first"
+    assert contract.json()["invites"]["delivery"] == "local_outbox"
     assert "viewer" in contract.json()["role_matrix"]
 
     me = client.get("/v1/auth/me", headers=auth_headers())
@@ -84,7 +85,32 @@ def test_auth_contract_api_keys_roles_sessions_and_revocation(tmp_path) -> None:
         json={"project_id": "proj_demo", "email": "viewer@example.com", "role": "viewer"},
     )
     assert invite.status_code == 201
-    assert invite.json()["status"] == "pending"
+    invite_body = invite.json()
+    assert invite_body["status"] == "pending"
+    assert invite_body["delivery"]["delivery_channel"] == "local_outbox"
+    assert invite_body["delivery"]["delivery_status"] == "queued"
+    assert invite_body["delivery"]["recipient_email"] == "viewer@example.com"
+    assert invite_body["delivery"]["payload"]["template"] == "auth_invite_v1"
+    assert invite_body["delivery"]["payload"]["invite_id"] == invite_body["invite_id"]
+
+    invite_deliveries = client.get(
+        "/v1/auth/invite-deliveries",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert invite_deliveries.status_code == 200
+    assert invite_deliveries.json()["data"][0]["invite_id"] == invite_body["invite_id"]
+    assert invite_deliveries.json()["data"][0]["delivery_status"] == "queued"
+
+    invites = client.get(
+        "/v1/auth/invites",
+        headers=auth_headers(),
+        params={"project_id": "proj_demo"},
+    )
+    assert invites.status_code == 200
+    assert invites.json()["data"][0]["delivery"]["invite_delivery_id"] == invite_body["delivery"][
+        "invite_delivery_id"
+    ]
 
     session = client.post(
         "/v1/auth/sessions",

@@ -573,6 +573,9 @@ Done:
   records, cookie/CSRF policy metadata, passwordless decision records, and an
   external IdP adapter boundary. Expanded the Operations workspace with auth
   mode/role visibility plus API-key, user, invite, and session controls.
+- Added queued local invite delivery records for auth invites, including a
+  local outbox payload, audit entry, list endpoint, invite-list attachment, and
+  Operations workspace visibility so invites no longer exist only as inert rows.
 - Added local encrypted secret management using `cryptography` Fernet envelope
   encryption, scoped secret refs, redacted list/get responses, audited
   create/resolve/rotate access, rotation versions, an external secret-manager
@@ -780,8 +783,8 @@ Known remaining gaps before calling the whole spec complete:
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
   behavior detail, deeper impact-report analysis, and deeper
   prompt/configuration history.
-- External IdP/OAuth login, real invite delivery, and production secret-manager
-  provider adapters remain beyond the local reference scaffold.
+- External IdP/OAuth login, vendor email/SMTP invite delivery, and production
+  secret-manager provider adapters remain beyond the local reference scaffold.
 - Production-grade observability exporters, log aggregation, external
   deployment supervision, and vendor-specific non-webhook transports are still
   future hardening beyond the local reference surfaces; local worker

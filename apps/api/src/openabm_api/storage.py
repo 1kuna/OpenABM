@@ -1103,7 +1103,25 @@ class SQLiteStore:
                 """,
                 (project_id,),
             ).fetchall()
-        return [self._invite_from_row(row) for row in rows]
+            delivery_rows = conn.execute(
+                """
+                SELECT * FROM auth_invite_deliveries
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        deliveries_by_invite: dict[str, list[dict[str, Any]]] = {}
+        for row in delivery_rows:
+            delivery = self._invite_delivery_from_row(row)
+            deliveries_by_invite.setdefault(delivery["invite_id"], []).append(delivery)
+        invites = [self._invite_from_row(row) for row in rows]
+        for invite in invites:
+            deliveries = deliveries_by_invite.get(invite["invite_id"], [])
+            if deliveries:
+                invite["delivery"] = deliveries[0]
+                invite["deliveries"] = deliveries
+        return invites
 
     def create_auth_invite(
         self,
@@ -1126,6 +1144,7 @@ class SQLiteStore:
             "created_at": now,
             "updated_at": now,
         }
+        should_queue_delivery = not bool(request.get("suppress_delivery"))
         with self.connect() as conn:
             conn.execute(
                 """
@@ -1149,6 +1168,9 @@ class SQLiteStore:
                     item["updated_at"],
                 ),
             )
+            delivery = None
+            if should_queue_delivery:
+                delivery = self._create_auth_invite_delivery_row(conn, item)
         self.append_audit(
             "create_auth_invite",
             "auth_invite",
@@ -1157,7 +1179,83 @@ class SQLiteStore:
             {"email": item["email"], "role": item["role"]},
             actor_id=actor_id,
         )
+        if delivery is not None:
+            self.append_audit(
+                "queue_auth_invite_delivery",
+                "auth_invite",
+                item["project_id"],
+                item["invite_id"],
+                {
+                    "invite_delivery_id": delivery["invite_delivery_id"],
+                    "delivery_channel": delivery["delivery_channel"],
+                    "delivery_status": delivery["delivery_status"],
+                },
+                actor_id=actor_id,
+            )
+            item["delivery"] = delivery
         return item
+
+    def list_auth_invite_deliveries(self, project_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM auth_invite_deliveries
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._invite_delivery_from_row(row) for row in rows]
+
+    def _create_auth_invite_delivery_row(
+        self,
+        conn: sqlite3.Connection,
+        invite: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = utc_now()
+        payload = {
+            "template": "auth_invite_v1",
+            "invite_id": invite["invite_id"],
+            "project_id": invite["project_id"],
+            "email": invite["email"],
+            "role": invite["role"],
+            "expires_at": invite["expires_at"],
+        }
+        delivery = {
+            "invite_delivery_id": new_id("invite_delivery"),
+            "invite_id": invite["invite_id"],
+            "project_id": invite["project_id"],
+            "delivery_channel": "local_outbox",
+            "delivery_status": "queued",
+            "recipient_email": invite["email"],
+            "payload": payload,
+            "error_nullable": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        conn.execute(
+            """
+            INSERT INTO auth_invite_deliveries(
+              invite_delivery_id, invite_id, project_id, delivery_channel,
+              delivery_status, recipient_email, payload_json, error_nullable,
+              created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                delivery["invite_delivery_id"],
+                delivery["invite_id"],
+                delivery["project_id"],
+                delivery["delivery_channel"],
+                delivery["delivery_status"],
+                delivery["recipient_email"],
+                encode_json(delivery["payload"]),
+                delivery["error_nullable"],
+                delivery["created_at"],
+                delivery["updated_at"],
+            ),
+        )
+        return delivery
 
     def list_auth_sessions(self, project_id: str) -> list[dict[str, Any]]:
         with self.connect() as conn:
@@ -5736,6 +5834,21 @@ class SQLiteStore:
             "invited_by": row["invited_by"],
             "expires_at": row["expires_at"],
             "accepted_at": row["accepted_at"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _invite_delivery_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "invite_delivery_id": row["invite_delivery_id"],
+            "invite_id": row["invite_id"],
+            "project_id": row["project_id"],
+            "delivery_channel": row["delivery_channel"],
+            "delivery_status": row["delivery_status"],
+            "recipient_email": row["recipient_email"],
+            "payload": decode_json(row["payload_json"], {}),
+            "error_nullable": row["error_nullable"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }

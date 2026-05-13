@@ -437,6 +437,37 @@
         }
       }
     },
+    "/v1/auth/invite-deliveries": {
+      "get": {
+        "operationId": "listAuthInviteDeliveries",
+        "summary": "List queued local invite delivery records.",
+        "x-required-scopes": [
+          "invites:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invite delivery records.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/auth/users": {
       "get": {
         "operationId": "listAuthUsers",
