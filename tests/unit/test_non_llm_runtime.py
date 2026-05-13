@@ -329,6 +329,13 @@ def test_mcp_handlers_route_supported_tools_and_fail_closed_for_gaps() -> None:
         client=client,
     )
     assert registered_code_context["path"] == "/v1/code-contexts"
+    affected_export = call_tool(
+        "export_affected_entities",
+        {"project_id": "proj_demo", "issue_id_nullable": "issue_1"},
+        client=client,
+    )
+    assert affected_export["path"] == "/v1/affected-entities/export"
+    assert client.calls[-2]["json_body"]["issue_id_nullable"] == "issue_1"
     notify_gate = call_tool(
         "notify_affected_entity",
         {

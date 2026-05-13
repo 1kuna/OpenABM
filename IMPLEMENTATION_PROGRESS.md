@@ -1037,8 +1037,8 @@ Known remaining gaps before calling the whole spec complete:
   resource fetches are now available, deployment context registry/API/MCP/export
   access and code context registry/API/MCP/export access are now available, and
   affected-entity notifications can now target the configured workflow/adapter
-  registry from API/MCP/UI paths while preserving audit records. Trace detail
-  resolves captured
+  registry from API/MCP/UI paths while preserving audit records. Scoped affected
+  entity JSONL/CSV exports are available from API/MCP/UI paths. Trace detail resolves captured
   prompt/config/deployment/tool runtime context.
 - External IdP/OAuth login, vendor-specific invite providers, and production
   secret-manager provider adapters remain beyond the local reference scaffold;
@@ -1184,6 +1184,9 @@ Implemented in this pass:
   notification/workflow targets, including live adapter queueing, audit records,
   web client/UI action wiring, and MCP `notify_affected_entity` with
   confirmation gating.
+- Added scoped affected-entity exports through `/v1/affected-entities/export`,
+  with manifest hashes, JSONL and CSV payloads, UI export buttons, and MCP
+  `export_affected_entities`.
 - Notification target creation now rejects plaintext config blobs and validates
   `config_secret_refs`; active targets require at least one secret ref, while
   paused placeholders can be created without mounting secrets.

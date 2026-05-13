@@ -1973,6 +1973,26 @@ function IssueInvestigationWorkspace(props: {
     }
   }
 
+  async function exportSelectedAffectedEntities(format: "json" | "csv") {
+    if (connection !== "live") return;
+    try {
+      const bundle = await client.exportAffectedEntities(projectId, selectedIssue?.issue_id);
+      const issuePart = selectedIssue ? shortIdentifier(selectedIssue.issue_id) : "project";
+      if (format === "csv") {
+        downloadTextFile(
+          `affected-entities-${issuePart}.csv`,
+          bundle.affected_entities_csv,
+          "text/csv"
+        );
+      } else {
+        downloadJsonFile(`affected-entities-${issuePart}.json`, bundle);
+      }
+      setStateText(`exported ${bundle.affected_entities.length} affected entities`);
+    } catch (error) {
+      setStateText(error instanceof Error ? error.message : "affected entity export failed");
+    }
+  }
+
   return (
     <div className="issueGrid">
       <section className="panel issueList">
@@ -2224,6 +2244,14 @@ function IssueInvestigationWorkspace(props: {
                         <button onClick={() => downloadJsonFile(`impact-${selectedImpact.report_id}.json`, selectedImpact)}>
                           <Database size={15} />
                           Export report JSON
+                        </button>
+                        <button onClick={() => void exportSelectedAffectedEntities("json")}>
+                          <Database size={15} />
+                          Export entities JSON
+                        </button>
+                        <button onClick={() => void exportSelectedAffectedEntities("csv")}>
+                          <Database size={15} />
+                          Export entities CSV
                         </button>
                       </div>
                     </div>
@@ -6601,6 +6629,16 @@ function formatNestedCounts(counts: Record<string, unknown>) {
 
 function downloadJsonFile(filename: string, value: unknown) {
   const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadTextFile(filename: string, value: string, type: string) {
+  const blob = new Blob([value], { type });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

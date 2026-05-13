@@ -11,6 +11,7 @@ WRITE_CONTEXT_SCOPE = ["context_packs:write"]
 READ_DATASET_SCOPE = ["datasets:read"]
 WRITE_DATASET_SCOPE = ["datasets:write"]
 READ_DOCS_SCOPE = ["docs:read"]
+READ_EXPORT_SCOPE = ["exports:read"]
 WRITE_EVAL_SCOPE = ["evals:write"]
 READ_ISSUE_SCOPE = ["issues:read"]
 WRITE_ISSUE_SCOPE = ["issues:write"]
@@ -102,6 +103,7 @@ REQUIRED_TOOL_NAMES = [
     "get_investigation_run",
     "get_impact_report",
     "list_affected_entities",
+    "export_affected_entities",
     "get_affected_entity",
     "update_affected_entity",
     "notify_affected_entity",
@@ -409,6 +411,17 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         scopes=READ_INVESTIGATION_SCOPE,
         example_request={"project_id": "proj_demo", "issue_id": "issue_123"},
         example_response={"data": []},
+    ),
+    _tool(
+        "export_affected_entities",
+        "Export affected entities for remediation handoff as JSONL and CSV text.",
+        _schema(
+            ["project_id"],
+            {"project_id": STRING, "issue_id_nullable": NULLABLE_STRING},
+        ),
+        scopes=READ_EXPORT_SCOPE,
+        example_request={"project_id": "proj_demo", "issue_id_nullable": "issue_123"},
+        example_response={"manifest": {"export_id": "affected_entity_export_123"}},
     ),
     _tool(
         "get_affected_entity",

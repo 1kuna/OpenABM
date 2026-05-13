@@ -3849,6 +3849,18 @@ def test_reported_incident_investigation_acceptance_links_artifacts(
         "trace_wrong_tool",
         "trace_fabricated_commitment",
     }
+    affected_export = client.post(
+        "/v1/affected-entities/export",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "issue_id_nullable": issue_id},
+    )
+    assert affected_export.status_code == 200
+    affected_export_body = affected_export.json()
+    assert affected_export_body["manifest"]["sections"]["affected_entities"]["count"] == 1
+    assert affected_entity["affected_entity_id"] in affected_export_body[
+        "affected_entities_jsonl"
+    ]
+    assert "acct_enterprise_1" in affected_export_body["affected_entities_csv"]
     fetched_affected = client.get(
         f"/v1/affected-entities/{affected_entity['affected_entity_id']}",
         headers=auth_headers(),

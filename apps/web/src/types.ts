@@ -501,6 +501,19 @@ export interface AffectedEntityNotificationResult {
   audit_id: string;
 }
 
+export interface AffectedEntityExportBundle {
+  manifest: {
+    export_id: string;
+    project_id: string;
+    issue_id_nullable: string | null;
+    created_at: string;
+    sections: Record<string, { count: number; sha256: string }>;
+  };
+  affected_entities: AffectedEntity[];
+  affected_entities_jsonl: string;
+  affected_entities_csv: string;
+}
+
 export interface InvestigationRun {
   investigation_run_id: string;
   project_id: string;

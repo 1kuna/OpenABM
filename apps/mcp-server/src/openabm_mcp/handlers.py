@@ -329,6 +329,8 @@ def _call_tool_impl(
         if arguments.get("issue_id"):
             params["issue_id"] = arguments["issue_id"]
         return client.request("GET", "/v1/affected-entities", params=params)
+    if name == "export_affected_entities":
+        return client.request("POST", "/v1/affected-entities/export", json_body=arguments)
     if name == "get_affected_entity":
         return client.request(
             "GET",

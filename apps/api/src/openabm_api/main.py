@@ -3691,6 +3691,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         del actor
         return {"data": store.list_affected_entities(project_id, issue_id=issue_id)}
 
+    @app.post("/api/affected-entities/export")
+    def export_affected_entities(
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(auth_dependency(["exports:read"])),
+    ) -> dict[str, object]:
+        del actor
+        project_id = request.get("project_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        issue_id = request.get("issue_id_nullable") or request.get("issue_id")
+        export = store.export_affected_entities(project_id, issue_id=issue_id)
+        store.append_audit(
+            "export_affected_entities",
+            "affected_entity",
+            project_id,
+            issue_id,
+            {"export_id": export["manifest"]["export_id"]},
+        )
+        return export
+
     @app.get("/api/affected-entities/{affected_entity_id}")
     def get_affected_entity(
         affected_entity_id: str,

@@ -2662,6 +2662,74 @@
         }
       }
     },
+    "/v1/affected-entities/export": {
+      "post": {
+        "operationId": "exportAffectedEntities",
+        "summary": "Export affected entities for a project or issue as JSONL and CSV.",
+        "x-required-scopes": [
+          "exports:read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "issue_id_nullable": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Affected entity export bundle.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "manifest",
+                    "affected_entities",
+                    "affected_entities_jsonl",
+                    "affected_entities_csv"
+                  ],
+                  "properties": {
+                    "manifest": {
+                      "type": "object"
+                    },
+                    "affected_entities": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "../schemas/affected-entity.schema.json"
+                      }
+                    },
+                    "affected_entities_jsonl": {
+                      "type": "string"
+                    },
+                    "affected_entities_csv": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/affected-entities/{affected_entity_id}": {
       "get": {
         "operationId": "getAffectedEntity",

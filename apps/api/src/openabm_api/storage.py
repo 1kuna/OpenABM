@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import csv
 import difflib
 import hashlib
+import io
 import json
 import re
 import secrets
@@ -117,6 +119,29 @@ def _included_classifications(sections: dict[str, Any]) -> list[str]:
 
 def _jsonl(items: Iterable[dict[str, Any]]) -> str:
     return "\n".join(encode_json(item) for item in items)
+
+
+def _affected_entities_csv(items: Iterable[dict[str, Any]]) -> str:
+    output = io.StringIO()
+    fieldnames = [
+        "affected_entity_id",
+        "project_id",
+        "issue_id",
+        "entity_type",
+        "entity_id",
+        "display_name_nullable",
+        "status",
+        "owner_nullable",
+        "notes_nullable",
+        "trace_ids",
+        "created_at",
+        "updated_at",
+    ]
+    writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    for item in items:
+        writer.writerow({**item, "trace_ids": ",".join(item.get("trace_ids") or [])})
+    return output.getvalue()
 
 
 def _section_count(value: Any) -> int:
@@ -5677,6 +5702,36 @@ class SQLiteStore:
                 tuple(params),
             ).fetchall()
         return [self._affected_entity_from_row(row) for row in rows]
+
+    def export_affected_entities(
+        self,
+        project_id: str,
+        issue_id: str | None = None,
+    ) -> dict[str, Any]:
+        entities = self.list_affected_entities(project_id, issue_id=issue_id)
+        jsonl = _jsonl(entities)
+        csv_text = _affected_entities_csv(entities)
+        sections = {
+            "affected_entities": entities,
+            "affected_entities_jsonl": jsonl,
+            "affected_entities_csv": csv_text,
+        }
+        return {
+            "manifest": {
+                "export_id": new_id("affected_entity_export"),
+                "project_id": project_id,
+                "issue_id_nullable": issue_id,
+                "created_at": utc_now(),
+                "sections": {
+                    name: {
+                        "count": len(entities),
+                        "sha256": hashlib.sha256(encode_json(value).encode()).hexdigest(),
+                    }
+                    for name, value in sections.items()
+                },
+            },
+            **sections,
+        }
 
     def get_affected_entity(
         self,

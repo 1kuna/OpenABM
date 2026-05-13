@@ -1,5 +1,6 @@
 import type {
   AffectedEntity,
+  AffectedEntityExportBundle,
   AffectedEntityNotificationResult,
   AgentConfigCompareResult,
   AgentConfigDefinition,
@@ -521,6 +522,16 @@ export class OpenAbmClient {
     if (issueId) params.set("issue_id", issueId);
     const body = await this.get<{ data: AffectedEntity[] }>(`/v1/affected-entities?${params.toString()}`);
     return body.data;
+  }
+
+  async exportAffectedEntities(
+    projectId: string,
+    issueId?: string
+  ): Promise<AffectedEntityExportBundle> {
+    return this.post<AffectedEntityExportBundle>("/v1/affected-entities/export", {
+      project_id: projectId,
+      issue_id_nullable: issueId ?? null
+    });
   }
 
   async getAffectedEntity(projectId: string, affectedEntityId: string): Promise<AffectedEntity> {
