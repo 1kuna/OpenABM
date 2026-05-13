@@ -192,6 +192,10 @@ Done:
   `/v1/search/similar` can embed the source trace, candidate traces, and
   candidate spans, then rank candidates deterministically by cosine similarity
   while disclosing `embedding_similarity_v1`.
+- Verified a live LM Studio embedding canary with
+  `text-embedding-nomic-embed-text-v1.5`: the local OpenAI-compatible
+  `/embeddings` endpoint returned two 768-dimensional vectors through the new
+  provider adapter with status `succeeded`.
 - Verified a live LM Studio similarity canary with `qwen3.5-9b-mlx`; the
   model returned a cited candidate match, unrepaired structured output, and
   reasoning-token usage.
