@@ -1,4 +1,4 @@
-import type { Project, TraceDetail, TraceEnvelope } from "./types";
+import type { DocsSearchResult, EvalRun, JudgeDefinition, Project, TraceDetail, TraceEnvelope } from "./types";
 
 export interface OpenAbmClientConfig {
   baseUrl: string;
@@ -49,6 +49,26 @@ export class OpenAbmClient {
     });
   }
 
+  async listJudges(projectId: string): Promise<JudgeDefinition[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: JudgeDefinition[] }>(`/v1/judges?${params.toString()}`);
+    return body.data;
+  }
+
+  async listEvalRuns(projectId: string): Promise<EvalRun[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    const body = await this.get<{ data: EvalRun[] }>(`/v1/evals?${params.toString()}`);
+    return body.data;
+  }
+
+  async searchDocs(query: string): Promise<DocsSearchResult[]> {
+    const body = await this.post<{ results: DocsSearchResult[] }>("/v1/docs/search", {
+      query,
+      limit: 5
+    });
+    return body.results;
+  }
+
   private async get<T>(path: string): Promise<T> {
     const response = await fetch(`${this.baseUrl}${path}`, {
       headers: this.headers()
@@ -76,4 +96,3 @@ export class OpenAbmClient {
     return response.json() as Promise<T>;
   }
 }
-

@@ -302,6 +302,10 @@ Done:
 - Added web UI sections for judge runtime, behavior monitoring, datasets/evals,
   prompt registry, MCP, and ops status so unfinished surfaces are visible
   without pretending LLM-dependent capabilities exist.
+- Updated the web scaffold statuses and module summaries so judge registry,
+  local model-backed rubric drafting, eval run/compare, MCP routing, and
+  retention/export/delete state reflect current implementation instead of stale
+  deferred labels.
 
 ## Phase 8: Security, Privacy, And Operations Hardening
 
@@ -348,6 +352,8 @@ Verified after the latest implementation slices:
 - `make lint && make test`: passed, 39 tests after the judge/eval/docs MCP
   slice.
 - `npm --prefix apps/web run build`: passed.
+- Browser QA captured desktop Judges and mobile MCP screenshots under
+  `artifacts/ui-qa/`; the updated status text fits at both checked widths.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
 - MCP stdio smoke: `tools/list` returned 35 tools and

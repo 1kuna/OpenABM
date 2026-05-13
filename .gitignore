@@ -15,4 +15,5 @@ __pycache__/
 .openabm/
 coverage/
 htmlcov/
+artifacts/
 .DS_Store

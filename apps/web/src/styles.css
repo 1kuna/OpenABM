@@ -463,6 +463,27 @@ pre {
   padding: 16px;
 }
 
+.moduleSummary {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+  margin-bottom: 14px;
+}
+
+.moduleSummary p {
+  margin: 0;
+  min-height: 74px;
+  display: flex;
+  align-items: center;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  padding: 10px 12px;
+  color: #374151;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 .scaffoldGrid {
   display: grid;
   gap: 10px;
@@ -539,6 +560,10 @@ pre {
   }
 
   .metricsRow {
+    grid-template-columns: 1fr;
+  }
+
+  .moduleSummary {
     grid-template-columns: 1fr;
   }
 

@@ -74,3 +74,30 @@ export interface Project {
   created_at: string;
 }
 
+export interface JudgeDefinition {
+  judge_id: string;
+  project_id: string;
+  name: string;
+  description: string | null;
+  judge_type: string;
+  status: string;
+  versions?: Array<Record<string, unknown>>;
+}
+
+export interface EvalRun {
+  eval_run_id: string;
+  project_id: string;
+  dataset_version_id: string;
+  status: string;
+  summary: Record<string, unknown>;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface DocsSearchResult {
+  path: string;
+  line: number;
+  snippet: string;
+  score: number;
+  reason: string;
+}

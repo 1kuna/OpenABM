@@ -47,7 +47,7 @@ export function App() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [activeView, setActiveView] = useState<ViewKey>("traces");
-  const [similarState, setSimilarState] = useState("semantic search deferred");
+  const [similarState, setSimilarState] = useState("semantic similarity ready when a model provider is configured");
 
   const client = useMemo(() => new OpenAbmClient({ baseUrl, apiKey }), [baseUrl, apiKey]);
 
@@ -122,7 +122,7 @@ export function App() {
   async function checkSimilarity() {
     if (!selectedTraceId) return;
     if (connection !== "live") {
-      setSimilarState("semantic search deferred until embeddings are enabled");
+      setSimilarState("similarity requires a live API and configured model provider");
       return;
     }
     const result = await client.searchSimilar(projectId, selectedTraceId);
@@ -197,7 +197,12 @@ export function App() {
             onCheckSimilarity={() => void checkSimilarity()}
           />
         ) : (
-          <ScaffoldView activeView={activeView} />
+          <ScaffoldView
+            activeView={activeView}
+            client={client}
+            connection={connection}
+            projectId={projectId}
+          />
         )}
       </section>
     </main>
@@ -348,10 +353,50 @@ function Inspector({ span }: { span: SpanEnvelope | null }) {
   );
 }
 
-function ScaffoldView({ activeView }: { activeView: ViewKey }) {
+function ScaffoldView(props: {
+  activeView: ViewKey;
+  client: OpenAbmClient;
+  connection: ConnectionState;
+  projectId: string;
+}) {
+  const { activeView, client, connection, projectId } = props;
   const rows = scaffoldRows(activeView);
+  const [summary, setSummary] = useState<ModuleSummary | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSummary() {
+      if (connection !== "live") {
+        setSummary(moduleFixtureSummary(activeView));
+        return;
+      }
+      try {
+        const nextSummary = await moduleLiveSummary(activeView, client, projectId);
+        if (!cancelled) setSummary(nextSummary);
+      } catch (error) {
+        if (!cancelled) {
+          setSummary({
+            label: "Live check",
+            value: "unavailable",
+            detail: error instanceof Error ? error.message : "request failed"
+          });
+        }
+      }
+    }
+    void loadSummary();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView, client, connection, projectId]);
+
   return (
     <section className="panel scaffoldPanel">
+      {summary ? (
+        <div className="moduleSummary">
+          <Metric icon={<Activity />} label={summary.label} value={summary.value} />
+          <p>{summary.detail}</p>
+        </div>
+      ) : null}
       <div className="scaffoldGrid">
         {rows.map((row) => (
           <div className="workRow" key={row.title}>
@@ -368,11 +413,66 @@ function ScaffoldView({ activeView }: { activeView: ViewKey }) {
   );
 }
 
+type ModuleSummary = {
+  label: string;
+  value: string;
+  detail: string;
+};
+
+async function moduleLiveSummary(
+  view: ViewKey,
+  client: OpenAbmClient,
+  projectId: string
+): Promise<ModuleSummary> {
+  if (view === "judges") {
+    const judges = await client.listJudges(projectId);
+    return {
+      label: "Judges",
+      value: String(judges.length),
+      detail: judges[0]
+        ? `Latest: ${judges[0].name} (${judges[0].judge_type})`
+        : "No judge drafts or versions yet"
+    };
+  }
+  if (view === "datasets") {
+    const evals = await client.listEvalRuns(projectId);
+    const latest = evals[0];
+    return {
+      label: "Eval runs",
+      value: String(evals.length),
+      detail: latest ? `Latest ${latest.status} run: ${latest.eval_run_id}` : "No eval runs yet"
+    };
+  }
+  if (view === "mcp") {
+    const hits = await client.searchDocs("judge eval docs");
+    return {
+      label: "Docs hits",
+      value: String(hits.length),
+      detail: hits[0] ? `${hits[0].path}:${hits[0].line}` : "No public doc hits"
+    };
+  }
+  return moduleFixtureSummary(view);
+}
+
+function moduleFixtureSummary(view: ViewKey): ModuleSummary {
+  const summaries: Record<ViewKey, ModuleSummary> = {
+    traces: { label: "Mode", value: "fixture", detail: "Trace explorer uses bundled fixtures offline" },
+    issues: { label: "Issue flow", value: "ready", detail: "Issue and investigation APIs are wired" },
+    judges: { label: "Judges", value: "ready", detail: "Registry, drafts, and versions are API-backed" },
+    behaviors: { label: "Behaviors", value: "ready", detail: "Rules and backtests are API-backed" },
+    datasets: { label: "Evals", value: "ready", detail: "Local eval run and compare APIs are wired" },
+    prompts: { label: "Prompts", value: "ready", detail: "Versions, tags, render, and diff are API-backed" },
+    mcp: { label: "MCP", value: "35 tools", detail: "Judge, eval, and docs handlers are routed" },
+    ops: { label: "Ops", value: "ready", detail: "Health, export, retention, and tombstones are wired" }
+  };
+  return summaries[view];
+}
+
 function scaffoldRows(view: ViewKey) {
   const shared = {
     judges: [
-      { icon: <Braces />, title: "Deterministic rule judges", status: "available", phase: "Phase 4" },
-      { icon: <Shield />, title: "Rubric judge provider", status: "disabled until model work resumes", phase: "Phase 4" },
+      { icon: <Braces />, title: "Judge registry", status: "drafts and immutable versions available", phase: "Phase 4" },
+      { icon: <Shield />, title: "Rubric judge provider", status: "local model-backed and review-gated", phase: "Phase 4" },
       { icon: <KeyRound />, title: "Code judge sandbox", status: "development-only isolation", phase: "Phase 4" }
     ],
     behaviors: [
@@ -382,8 +482,8 @@ function scaffoldRows(view: ViewKey) {
     ],
     datasets: [
       { icon: <Database />, title: "Dataset provenance", status: "schema and storage tables available", phase: "Phase 5" },
-      { icon: <Play />, title: "Offline runner", status: "make demo-eval available", phase: "Phase 5" },
-      { icon: <CheckCircle2 />, title: "Baseline comparison", status: "deterministic data model pending", phase: "Phase 5" }
+      { icon: <Play />, title: "Eval runner", status: "deterministic and rubric judges supported", phase: "Phase 5" },
+      { icon: <CheckCircle2 />, title: "Baseline comparison", status: "pass-rate and score deltas available", phase: "Phase 5" }
     ],
     prompts: [
       { icon: <Split />, title: "Prompt commit IDs", status: "available", phase: "Phase 7" },
@@ -392,13 +492,13 @@ function scaffoldRows(view: ViewKey) {
     ],
     mcp: [
       { icon: <Network />, title: "Tool contracts", status: "all required names registered", phase: "Phase 7" },
-      { icon: <FileSearch />, title: "Read handlers", status: "next implementation slice", phase: "Phase 7" },
+      { icon: <FileSearch />, title: "API-backed handlers", status: "judges, evals, docs, prompts, configs, automations routed", phase: "Phase 7" },
       { icon: <Shield />, title: "Write confirmations", status: "metadata scaffolded", phase: "Phase 7" }
     ],
     ops: [
       { icon: <Activity />, title: "Health and readiness", status: "available", phase: "Phase 8" },
-      { icon: <Shield />, title: "RBAC and secrets", status: "scaffold pending", phase: "Phase 8" },
-      { icon: <Database />, title: "Retention/export/delete", status: "storage hooks pending", phase: "Phase 8" }
+      { icon: <Shield />, title: "API key scopes and audit", status: "local scaffold available", phase: "Phase 8" },
+      { icon: <Database />, title: "Retention/export/delete", status: "policy, manifest, and tombstone paths available", phase: "Phase 8" }
     ],
     traces: [],
     issues: [
