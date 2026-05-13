@@ -1,3 +1,4 @@
+import copy
 import json
 from pathlib import Path
 
@@ -664,6 +665,98 @@ def test_similarity_index_rebuild_persists_embedding_vectors(tmp_path, monkeypat
     assert body["representation_version"] == rebuild_body["representation_version"]
     assert body["data"][0]["trace_id"] == "trace_wrong_tool"
     assert body["data"][0]["evidence_span_ids"] == ["span_wrong_tool_order_lookup"]
+
+
+def test_novelty_run_can_group_candidates_with_similarity_index(tmp_path, monkeypatch) -> None:
+    class StubEmbeddingProvider:
+        adapter_name = "stub-embedding"
+        supported_capabilities = ["embedding"]
+
+        async def embed_documents(self, documents):
+            vectors = {}
+            for document in documents:
+                document_id = document["document_id"]
+                if document_id == "trace:trace_wrong_tool":
+                    vectors[document_id] = [1.0, 0.0]
+                elif document_id == "trace:trace_policy_loop":
+                    vectors[document_id] = [0.96, 0.04]
+                else:
+                    vectors[document_id] = [0.0, 1.0]
+            return {
+                "status": "succeeded",
+                "embeddings": [
+                    {
+                        "document_id": document["document_id"],
+                        "embedding": vectors[document["document_id"]],
+                        "index": index,
+                    }
+                    for index, document in enumerate(documents)
+                ],
+                "provider": "stub",
+                "model": "stub-embed-model",
+                "usage": {"total_tokens": len(documents)},
+            }
+
+    monkeypatch.setattr(
+        "openabm_api.main.embedding_provider_from_settings",
+        lambda settings: StubEmbeddingProvider(),
+    )
+    client = make_client(tmp_path)
+    source_fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    second_fixture = copy.deepcopy(source_fixture)
+    second_fixture["trace"]["trace_id"] = "trace_policy_loop"
+    second_fixture["trace"]["session_id"] = "session_policy_loop"
+    second_fixture["trace"]["root_span_id"] = "span_policy_loop_root"
+    second_fixture["trace"]["summary"] = "Agent looped on policy lookup and failed refund routing."
+    span_id_map = {
+        span["span_id"]: span["span_id"].replace("wrong_tool", "policy_loop")
+        for span in second_fixture["spans"]
+    }
+    for span in second_fixture["spans"]:
+        span["trace_id"] = "trace_policy_loop"
+        span["span_id"] = span_id_map[span["span_id"]]
+        if span["parent_span_id"] is not None:
+            span["parent_span_id"] = span_id_map[span["parent_span_id"]]
+        if span.get("attributes", {}).get("error.type") == "wrong_tool":
+            span["attributes"]["error.type"] = "policy_loop"
+    client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={
+            "traces": [source_fixture["trace"], second_fixture["trace"]],
+            "spans": [*source_fixture["spans"], *second_fixture["spans"]],
+        },
+    )
+    rebuild = client.post(
+        "/v1/similarity-index/rebuild",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo"},
+    )
+    assert rebuild.status_code == 201
+    novelty = client.post(
+        "/v1/novelty-runs",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "filters": {"status": "error"},
+            "similarity_index_grouping": True,
+            "representation_version": rebuild.json()["representation_version"],
+            "similarity_threshold": 0.8,
+        },
+    )
+    assert novelty.status_code == 201
+    result = novelty.json()["result"]
+    assert result["similarity_index_grouping"]["status"] == "succeeded"
+    candidate = result["new_behavior_candidates"][0]
+    assert set(candidate["source_candidate_names"]) == {
+        "error_wrong_tool",
+        "error_policy_loop",
+    }
+    assert candidate["frequency"] == 2
+    assert set(candidate["representative_positive_traces"]) == {
+        "trace_wrong_tool",
+        "trace_policy_loop",
+    }
 
 
 def test_trace_can_be_added_to_dataset_with_provenance(tmp_path) -> None:

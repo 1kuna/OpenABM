@@ -39,6 +39,7 @@ from openabm_worker.model_runtime import (
 from openabm_worker.novelty import (
     detect_novel_behavior_candidates,
     group_novel_behavior_candidates_with_model,
+    group_novel_behavior_candidates_with_similarity_index,
 )
 from openabm_worker.offline_eval import run_eval
 from openabm_worker.similarity import (
@@ -3342,6 +3343,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             spans_by_trace,
             store.list_behaviors(project_id),
         )
+        if request.get("similarity_index_grouping"):
+            representation_version = _resolve_similarity_representation_version(
+                store,
+                project_id,
+                request,
+                settings,
+            )
+            if representation_version is None:
+                result["similarity_index_grouping"] = {
+                    "status": "skipped",
+                    "reason": "no similarity index representation is available",
+                }
+            else:
+                trace_vectors = store.list_similarity_vectors(
+                    project_id,
+                    representation_version,
+                    entity_type="trace",
+                    trace_ids=[trace["trace_id"] for trace in traces],
+                )
+                result = group_novel_behavior_candidates_with_similarity_index(
+                    result,
+                    trace_vectors,
+                    similarity_threshold=float(request.get("similarity_threshold", 0.82)),
+                )
+                result["similarity_index_grouping"][
+                    "representation_version"
+                ] = representation_version
         if request.get("semantic_grouping_with_model"):
             try:
                 provider = _observed_model_provider(settings, metrics)

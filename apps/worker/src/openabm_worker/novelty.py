@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 NOVELTY_GROUPING_SCHEMA = {
@@ -130,6 +131,77 @@ async def group_novel_behavior_candidates_with_model(
     return grouped if grouped["semantic_grouping"]["status"] == "succeeded" else grouped
 
 
+def group_novel_behavior_candidates_with_similarity_index(
+    deterministic_result: dict[str, Any],
+    trace_vectors: list[dict[str, Any]],
+    *,
+    similarity_threshold: float = 0.82,
+) -> dict[str, Any]:
+    candidates = deterministic_result.get("new_behavior_candidates", [])
+    vectors_by_trace = {
+        record["entity_id"]: record.get("vector", [])
+        for record in trace_vectors
+        if record.get("entity_type") == "trace"
+    }
+    if not candidates or not vectors_by_trace:
+        return {
+            **deterministic_result,
+            "similarity_index_grouping": {
+                "status": "skipped",
+                "reason": "no indexed candidate vectors",
+            },
+        }
+
+    candidate_vectors = {
+        candidate["name"]: _candidate_vector(candidate, vectors_by_trace)
+        for candidate in candidates
+    }
+    used = set()
+    grouped_candidates = []
+    for candidate in candidates:
+        name = candidate["name"]
+        if name in used or candidate_vectors.get(name) is None:
+            continue
+        used.add(name)
+        group = [candidate]
+        for other in candidates:
+            other_name = other["name"]
+            if other_name in used:
+                continue
+            similarity = _cosine_similarity(
+                candidate_vectors[name] or [],
+                candidate_vectors.get(other_name) or [],
+            )
+            if similarity >= similarity_threshold:
+                used.add(other_name)
+                group.append(other)
+        grouped_candidates.append(_merge_similarity_group(group, similarity_threshold))
+
+    for candidate in candidates:
+        if candidate["name"] not in used:
+            grouped_candidates.append(candidate)
+
+    return {
+        **deterministic_result,
+        "source_signature_candidates": deterministic_result.get("new_behavior_candidates", []),
+        "new_behavior_candidates": sorted(
+            grouped_candidates,
+            key=lambda item: item["frequency"],
+            reverse=True,
+        ),
+        "similarity_index_grouping": {
+            "status": "succeeded",
+            "threshold": similarity_threshold,
+            "indexed_trace_count": len(vectors_by_trace),
+            "uncertainty": (
+                "Deterministic grouping over stored trace embeddings; human review "
+                "still decides whether a behavior should be promoted."
+            ),
+        },
+        "uncertainty": "Similarity-index grouping merged deterministic failure signatures.",
+    }
+
+
 def _trace_signature(trace: dict[str, Any], spans: list[dict[str, Any]]) -> str:
     error_type = trace.get("attributes", {}).get("error.type")
     span_error_types = [
@@ -149,6 +221,80 @@ def _trace_signature(trace: dict[str, Any], spans: list[dict[str, Any]]) -> str:
     if tool_names:
         return "tool_sequence_" + "_then_".join(str(name) for name in tool_names[:3])
     return f"status_{trace.get('status', 'unknown')}"
+
+
+def _candidate_vector(
+    candidate: dict[str, Any],
+    vectors_by_trace: dict[str, list[float]],
+) -> list[float] | None:
+    vectors = [
+        vectors_by_trace[trace_id]
+        for trace_id in candidate.get("representative_positive_traces", [])
+        if trace_id in vectors_by_trace
+    ]
+    if not vectors:
+        return None
+    dimensions = {len(vector) for vector in vectors}
+    if len(dimensions) != 1:
+        return None
+    return [
+        sum(vector[index] for vector in vectors) / len(vectors)
+        for index in range(len(vectors[0]))
+    ]
+
+
+def _merge_similarity_group(
+    candidates: list[dict[str, Any]],
+    similarity_threshold: float,
+) -> dict[str, Any]:
+    if len(candidates) == 1:
+        candidate = candidates[0]
+        return {
+            **candidate,
+            "source_candidate_names": candidate.get(
+                "source_candidate_names",
+                [candidate["name"]],
+            ),
+            "similarity_cluster_threshold": similarity_threshold,
+        }
+    source_names = [candidate["name"] for candidate in candidates]
+    traces = sorted(
+        {
+            trace_id
+            for candidate in candidates
+            for trace_id in candidate.get("representative_positive_traces", [])
+        }
+    )
+    severity_rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+    severity = max(
+        (candidate.get("severity", "medium") for candidate in candidates),
+        key=lambda value: severity_rank.get(value, 1),
+    )
+    return {
+        "name": f"embedding_cluster_{source_names[0]}",
+        "description": (
+            f"Similarity-index cluster merging {len(candidates)} deterministic "
+            "failure signatures."
+        ),
+        "source_candidate_names": source_names,
+        "representative_positive_traces": traces,
+        "representative_negative_traces": [],
+        "severity": severity,
+        "frequency": sum(int(candidate.get("frequency", 0)) for candidate in candidates),
+        "similarity_cluster_threshold": similarity_threshold,
+        "uncertainty": "deterministic grouping over stored embedding vectors",
+    }
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    if len(left) != len(right) or not left:
+        return 0.0
+    dot = sum(a * b for a, b in zip(left, right, strict=True))
+    left_norm = math.sqrt(sum(value * value for value in left))
+    right_norm = math.sqrt(sum(value * value for value in right))
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+    return max(0.0, min(1.0, dot / (left_norm * right_norm)))
 
 
 def _novelty_grouping_request(

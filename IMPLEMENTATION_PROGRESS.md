@@ -200,6 +200,10 @@ Done:
 - Added Operations UI coverage for similarity-index inspection and rebuild, plus
   trace-detail display of the representation version used for similar-trace
   results.
+- Added optional similarity-index grouping for passive novelty runs. Deterministic
+  exact-signature candidates can now be merged when their stored trace embeddings
+  clear a configured cosine threshold, while promotion still flows through human
+  behavior-candidate review.
 - Verified a live LM Studio embedding canary with
   `text-embedding-nomic-embed-text-v1.5`: the local OpenAI-compatible
   `/embeddings` endpoint returned two 768-dimensional vectors through the new
@@ -761,10 +765,9 @@ Known remaining gaps before calling the whole spec complete:
   rollback helper; rollback adapters for external ticketing/workflow systems
   remain future work.
 - Passive novelty detection has deterministic exact-signature grouping plus
-  optional model semantic grouping/naming with validated membership; embedding-
-  backed trace similarity and a local persisted similarity index now exist,
-  while larger clustering and behavior-discovery experiments over that index
-  remain future work.
+  optional model semantic grouping/naming with validated membership and optional
+  similarity-index grouping over stored trace vectors; broader clustering
+  experiments and production vector-store choices remain future work.
 - Grounding/fabricated-value checks support explicit, deterministically split,
   and model-extracted claims with exact evidence matching, plus review-gated
   model contradiction adjudication with validated span citations; broad

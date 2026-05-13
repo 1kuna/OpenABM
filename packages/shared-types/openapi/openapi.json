@@ -2464,6 +2464,17 @@
                   "semantic_grouping_with_model": {
                     "type": "boolean",
                     "default": false
+                  },
+                  "similarity_index_grouping": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "representation_version": {
+                    "type": "string"
+                  },
+                  "similarity_threshold": {
+                    "type": "number",
+                    "default": 0.82
                   }
                 }
               }
