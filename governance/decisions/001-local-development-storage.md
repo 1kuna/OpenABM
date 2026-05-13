@@ -1,6 +1,6 @@
 # DR-001: Local Development Storage Backend
 
-Status: provisional
+Status: accepted-local-reference
 
 Date: 2026-05-12
 
@@ -22,13 +22,22 @@ cleanup hooks, and fixture seeding.
 
 ## Decision
 
-Use SQLite plus local filesystem payload storage as the initial local reference
+Use SQLite plus local filesystem payload storage as the local reference
 implementation.
 
 ## Evidence
 
-Initial scaffold evidence is pending. The first acceptance gate is clean schema
-initialization, fixture ingest, trace lookup, reconstruction, and local reset.
+- `SQLiteStore.init_db()` applies migrations and creates the local reference
+  schema under the configured `sqlite:///` path.
+- `make ci` passes integration coverage for batch ingest, trace lookup,
+  reconstruction, payload metadata, retention/export/delete, eval provenance,
+  investigation flows, and MCP trace/context-pack access.
+- `openabm init-db`, `openabm seed-fixtures`, `make demo-eval`, and
+  `make reset-local` provide the local setup, fixture, deterministic eval, and
+  reset paths.
+- `make deploy-config-check` validates the Docker Compose reference contract
+  that mounts the same SQLite/payload storage model into API and worker
+  containers.
 
 ## Known Limitations
 
@@ -41,4 +50,3 @@ initialization, fixture ingest, trace lookup, reconstruction, and local reset.
 - Fixture expansion exceeds local performance targets.
 - Local contributors hit setup or migration friction.
 - Retention/backfill behavior cannot be made reliable.
-

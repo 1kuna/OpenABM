@@ -24,11 +24,12 @@ swapping implementation details.
 
 ## Tests
 
-Expected local checks will grow over time. The initial scaffold uses:
+Run the local reference gates before submitting changes:
 
 ```bash
-make test
 make lint
+make test
 make contracts
+make ci
+make deploy-config-check
 ```
-

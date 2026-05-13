@@ -7,12 +7,12 @@ The implementation spec is intentionally kept local-only and is not committed to
 the public repository. Public contracts, examples, and implementation decisions
 live in this repo as original OpenABM artifacts.
 
-## Current Scaffold
+## Current Local Reference
 
 - Contract-first schemas and OpenAPI documents.
 - Python tracing SDK with offline JSONL and HTTP export modes.
-- Local API, storage, worker, CLI, and MCP scaffolds.
-- Operational trace explorer UI scaffold.
+- Local API, SQLite/filesystem storage, retention worker, CLI, and MCP server.
+- Operational trace explorer and review UI for the local reference workflow.
 - Governance and decision-record workflow for implementation choices.
 - Docker Compose production-reference deployment contract.
 

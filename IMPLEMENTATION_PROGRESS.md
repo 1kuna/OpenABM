@@ -15,7 +15,7 @@ work can resume from concrete state instead of memory.
   less than 32k context for model-backed work.
 - Defer to heavier models only after prompt/runtime tinkering shows an obvious
   model capability gap.
-- Commit coherent slices as the scaffold becomes runnable.
+- Commit coherent slices as the implementation evolves.
 - Public artifacts must use original OpenABM language, schemas, examples, and UI.
 - Prefer mature open-source orchestration where it fits. LangGraph/Deep Agents
   are the likely long-term lane for deep-agent orchestration; Pi/pi-agent-core
@@ -54,7 +54,7 @@ Remaining blockers or explicit non-local-reference work:
 - External IdP/OAuth, SMTP/vendor invite delivery, production secret-manager
   adapters, vendor-specific ChatOps connectors, production observability
   exporters, and external deployment supervision remain integration work beyond
-  the local reference scaffold.
+  the local reference implementation.
 - Real OCR/deep attachment parsing, production vector-store/ANN choices, broader
   clustering experiments, and deeper UI drilldowns remain future hardening.
 - Any semantic task that the local 9B model cannot handle after prompt/runtime
@@ -76,12 +76,12 @@ Prompt-to-artifact checklist:
 | Make coherent commits as progress lands | `git log` shows focused slices for MCP confirmations/resources, LangGraph event provenance, root-cause comparison, model runtime ADR, completion audit, and decision records. | Complete |
 | Document progress and blockers | This `IMPLEMENTATION_PROGRESS.md` tracks phases, completed slices, validation, blockers, and deferrals. | Complete |
 | Use local LM Studio/qwen lane for semantic work | Model runtime ADR accepts OpenAI-compatible local providers; live canary notes cover `qwen3.5-9b-mlx`; settings/docs preserve no-timeout/high-context rules and `OPENABM_MODEL_MIN_AVAILABLE_MEMORY_MB`. | Complete for local reference |
-| Prefer OSS orchestration over reinvention | `docs/decisions/0006-agent-orchestration-framework.md`; LangGraph investigation adapter in `apps/worker/src/openabm_worker/investigation_workflow.py`; MCP remains the audited tool boundary. | Complete for current scaffold |
+| Prefer OSS orchestration over reinvention | `docs/decisions/0006-agent-orchestration-framework.md`; LangGraph investigation adapter in `apps/worker/src/openabm_worker/investigation_workflow.py`; MCP remains the audited tool boundary. | Complete for current local reference |
 | Keep semantic judgment in model/runtime, mechanical guarantees in code | Grounding, investigation, novelty, and similarity flows persist model metadata while deterministic code validates schemas, citations, membership, review gates, and provenance. | Complete for implemented flows |
 | Public API/data contracts exist | JSON Schemas in `packages/shared-types/schemas/`; OpenAPI in `packages/shared-types/openapi/openapi.json`; contract tests under `tests/contracts/`. | Complete |
 | Adapter interfaces from spec section 41 exist | `apps/worker/src/openabm_worker/adapters.py` defines typed protocols for every listed adapter; unit tests assert the expected contract names and local provider conformance. | Complete |
 | Core loop works end to end | Integration tests cover trace ingest/detail, judges, behavior/dataset/eval loop, MCP trace/context-pack access, and reported incident investigation acceptance. | Complete for local fixtures |
-| Security/privacy/ops scaffold exists | RBAC/API keys, sessions, invite outbox, encrypted secrets, retention/export/delete, worker heartbeats, MCP observability, ops status, and deployment contract are implemented. | Complete for local reference |
+| Security/privacy/ops local reference exists | RBAC/API keys, sessions, invite outbox, encrypted secrets, retention/export/delete, worker heartbeats, MCP observability, ops status, and deployment contract are implemented. | Complete for local reference |
 | Required decision records exist | Governance records now cover license boundary, storage, search, model runtime, sandbox, local stack, similarity experiments, production deployment, and orchestration. | Complete |
 | Final license file | `governance/decisions/008-license-selection.md` records owner-review-required status. | Blocked on owner choice |
 | Real-world pilot and revisit decisions | Phase 9 requires 5-10 pilots, performance/quality reports, and post-pilot revisits. | Blocked on real users/workloads |

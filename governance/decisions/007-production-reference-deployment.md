@@ -42,7 +42,7 @@ The deployment reference must provide:
 ## Decision
 
 Use Docker Compose as the production-reference deployment contract for the
-current scaffold. The reference stack includes:
+current local reference implementation. The reference stack includes:
 
 - FastAPI API container;
 - retention worker container;

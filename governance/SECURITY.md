@@ -5,8 +5,12 @@ results, and user feedback. Security work is product work, not an afterthought.
 
 ## Current Status
 
-This repository is in initial scaffold state. Do not use it for production
-secrets or sensitive production telemetry yet.
+This repository contains a local reference implementation with API-key auth,
+scoped permissions, local secret encryption, audit logs, retention/delete/export
+paths, and a Docker Compose reference contract. It is not yet a hardened
+multi-tenant production service; do not expose it to production secrets or
+sensitive production telemetry until the deployment, identity, observability,
+and incident-response adapters have been reviewed for that environment.
 
 ## Reporting
 
@@ -21,4 +25,3 @@ vulnerabilities privately to the repository owner.
 - Code judges receive no secrets by default.
 - Delete/export/retention operations preserve auditability without retaining
   disallowed payload content.
-

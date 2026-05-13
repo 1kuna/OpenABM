@@ -18,18 +18,22 @@ audit records.
 
 ## Decision
 
-Implement only a development sandbox scaffold with strict timeouts, scrubbed
+Implement only a development-only sandbox with strict timeouts, scrubbed
 environment, temporary directories, structured result validation, and loud
 warnings that hardened network/filesystem isolation is not adopted yet.
 
 ## Evidence
 
-Pending tests should cover happy path, timeout, invalid result, stdout/stderr,
-and secret non-inheritance.
+- `tests/unit/test_non_llm_runtime.py` covers secret non-inheritance, disabled
+  network imports, timeout/resource-exceeded status mapping, invalid structured
+  results, stdout/stderr capture, and filesystem access constrained to the
+  temporary input/artifact bundle.
+- The sandbox policy metadata reports `dev_only`, network-disabled,
+  secrets-unmounted, timeout, CPU, and memory limit settings for every run.
+- `make ci` exercises the sandbox alongside the other local runtime contracts.
 
 ## Revisit Triggers
 
 - Production code judges are enabled.
 - Sandbox escape tests fail.
 - A stronger local isolation primitive is chosen.
-

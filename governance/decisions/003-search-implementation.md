@@ -1,6 +1,6 @@
 # DR-003: Search Implementation
 
-Status: provisional
+Status: accepted-local-reference
 
 Date: 2026-05-12
 
@@ -26,8 +26,16 @@ vector-store commitment.
 
 ## Evidence
 
-Pending tests should cover common filters, error search, full-text search,
-pagination, and fixture reconstruction paths.
+- `make ci` passes integration coverage for trace/span search, saved searches,
+  docs search, issue-seeded candidate search, investigation candidate query
+  planning, and MCP trace retrieval.
+- Local similarity search now has both fail-closed disabled-provider coverage
+  and OpenAI-compatible embedding-provider coverage with provider/model,
+  representation version, source hash, dimensions, and deterministic candidate
+  evidence persisted for audit.
+- `docs/decisions/0006-agent-orchestration-framework.md` records LangGraph as
+  the current orchestration lane while keeping search and context-pack contracts
+  owned by OpenABM.
 
 ## Revisit Triggers
 
