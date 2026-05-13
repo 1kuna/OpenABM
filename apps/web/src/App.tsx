@@ -3159,9 +3159,15 @@ function DatasetEvalWorkspace(props: {
   const [comparisonBaselineResults, setComparisonBaselineResults] = useState<EvalResult[]>([]);
   const [comparisonCandidateResults, setComparisonCandidateResults] = useState<EvalResult[]>([]);
   const [judges, setJudges] = useState<JudgeDefinition[]>([]);
+  const [promptOptions, setPromptOptions] = useState<PromptDefinition[]>([]);
+  const [agentConfigOptions, setAgentConfigOptions] = useState<AgentConfigDefinition[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState("");
   const [selectedEvalRunId, setSelectedEvalRunId] = useState("");
   const [selectedJudgeId, setSelectedJudgeId] = useState("");
+  const [selectedPromptVersionId, setSelectedPromptVersionId] = useState("");
+  const [selectedAgentConfigVersionId, setSelectedAgentConfigVersionId] = useState("");
+  const [deploymentContextId, setDeploymentContextId] = useState("");
+  const [toolVersionIdsText, setToolVersionIdsText] = useState("");
   const [newDatasetName, setNewDatasetName] = useState("");
   const [newDatasetDescription, setNewDatasetDescription] = useState("");
   const [traceId, setTraceId] = useState("");
@@ -3176,6 +3182,12 @@ function DatasetEvalWorkspace(props: {
   const datasetRuns = selectedDataset
     ? evalRuns.filter((run) => run.dataset_version_id === selectedDataset.latest_version_id)
     : evalRuns;
+  const promptVersionOptions = promptOptions.flatMap((prompt) =>
+    (prompt.versions ?? []).map((version) => ({ prompt, version }))
+  );
+  const agentConfigVersionOptions = agentConfigOptions.flatMap((config) =>
+    (config.versions ?? []).map((version) => ({ config, version }))
+  );
 
   async function loadWorkspace() {
     if (connection !== "live") {
@@ -3186,18 +3198,30 @@ function DatasetEvalWorkspace(props: {
       setComparisonBaselineResults([]);
       setComparisonCandidateResults([]);
       setJudges([]);
+      setPromptOptions([]);
+      setAgentConfigOptions([]);
       setStateText("fixture mode");
       return;
     }
     try {
-      const [loadedDatasets, loadedRuns, loadedJudges] = await Promise.all([
+      const [loadedDatasets, loadedRuns, loadedJudges, listedPrompts, listedConfigs] = await Promise.all([
         client.listDatasets(projectId),
         client.listEvalRuns(projectId),
-        client.listJudges(projectId)
+        client.listJudges(projectId),
+        client.listPrompts(projectId),
+        client.listAgentConfigs(projectId)
+      ]);
+      const [hydratedPrompts, hydratedConfigs] = await Promise.all([
+        Promise.all(listedPrompts.map((prompt) => client.getPrompt(projectId, prompt.prompt_id))),
+        Promise.all(
+          listedConfigs.map((config) => client.getAgentConfig(projectId, config.agent_config_id))
+        )
       ]);
       setDatasets(loadedDatasets);
       setEvalRuns(loadedRuns);
       setJudges(loadedJudges);
+      setPromptOptions(hydratedPrompts);
+      setAgentConfigOptions(hydratedConfigs);
       setSelectedDatasetId((current) =>
         loadedDatasets.some((dataset) => dataset.dataset_id === current)
           ? current
@@ -3212,6 +3236,20 @@ function DatasetEvalWorkspace(props: {
         loadedJudges.some((judge) => judge.judge_id === current)
           ? current
           : loadedJudges[0]?.judge_id ?? ""
+      );
+      setSelectedPromptVersionId((current) =>
+        hydratedPrompts.some((prompt) =>
+          (prompt.versions ?? []).some((version) => version.prompt_version_id === current)
+        )
+          ? current
+          : ""
+      );
+      setSelectedAgentConfigVersionId((current) =>
+        hydratedConfigs.some((config) =>
+          (config.versions ?? []).some((version) => version.agent_config_version_id === current)
+        )
+          ? current
+          : ""
       );
       setStateText(`${loadedDatasets.length} datasets · ${loadedRuns.length} evals`);
     } catch (error) {
@@ -3294,11 +3332,27 @@ function DatasetEvalWorkspace(props: {
   async function runSelectedEval() {
     if (connection !== "live" || !selectedDataset || !selectedJudgeId) return;
     try {
+      const toolVersionIds = toolVersionIdsText
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const runtimeContext: Record<string, unknown> = {};
+      if (deploymentContextId.trim()) {
+        runtimeContext.deployment_context_id = deploymentContextId.trim();
+      }
+      if (toolVersionIds.length) {
+        runtimeContext.tool_version_ids = toolVersionIds;
+      }
       const run = await client.runEval(
         projectId,
         selectedDataset.latest_version_id,
         [selectedJudgeId],
-        baselineId || undefined
+        {
+          baselineEvalRunId: baselineId || undefined,
+          promptVersionId: selectedPromptVersionId || undefined,
+          agentConfigVersionId: selectedAgentConfigVersionId || undefined,
+          runtimeContext
+        }
       );
       setEvalRuns((current) => [run, ...current]);
       setSelectedEvalRunId(run.eval_run_id);
@@ -3421,6 +3475,36 @@ function DatasetEvalWorkspace(props: {
                         <option key={run.eval_run_id} value={run.eval_run_id}>{run.eval_run_id}</option>
                       ))}
                     </select>
+                  </label>
+                  <label>
+                    Prompt version
+                    <select value={selectedPromptVersionId} onChange={(event) => setSelectedPromptVersionId(event.target.value)}>
+                      <option value="">None</option>
+                      {promptVersionOptions.map(({ prompt, version }) => (
+                        <option key={version.prompt_version_id} value={version.prompt_version_id}>
+                          {prompt.name} · {shortIdentifier(version.commit_id)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Runtime config
+                    <select value={selectedAgentConfigVersionId} onChange={(event) => setSelectedAgentConfigVersionId(event.target.value)}>
+                      <option value="">None</option>
+                      {agentConfigVersionOptions.map(({ config, version }) => (
+                        <option key={version.agent_config_version_id} value={version.agent_config_version_id}>
+                          {config.name} · v{version.version}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Deployment
+                    <input value={deploymentContextId} onChange={(event) => setDeploymentContextId(event.target.value)} placeholder="deployment_context_id" />
+                  </label>
+                  <label>
+                    Tool versions
+                    <input value={toolVersionIdsText} onChange={(event) => setToolVersionIdsText(event.target.value)} placeholder="tool_v1, retriever_v2" />
                   </label>
                   <button className="primaryButton" onClick={() => void runSelectedEval()}>
                     <Play size={15} />
@@ -5151,7 +5235,7 @@ function moduleFixtureSummary(view: ViewKey): ModuleSummary {
     judges: { label: "Judges", value: "ready", detail: "Registry, drafts, and versions are API-backed" },
     behaviors: { label: "Behaviors", value: "ready", detail: "Rules and backtests are API-backed" },
     automations: { label: "Automations", value: "ready", detail: "Targets, definitions, runs, cooldowns, and retries are API-backed" },
-    datasets: { label: "Evals", value: "ready", detail: "Local eval run and compare APIs are wired" },
+    datasets: { label: "Evals", value: "ready", detail: "Eval runs can link prompt and runtime config versions" },
     prompts: { label: "Prompts", value: "ready", detail: "Versions, tags, render, and diff are API-backed" },
     configs: { label: "Configs", value: "ready", detail: "Runtime config versions and comparisons are API-backed" },
     mcp: { label: "MCP", value: "35 tools", detail: "Judge, eval, and docs handlers are routed" },
@@ -5179,8 +5263,8 @@ function scaffoldRows(view: ViewKey) {
     ],
     datasets: [
       { icon: <Database />, title: "Dataset provenance", status: "schema and storage tables available", phase: "Phase 5" },
-      { icon: <Play />, title: "Eval runner", status: "deterministic and rubric judges supported", phase: "Phase 5" },
-      { icon: <CheckCircle2 />, title: "Baseline comparison", status: "pass-rate and score deltas available", phase: "Phase 5" }
+      { icon: <Play />, title: "Eval runner", status: "judge, prompt, and config selection available", phase: "Phase 5" },
+      { icon: <CheckCircle2 />, title: "Baseline comparison", status: "quality and provenance deltas available", phase: "Phase 5" }
     ],
     prompts: [
       { icon: <Split />, title: "Prompt commit IDs", status: "available", phase: "Phase 7" },

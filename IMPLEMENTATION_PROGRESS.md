@@ -297,6 +297,10 @@ Done:
   deployment/tool/retrieval/memory/guardrail/routing identifiers. Eval
   comparison output now includes deterministic provenance deltas so prompt/config
   changes can be linked to regression comparisons.
+- Expanded the Datasets/Evals workspace so eval launches can select immutable
+  prompt versions, immutable agent runtime config versions, deployment context,
+  and tool-version identifiers, then inspect those links on the selected eval
+  run and comparison output.
 
 ## Phase 6: Behaviors And Automations
 
@@ -675,6 +679,9 @@ Verified after the latest implementation slices:
   denies blocked network imports, restricts file reads/writes to the input/output
   bundle and temporary artifact directory, maps timeouts and invalid results to
   shared score statuses, and exposes policy metadata for audit.
+- Eval provenance UI build passed: the Datasets/Evals workspace now hydrates
+  prompt/config version options, sends selected provenance with eval runs, and
+  renders selected-run runtime context plus comparison provenance changes.
 - Git status after final validation was clean against `origin/main`.
 
 Known remaining gaps before calling the whole spec complete:
@@ -684,8 +691,8 @@ Known remaining gaps before calling the whole spec complete:
   tag movement, render, diff, plus agent config history/comparison.
 - Judge registry, model-backed judge drafting, local eval launch, eval
   comparison, judge calibration reporting, promotion gates, and the judge
-  lifecycle workspace now exist; richer prompt/config-linked comparison screens
-  are still pending.
+  lifecycle workspace now exist. Prompt/config-linked eval launch and comparison
+  provenance are now wired; richer historical analytics remain future polish.
 - Automation definitions and local run execution include deterministic
   conditions, idempotency, preview notifications, opt-in live webhook delivery,
   review-task actions, cooldown skips, bounded retries, and dead-letter action

@@ -776,15 +776,23 @@ export class OpenAbmClient {
     projectId: string,
     datasetVersionId: string,
     judgeIds: string[],
-    baselineEvalRunId?: string,
-    issueId?: string
+    options: {
+      baselineEvalRunId?: string;
+      issueId?: string;
+      promptVersionId?: string;
+      agentConfigVersionId?: string;
+      runtimeContext?: Record<string, unknown>;
+    } = {}
   ): Promise<EvalRun> {
     return this.post<EvalRun>("/v1/evals/run", {
       project_id: projectId,
       dataset_version_id: datasetVersionId,
       judge_ids: judgeIds,
-      baseline_eval_run_id: baselineEvalRunId || null,
-      issue_id_nullable: issueId || null
+      baseline_eval_run_id: options.baselineEvalRunId || null,
+      issue_id_nullable: options.issueId || null,
+      prompt_version_id: options.promptVersionId || null,
+      agent_config_version_id: options.agentConfigVersionId || null,
+      runtime_context: options.runtimeContext || {}
     });
   }
 
