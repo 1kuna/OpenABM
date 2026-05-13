@@ -1793,7 +1793,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status = "skipped_cooldown"
         else:
             action_results = _execute_automation_actions(store, project_id, planned, trace_id)
-            status = "succeeded"
+            status = _automation_run_status(action_results)
         run = store.record_automation_run(
             {
                 "automation_run_id": new_id("automation_run"),
@@ -2307,19 +2307,76 @@ def _execute_automation_actions(
     trace_id: str | None,
 ) -> list[dict[str, Any]]:
     results = []
+    halted = False
     for planned in planned_actions:
+        if halted:
+            results.append(
+                {
+                    **planned,
+                    "status": "skipped",
+                    "reason": "previous action failure stopped execution",
+                }
+            )
+            continue
+        result = _execute_automation_action_with_retries(store, project_id, planned, trace_id)
+        results.append(result)
+        if _is_action_failure(result):
+            behavior = _failure_behavior(planned["action"].get("on_failure"))
+            result["partial_failure_behavior"] = behavior
+            if behavior != "continue":
+                if behavior == "compensate":
+                    result["compensation_status"] = "not_configured"
+                halted = True
+    return results
+
+
+def _execute_automation_action_with_retries(
+    store: SQLiteStore,
+    project_id: str,
+    planned: dict[str, Any],
+    trace_id: str | None,
+) -> dict[str, Any]:
+    attempts = _retry_attempts(planned["action"])
+    attempt_results = []
+    result = planned
+    for attempt in range(1, attempts + 1):
+        result = _execute_automation_action_once(store, project_id, planned, trace_id)
+        attempt_results.append(
+            {
+                "attempt": attempt,
+                "status": result["status"],
+                "reason": result.get("reason"),
+            }
+        )
+        if not _is_action_failure(result):
+            break
+    result = {**result, "attempts": len(attempt_results), "attempt_results": attempt_results}
+    if _is_action_failure(result):
+        return {
+            **result,
+            "status": "dead_lettered",
+            "dead_lettered": True,
+            "original_status": result["status"],
+        }
+    return result
+
+
+def _execute_automation_action_once(
+    store: SQLiteStore,
+    project_id: str,
+    planned: dict[str, Any],
+    trace_id: str | None,
+) -> dict[str, Any]:
+    try:
         action = planned["action"]
         action_type = planned["type"]
         if action_type == "add_to_dataset":
             if not trace_id or not action.get("dataset_id"):
-                results.append(
-                    {
-                        **planned,
-                        "status": "skipped",
-                        "reason": "missing trace or dataset",
-                    }
-                )
-                continue
+                return {
+                    **planned,
+                    "status": "skipped",
+                    "reason": "missing trace or dataset",
+                }
             example = store.add_trace_to_dataset(
                 project_id,
                 action["dataset_id"],
@@ -2327,8 +2384,8 @@ def _execute_automation_actions(
                 labels=action.get("labels"),
                 created_from="automation",
             )
-            results.append({**planned, "status": "succeeded", "result": example})
-        elif action_type == "create_review_task":
+            return {**planned, "status": "succeeded", "result": example}
+        if action_type == "create_review_task":
             task = store.create_review_task(
                 {
                     "project_id": project_id,
@@ -2339,8 +2396,8 @@ def _execute_automation_actions(
                     "notes_nullable": action.get("notes"),
                 }
             )
-            results.append({**planned, "status": "succeeded", "result": task})
-        elif action_type == "send_notification":
+            return {**planned, "status": "succeeded", "result": task}
+        if action_type == "send_notification":
             target_id = action.get("target_id")
             target = (
                 store.get_notification_target(project_id, target_id)
@@ -2348,8 +2405,7 @@ def _execute_automation_actions(
                 else None
             )
             if target is None:
-                results.append({**planned, "status": "failed", "reason": "target not found"})
-                continue
+                return {**planned, "status": "failed", "reason": "target not found"}
             audit_id = store.append_audit(
                 "preview_notification",
                 "notification_target",
@@ -2357,17 +2413,46 @@ def _execute_automation_actions(
                 target_id,
                 {"trace_id": trace_id, "message": action.get("message")},
             )
-            results.append(
-                {
-                    **planned,
-                    "status": "succeeded",
-                    "delivery_status": "preview_only",
-                    "audit_id": audit_id,
-                }
-            )
-        else:
-            results.append({**planned, "status": "unsupported"})
-    return results
+            return {
+                **planned,
+                "status": "succeeded",
+                "delivery_status": "preview_only",
+                "audit_id": audit_id,
+            }
+        return {**planned, "status": "unsupported", "reason": "unsupported action type"}
+    except (KeyError, ValueError, RuntimeError) as exc:
+        return {**planned, "status": "failed", "reason": str(exc)}
+
+
+def _automation_run_status(action_results: list[dict[str, Any]]) -> str:
+    if not action_results:
+        return "succeeded"
+    failures = [result for result in action_results if _is_action_failure(result)]
+    successes = [result for result in action_results if result.get("status") == "succeeded"]
+    if failures and successes:
+        return "partial_failure"
+    if failures:
+        return "dead_lettered"
+    return "succeeded"
+
+
+def _is_action_failure(result: dict[str, Any]) -> bool:
+    return result.get("status") in {"failed", "unsupported", "dead_lettered"}
+
+
+def _retry_attempts(action: dict[str, Any]) -> int:
+    retry = action.get("retry") or {}
+    try:
+        attempts = int(retry.get("attempts", 1))
+    except (TypeError, ValueError):
+        attempts = 1
+    return min(max(attempts, 1), 5)
+
+
+def _failure_behavior(value: Any) -> str:
+    if value in {"continue", "compensate"}:
+        return str(value)
+    return "stop"
 
 
 def _candidate_evidence_ids(candidate: dict[str, Any]) -> list[str]:

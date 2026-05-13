@@ -881,7 +881,7 @@
     "/v1/automations/{automation_id}/run": {
       "post": {
         "operationId": "runAutomation",
-        "summary": "Run an automation once against a trigger entity with idempotency and cooldown checks.",
+        "summary": "Run an automation once with idempotency, cooldown, retry, and dead-letter checks.",
         "x-required-scopes": [
           "automations:write"
         ],

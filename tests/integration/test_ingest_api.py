@@ -722,6 +722,47 @@ def test_v1_automation_run_creates_review_task_and_notification_preview(tmp_path
     assert cooldown_body["cooldown_result"]["active"] is True
     assert cooldown_body["action_results"] == []
 
+    retrying = client.post(
+        "/v1/automations",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "name": "continue after notification failure",
+            "trigger": {"type": "trace_completed"},
+            "conditions": {
+                "combine": "all",
+                "items": [{"field": "trace.status", "op": "eq", "value": "error"}],
+            },
+            "actions": [
+                {
+                    "type": "send_notification",
+                    "target_id": "missing_target",
+                    "message": "This should dead-letter",
+                    "retry": {"attempts": 2},
+                    "on_failure": "continue",
+                },
+                {"type": "create_review_task", "task_type": "behavior_candidate"},
+            ],
+        },
+    )
+    assert retrying.status_code == 201
+    retry_run = client.post(
+        f"/v1/automations/{retrying.json()['automation_id']}/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": trace_id,
+            "idempotency_key": "auto-test-retry",
+        },
+    )
+    assert retry_run.status_code == 201
+    retry_body = retry_run.json()
+    assert retry_body["status"] == "partial_failure"
+    assert retry_body["action_results"][0]["status"] == "dead_lettered"
+    assert retry_body["action_results"][0]["attempts"] == 2
+    assert retry_body["action_results"][0]["partial_failure_behavior"] == "continue"
+    assert retry_body["action_results"][1]["status"] == "succeeded"
+
 
 def test_v1_grounding_checks_and_novelty_runs_are_reviewable(tmp_path) -> None:
     client = make_client(tmp_path)
