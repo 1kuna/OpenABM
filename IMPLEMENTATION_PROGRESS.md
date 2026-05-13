@@ -334,6 +334,10 @@ Done:
   candidate query/filter/cohort display, context-pack creation/preview, and
   confirmation-gated behavior, judge, and dataset actions from investigation
   drafts.
+- Expanded the Impact Report panel with recurrence, affected entities, business
+  dimensions, task/workflow distribution, deployment/code context, suspected
+  root causes, recommended next actions, remediation status, representative
+  trace navigation, and JSON export.
 - Added model-assisted investigation drafts for cited root-cause hypotheses,
   candidate behaviors, rubric drafts, uncertainty, and next actions, with
   citation filtering before model output becomes canonical.
@@ -480,6 +484,9 @@ Verified after the latest implementation slices:
   query/filter/cohort display, context-pack preview, model-assisted rubric draft
   display, and confirmation-gated dataset/judge action controls against the live
   local API with no console errors.
+- Impact Report QA covered recurrence, business dimensions, task/workflow,
+  deployment/code context, affected entities, recommended actions, representative
+  trace navigation, and report JSON export visibility with no console errors.
 - `make demo-eval`: passed with one deterministic eval result, zero LLM calls,
   and one expected fail verdict for the wrong-tool fixture.
 - MCP stdio smoke: `tools/list` returned 35 tools and

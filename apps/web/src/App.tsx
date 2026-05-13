@@ -278,7 +278,16 @@ export function App() {
             onCheckSimilarity={() => void checkSimilarity()}
           />
         ) : activeView === "issues" ? (
-          <IssueInvestigationWorkspace client={client} connection={connection} projectId={projectId} traces={traces} />
+          <IssueInvestigationWorkspace
+            client={client}
+            connection={connection}
+            projectId={projectId}
+            traces={traces}
+            onOpenTrace={(traceId) => {
+              setSelectedTraceId(traceId);
+              setActiveView("traces");
+            }}
+          />
         ) : activeView === "reviews" ? (
           <ReviewQueue client={client} connection={connection} projectId={projectId} />
         ) : activeView === "judges" ? (
@@ -936,6 +945,7 @@ function IssueInvestigationWorkspace(props: {
   connection: ConnectionState;
   projectId: string;
   traces: TraceEnvelope[];
+  onOpenTrace: (traceId: string) => void;
 }) {
   const { client, connection, projectId, traces } = props;
   const [issues, setIssues] = useState<IssueDefinition[]>([]);
@@ -1385,23 +1395,53 @@ function IssueInvestigationWorkspace(props: {
                 {selectedImpact ? (
                   <>
                     <div className="metricsRow issueMetrics">
-                      <Metric icon={<FileSearch />} label="Traces" value={String(selectedImpact.matching_trace_count)} />
+                      <Metric icon={<FileSearch />} label="Recurrence" value={String(selectedImpact.matching_trace_count)} />
                       <Metric icon={<Database />} label="Sessions" value={String(selectedImpact.affected_session_count)} />
                       <Metric icon={<Shield />} label="Entities" value={String(selectedImpact.affected_entity_count)} />
+                      <Metric icon={<CheckCircle2 />} label="Remediation" value={selectedIssue.status} />
                     </div>
                     <p className="entityDescription">{selectedImpact.generated_summary}</p>
                     <div className="sectionRows">
                       <div>
                         <strong>Representative traces</strong>
                         <span>{selectedImpact.representative_trace_ids.join(", ") || "none"}</span>
+                        {selectedImpact.representative_trace_ids.slice(0, 5).map((traceId) => (
+                          <button key={traceId} onClick={() => props.onOpenTrace(traceId)}>
+                            <FileSearch size={15} />
+                            Open {shortIdentifier(traceId)}
+                          </button>
+                        ))}
                       </div>
                       <div>
-                        <strong>Task types</strong>
+                        <strong>Task/workflow distribution</strong>
                         <span>{formatCounts(selectedImpact.task_type_distribution)}</span>
                       </div>
                       <div>
-                        <strong>Dimensions</strong>
-                        <span>{Object.keys(selectedImpact.dimension_distribution).join(", ") || "none"}</span>
+                        <strong>Business dimensions</strong>
+                        <span>{formatNestedCounts(selectedImpact.dimension_distribution)}</span>
+                      </div>
+                      <div>
+                        <strong>Deployment/code context</strong>
+                        <span>{formatCounts(selectedImpact.deployment_distribution)}</span>
+                      </div>
+                      <div>
+                        <strong>Affected entities</strong>
+                        <span>{formatAffectedEntities(selectedImpact.affected_entities)}</span>
+                      </div>
+                      <div>
+                        <strong>Suspected root causes</strong>
+                        <span>{selectedImpact.suspected_root_causes.map((cause) => String(cause.hypothesis ?? cause.candidate_id ?? "candidate")).join("; ") || "none"}</span>
+                      </div>
+                      <div>
+                        <strong>Recommended next actions</strong>
+                        <span>{stringsFromUnknown(selectedInvestigation?.result.recommended_next_actions).join("; ") || "none"}</span>
+                      </div>
+                      <div>
+                        <strong>Export/share</strong>
+                        <button onClick={() => downloadJsonFile(`impact-${selectedImpact.report_id}.json`, selectedImpact)}>
+                          <Database size={15} />
+                          Export report JSON
+                        </button>
                       </div>
                     </div>
                   </>
@@ -5083,6 +5123,35 @@ function shortIdentifier(value: string) {
 function formatCounts(counts: Record<string, unknown>) {
   const entries = Object.entries(counts).filter(([, value]) => Number(value) !== 0);
   return entries.map(([key, value]) => `${key}: ${String(value)}`).join(", ") || "none";
+}
+
+function formatNestedCounts(counts: Record<string, unknown>) {
+  const entries = Object.entries(counts);
+  if (!entries.length) return "none";
+  return entries
+    .map(([key, value]) => {
+      const nested = asRecord(value);
+      return Object.keys(nested).length ? `${key}: ${formatCounts(nested)}` : `${key}: ${String(value)}`;
+    })
+    .join("; ");
+}
+
+function formatAffectedEntities(entities: Array<Record<string, unknown>>) {
+  if (!entities.length) return "none";
+  return entities
+    .slice(0, 8)
+    .map((entity) => `${String(entity.entity_type ?? "entity")}:${String(entity.entity_id ?? "unknown")} ${String(entity.status ?? "")}`.trim())
+    .join("; ");
+}
+
+function downloadJsonFile(filename: string, value: unknown) {
+  const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function formatRate(value: number | null | undefined) {
