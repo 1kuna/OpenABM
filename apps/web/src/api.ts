@@ -858,10 +858,15 @@ export class OpenAbmClient {
     });
   }
 
-  async exportProject(projectId: string, includePayloads: boolean): Promise<ProjectExportBundle> {
+  async exportProject(
+    projectId: string,
+    includePayloads: boolean,
+    maxClassification = "internal"
+  ): Promise<ProjectExportBundle> {
     return this.post<ProjectExportBundle>("/v1/exports/project", {
       project_id: projectId,
-      include_payloads: includePayloads
+      include_payloads: includePayloads,
+      max_classification: maxClassification
     });
   }
 

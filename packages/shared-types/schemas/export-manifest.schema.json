@@ -10,6 +10,7 @@
     "project_id": {"type": "string"},
     "created_at": {"type": "string", "format": "date-time"},
     "include_payloads": {"type": "boolean"},
+    "max_classification": {"enum": ["public", "internal", "confidential", "restricted", "secret"]},
     "included_classifications": {"type": "array", "items": {"type": "string"}},
     "sections": {
       "type": "object",

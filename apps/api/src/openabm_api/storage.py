@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from openabm_api.classification import normalize_classification, redact_if_needed
 from openabm_api.ids import new_id
 from openabm_api.prompts import prompt_commit_id
 from openabm_api.time import utc_now
@@ -6122,12 +6123,25 @@ class SQLiteStore:
         project_id: str,
         *,
         include_payloads: bool = False,
+        max_classification: str | None = None,
     ) -> dict[str, Any]:
+        max_level = normalize_classification(max_classification, "internal")
         traces = self.search_traces(project_id, limit=10000)
         trace_ids = [trace["trace_id"] for trace in traces]
         spans = [span for trace_id in trace_ids for span in self.list_spans(project_id, trace_id)]
         payloads = self._list_payload_objects(project_id)
         audit_summary = self._audit_summary(project_id)
+        context_packs = [
+            {
+                **pack,
+                "content": redact_if_needed(
+                    pack["content"],
+                    pack["classification"],
+                    max_level,
+                ),
+            }
+            for pack in self.list_agent_context_packs(project_id)
+        ]
         sections: dict[str, Any] = {
             "metadata": {"project_id": project_id},
             "traces": traces,
@@ -6151,7 +6165,7 @@ class SQLiteStore:
             "investigations": self.list_investigation_runs(project_id),
             "impact_reports": self.list_impact_reports(project_id),
             "affected_entities": self._list_affected_entities(project_id),
-            "context_packs": self.list_agent_context_packs(project_id),
+            "context_packs": context_packs,
             "review_tasks": self.list_review_tasks(project_id),
             "grounding_checks": self.list_grounding_checks(project_id),
             "novelty_runs": self.list_novelty_runs(project_id),
@@ -6164,6 +6178,7 @@ class SQLiteStore:
             "project_id": project_id,
             "created_at": utc_now(),
             "include_payloads": include_payloads,
+            "max_classification": max_level,
             "included_classifications": _included_classifications(sections),
             "sections": {
                 name: {

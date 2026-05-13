@@ -115,7 +115,30 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object"
+                "type": "object",
+                "required": [
+                  "project_id"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "include_payloads": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "max_classification": {
+                    "type": "string",
+                    "enum": [
+                      "public",
+                      "internal",
+                      "confidential",
+                      "restricted",
+                      "secret"
+                    ],
+                    "default": "internal"
+                  }
+                }
               }
             }
           }

@@ -2942,6 +2942,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         bundle = store.export_project_bundle(
             project_id,
             include_payloads=bool(request.get("include_payloads", False)),
+            max_classification=request.get("max_classification"),
         )
         store.append_audit(
             "export_project",

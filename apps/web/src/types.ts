@@ -400,6 +400,7 @@ export interface ProjectExportManifest {
   project_id: string;
   created_at: string;
   include_payloads: boolean;
+  max_classification: string;
   included_classifications: string[];
   sections: Record<string, { count: number; sha256: string }>;
 }

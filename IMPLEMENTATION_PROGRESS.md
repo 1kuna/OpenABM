@@ -1154,6 +1154,8 @@ Implemented in this pass:
   responses, including MCP-routable fetches, so restricted or secret agent
   context packs redact content unless the caller explicitly asks for an allowed
   classification level.
+- Added max-classification enforcement to project exports so embedded context
+  packs are redacted before section hashes and manifest metadata are produced.
 - Added default-off SMTP invite delivery: local outbox remains the default,
   operators can explicitly enable `OPENABM_ENABLE_SMTP_INVITES`, successful
   sends mark the invite delivery `smtp/sent`, and failures are persisted as

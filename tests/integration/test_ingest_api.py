@@ -1459,6 +1459,17 @@ def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
         json={"project_id": "proj_demo", "source_trace_ids": [trace_id]},
     )
     assert context_pack.status_code == 201
+    secret_context_pack = client.post(
+        "/v1/context-packs",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "source_trace_ids": [trace_id],
+            "classification": "secret",
+            "max_classification": "secret",
+        },
+    )
+    assert secret_context_pack.status_code == 201
     review = client.post(
         "/v1/review-tasks",
         headers=auth_headers(),
@@ -1545,10 +1556,15 @@ def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
     export = client.post(
         "/v1/exports/project",
         headers=auth_headers(),
-        json={"project_id": "proj_demo", "include_payloads": False},
+        json={
+            "project_id": "proj_demo",
+            "include_payloads": False,
+            "max_classification": "restricted",
+        },
     )
     assert export.status_code == 200
     manifest = export.json()["manifest"]
+    assert manifest["max_classification"] == "restricted"
     assert manifest["sections"]["traces"]["count"] == 1
     assert manifest["sections"]["trace_jsonl"]["count"] == 1
     assert manifest["sections"]["span_jsonl"]["count"] == len(fixture["spans"])
@@ -1558,6 +1574,12 @@ def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
         "deploy_delete_flow"
     )
     assert manifest["sections"]["code_contexts"]["count"] == 1
+    exported_secret_context = next(
+        item
+        for item in export.json()["context_packs"]
+        if item["context_pack_id"] == secret_context_pack.json()["context_pack_id"]
+    )
+    assert exported_secret_context["content"]["redacted"] is True
     assert export.json()["code_contexts"][0]["code_context_id"] == "code_delete_flow"
     assert export.json()["audit_summary"]["total_count"] >= 1
     assert manifest["sections"]["spans"]["sha256"]
@@ -1574,7 +1596,7 @@ def test_v1_retention_export_and_trace_tombstone_flow(tmp_path) -> None:
     assert effects["trace_dimensions"] == 1
     assert effects["code_contexts"] == 1
     assert effects["dataset_examples"] == 1
-    assert effects["context_packs_scrubbed"] == 1
+    assert effects["context_packs_scrubbed"] == 2
     assert effects["review_task_evidence_scrubbed"] == 1
     assert "eval_results" in effects
     assert "similarity_vectors" in effects
