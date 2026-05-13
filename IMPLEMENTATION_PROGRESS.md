@@ -1024,10 +1024,10 @@ Known remaining gaps before calling the whole spec complete:
   of scope.
 - Screenshot issue intake and ChatOps-style issue/investigation creation exist;
   screenshot/attachment metadata, extracted text, local text-like attachment
-  parsing, base64 text decoding, JSON flattening, PDF text extraction, and DOCX
-  text extraction are preserved as evidence, while image OCR, deeper document
-  parsing, and vendor-specific chat connectors are still future integration
-  work.
+  parsing, base64 text decoding, JSON flattening, PDF/DOCX/XLSX/PPTX text
+  extraction, and optional local image OCR output are preserved as evidence,
+  while richer document formats, OCR quality tuning, and vendor-specific chat
+  connectors are still future integration work.
 - UI pages are useful scaffolds rather than full spec-complete workspaces for
   broader usability polish; behavior review actions, impact-report drilldowns,
   eval comparison behavior-shift drilldown, prompt/config diff summaries, and
@@ -1148,6 +1148,9 @@ Implemented in this pass:
   `OPENABM_IMAGE_OCR_COMMAND`; image attachments remain skipped by default, but
   configured OCR output now becomes searchable intake evidence with parser
   provenance.
+- Added deterministic XLSX and PPTX attachment text extraction using the same
+  bounded OOXML parser approach as DOCX, so spreadsheet and presentation uploads
+  can contribute searchable intake evidence without an external service.
 - Notification target creation now rejects plaintext config blobs and validates
   `config_secret_refs`; active targets require at least one secret ref, while
   paused placeholders can be created without mounting secrets.

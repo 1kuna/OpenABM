@@ -66,6 +66,43 @@ def _docx_base64(text: str) -> str:
     return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
+def _xlsx_base64(text: str) -> str:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(
+            "xl/sharedStrings.xml",
+            (
+                '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                f"<si><t>{text}</t></si>"
+                "</sst>"
+            ),
+        )
+        archive.writestr(
+            "xl/worksheets/sheet1.xml",
+            (
+                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                '<sheetData><row><c t="s"><v>0</v></c></row></sheetData>'
+                "</worksheet>"
+            ),
+        )
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def _pptx_base64(text: str) -> str:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(
+            "ppt/slides/slide1.xml",
+            (
+                '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" '
+                'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+                f"<p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>{text}</a:t>"
+                "</a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>"
+            ),
+        )
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
 def auth_headers() -> dict[str, str]:
     return {"Authorization": "Bearer dev-openabm-key"}
 
@@ -2825,6 +2862,55 @@ def test_v1_screenshot_issue_uses_configured_image_ocr(tmp_path, monkeypatch) ->
     assert parse_result["extracted_fields"] == ["content_base64"]
     assert body["intake_evidence"]["source_counts"]["parsed_attachments"] == 1
     assert len(calls) == 1
+
+
+def test_v1_screenshot_issue_parses_xlsx_and_pptx_attachments(tmp_path) -> None:
+    client = make_client(tmp_path)
+    response = client.post(
+        "/v1/issues/from-screenshot",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "title": "Office attachments issue",
+            "screenshot_payload_id_nullable": "payload_screenshot_office",
+            "attachments": [
+                {
+                    "payload_id": "payload_xlsx_1",
+                    "content_type": (
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    ),
+                    "filename": "support-metrics.xlsx",
+                    "content_base64": _xlsx_base64(
+                        "uploaded XLSX says escalation queue has five blocked refunds"
+                    ),
+                },
+                {
+                    "payload_id": "payload_pptx_1",
+                    "content_type": (
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                    ),
+                    "filename": "support-deck.pptx",
+                    "content_base64": _pptx_base64(
+                        "uploaded PPTX says checkout agent loop is recurring"
+                    ),
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert "uploaded XLSX says escalation queue" in body["intake_evidence"]["query"]
+    assert "uploaded PPTX says checkout agent loop" in body["intake_evidence"]["query"]
+    parse_results = {
+        result["payload_id"]: result
+        for result in body["intake_evidence"]["attachment_parse_results"]
+    }
+    assert parse_results["payload_xlsx_1"]["status"] == "parsed"
+    assert parse_results["payload_xlsx_1"]["extracted_fields"] == ["content_base64"]
+    assert parse_results["payload_pptx_1"]["status"] == "parsed"
+    assert parse_results["payload_pptx_1"]["extracted_fields"] == ["content_base64"]
+    assert body["intake_evidence"]["source_counts"]["parsed_attachments"] == 2
 
 
 def test_v1_rubric_judge_run_persists_cited_score(tmp_path, monkeypatch) -> None:

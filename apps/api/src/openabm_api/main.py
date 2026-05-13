@@ -4003,6 +4003,12 @@ PDF_ATTACHMENT_TYPES = {"application/pdf"}
 DOCX_ATTACHMENT_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
+XLSX_ATTACHMENT_TYPES = {
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+PPTX_ATTACHMENT_TYPES = {
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
 IMAGE_ATTACHMENT_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".tif", ".tiff")
 IMAGE_ATTACHMENT_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/tiff"}
 MAX_ATTACHMENT_TEXT_CHARS = 16_000
@@ -4048,11 +4054,25 @@ def _is_docx_attachment(content_type: str | None, filename: str | None) -> bool:
     ).lower().endswith(".docx")
 
 
+def _is_xlsx_attachment(content_type: str | None, filename: str | None) -> bool:
+    return _normalized_content_type(content_type) in XLSX_ATTACHMENT_TYPES or (
+        filename or ""
+    ).lower().endswith(".xlsx")
+
+
+def _is_pptx_attachment(content_type: str | None, filename: str | None) -> bool:
+    return _normalized_content_type(content_type) in PPTX_ATTACHMENT_TYPES or (
+        filename or ""
+    ).lower().endswith(".pptx")
+
+
 def _is_binary_attachment(content_type: str | None, filename: str | None) -> bool:
     normalized_name = (filename or "").lower()
     return (
         _is_pdf_attachment(content_type, filename)
         or _is_docx_attachment(content_type, filename)
+        or _is_xlsx_attachment(content_type, filename)
+        or _is_pptx_attachment(content_type, filename)
         or any(normalized_name.endswith(suffix) for suffix in BINARY_ATTACHMENT_SUFFIXES)
     )
 
@@ -4128,6 +4148,98 @@ def _docx_attachment_text(content: bytes) -> tuple[str | None, str | None]:
     if not text:
         return None, "DOCX did not contain extractable text"
     return text, None
+
+
+def _xlsx_attachment_text(content: bytes) -> tuple[str | None, str | None]:
+    if len(content) > MAX_BINARY_ATTACHMENT_BYTES:
+        return None, f"XLSX exceeds {MAX_BINARY_ATTACHMENT_BYTES} byte parser limit"
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            shared_strings = _xlsx_shared_strings(archive)
+            pieces: list[str] = []
+            for name in sorted(archive.namelist()):
+                if name.startswith("xl/worksheets/") and name.endswith(".xml"):
+                    pieces.extend(_xlsx_sheet_texts(archive.read(name), shared_strings))
+    except (KeyError, zipfile.BadZipFile, ElementTree.ParseError) as exc:
+        return None, f"XLSX text extraction failed: {exc}"
+    text = " ".join(_dedupe_preserve_order(pieces))
+    if not text:
+        return None, "XLSX did not contain extractable text"
+    return text, None
+
+
+def _pptx_attachment_text(content: bytes) -> tuple[str | None, str | None]:
+    if len(content) > MAX_BINARY_ATTACHMENT_BYTES:
+        return None, f"PPTX exceeds {MAX_BINARY_ATTACHMENT_BYTES} byte parser limit"
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            pieces: list[str] = []
+            for name in sorted(archive.namelist()):
+                if name.startswith("ppt/slides/slide") and name.endswith(".xml"):
+                    root = ElementTree.fromstring(archive.read(name))
+                    pieces.extend(_xml_text_nodes(root))
+    except (zipfile.BadZipFile, ElementTree.ParseError) as exc:
+        return None, f"PPTX text extraction failed: {exc}"
+    text = " ".join(_dedupe_preserve_order(pieces))
+    if not text:
+        return None, "PPTX did not contain extractable text"
+    return text, None
+
+
+def _xlsx_shared_strings(archive: zipfile.ZipFile) -> list[str]:
+    try:
+        root = ElementTree.fromstring(archive.read("xl/sharedStrings.xml"))
+    except KeyError:
+        return []
+    return _xml_text_nodes(root)
+
+
+def _xlsx_sheet_texts(document_xml: bytes, shared_strings: list[str]) -> list[str]:
+    root = ElementTree.fromstring(document_xml)
+    pieces: list[str] = []
+    for cell in root.iter():
+        if not cell.tag.endswith("}c") and cell.tag != "c":
+            continue
+        cell_type = cell.attrib.get("t")
+        if cell_type == "inlineStr":
+            pieces.extend(_xml_text_nodes(cell))
+            continue
+        value_node = next(
+            (child for child in cell if child.tag.endswith("}v") or child.tag == "v"),
+            None,
+        )
+        if value_node is None or not value_node.text:
+            continue
+        value = value_node.text.strip()
+        if not value:
+            continue
+        if cell_type == "s":
+            try:
+                pieces.append(shared_strings[int(value)])
+            except (ValueError, IndexError):
+                pieces.append(value)
+        else:
+            pieces.append(value)
+    return pieces
+
+
+def _xml_text_nodes(root: ElementTree.Element) -> list[str]:
+    return [
+        node.text.strip()
+        for node in root.iter()
+        if (node.tag.endswith("}t") or node.tag == "t") and node.text and node.text.strip()
+    ]
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped
 
 
 def _json_attachment_search_texts(value: Any) -> list[str]:
@@ -4206,6 +4318,12 @@ def _parse_attachment_content_sources(
         elif _is_docx_attachment(content_type, filename):
             text, parse_error = _docx_attachment_text(content)
             parser = "docx_text"
+        elif _is_xlsx_attachment(content_type, filename):
+            text, parse_error = _xlsx_attachment_text(content)
+            parser = "xlsx_text"
+        elif _is_pptx_attachment(content_type, filename):
+            text, parse_error = _pptx_attachment_text(content)
+            parser = "pptx_text"
         else:
             text = None
             parse_error = "unsupported binary attachment parser"
