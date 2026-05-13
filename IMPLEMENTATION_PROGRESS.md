@@ -486,6 +486,9 @@ Implemented in this pass:
 - Added `/v1/notification-targets` and `/v1/automations` lifecycle/run paths
   with deterministic condition evaluation, idempotency, review-task actions, and
   preview-only notification action audits.
+- Notification target creation now rejects plaintext config blobs and validates
+  `config_secret_refs`; active targets require at least one secret ref, while
+  paused placeholders can be created without mounting secrets.
 - Added persisted automation cooldown checks keyed by configured scope so
   repeated matching runs can be skipped before action execution without losing
   the condition/cooldown audit record.

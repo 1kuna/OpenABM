@@ -10,7 +10,10 @@
     "project_id": {"type": "string"},
     "type": {"enum": ["chat", "email", "webhook", "issue_tracker", "custom"]},
     "display_name": {"type": "string"},
-    "config_secret_refs": {"type": "array", "items": {"type": "string"}},
+    "config_secret_refs": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^(secret_|secret:|secret://)"}
+    },
     "created_by": {"type": ["string", "null"]},
     "status": {"enum": ["active", "paused", "archived"]},
     "created_at": {"type": "string", "format": "date-time"},

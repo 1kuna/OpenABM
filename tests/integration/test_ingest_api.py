@@ -764,6 +764,47 @@ def test_v1_automation_run_creates_review_task_and_notification_preview(tmp_path
     assert retry_body["action_results"][1]["status"] == "succeeded"
 
 
+def test_v1_notification_targets_require_secret_refs(tmp_path) -> None:
+    client = make_client(tmp_path)
+    plaintext = client.post(
+        "/v1/notification-targets",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "type": "webhook",
+            "display_name": "Plaintext webhook",
+            "config": {"url": "https://example.invalid/webhook"},
+        },
+    )
+    assert plaintext.status_code == 400
+    assert plaintext.json()["error"]["code"] == "schema_validation_failed"
+
+    bad_ref = client.post(
+        "/v1/notification-targets",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "type": "webhook",
+            "display_name": "Bad ref",
+            "config_secret_refs": ["https://example.invalid/webhook"],
+        },
+    )
+    assert bad_ref.status_code == 400
+    assert bad_ref.json()["error"]["path"] == "/config_secret_refs/0"
+
+    paused_without_secret = client.post(
+        "/v1/notification-targets",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "type": "webhook",
+            "display_name": "Paused placeholder",
+            "status": "paused",
+        },
+    )
+    assert paused_without_secret.status_code == 201
+
+
 def test_v1_grounding_checks_and_novelty_runs_are_reviewable(tmp_path) -> None:
     client = make_client(tmp_path)
     fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]

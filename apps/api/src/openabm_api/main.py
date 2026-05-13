@@ -1675,6 +1675,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     f"{key} is required",
                     f"/{key}",
                 )
+        _validate_notification_target_request(request)
         target = store.create_notification_target(request)
         store.append_audit(
             "create_notification_target",
@@ -2453,6 +2454,39 @@ def _failure_behavior(value: Any) -> str:
     if value in {"continue", "compensate"}:
         return str(value)
     return "stop"
+
+
+def _validate_notification_target_request(request: dict[str, Any]) -> None:
+    if "config" in request or "credentials" in request:
+        raise SchemaValidationFailure(
+            "schema_validation_failed",
+            "Notification target configs must use config_secret_refs, not plaintext config.",
+            "/config_secret_refs",
+        )
+    refs = request.get("config_secret_refs") or []
+    if not isinstance(refs, list):
+        raise SchemaValidationFailure(
+            "schema_validation_failed",
+            "config_secret_refs must be a list of secret references.",
+            "/config_secret_refs",
+        )
+    if request.get("status", "active") == "active" and not refs:
+        raise SchemaValidationFailure(
+            "schema_validation_failed",
+            "Active notification targets require at least one config_secret_ref.",
+            "/config_secret_refs",
+        )
+    for index, ref in enumerate(refs):
+        if not isinstance(ref, str) or not _looks_like_secret_ref(ref):
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "Notification target config entries must be secret refs.",
+                f"/config_secret_refs/{index}",
+            )
+
+
+def _looks_like_secret_ref(value: str) -> bool:
+    return value.startswith(("secret_", "secret:", "secret://"))
 
 
 def _candidate_evidence_ids(candidate: dict[str, Any]) -> list[str]:

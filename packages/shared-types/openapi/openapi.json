@@ -745,10 +745,56 @@
       },
       "post": {
         "operationId": "createNotificationTarget",
-        "summary": "Create a notification or workflow target using secret refs.",
+        "summary": "Create a notification or workflow target using validated secret refs.",
         "x-required-scopes": [
           "notifications:write"
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "type",
+                  "display_name"
+                ],
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "enum": [
+                      "chat",
+                      "email",
+                      "webhook",
+                      "issue_tracker",
+                      "custom"
+                    ]
+                  },
+                  "display_name": {
+                    "type": "string"
+                  },
+                  "config_secret_refs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^(secret_|secret:|secret://)"
+                    }
+                  },
+                  "status": {
+                    "enum": [
+                      "active",
+                      "paused",
+                      "archived"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "Notification target created."
