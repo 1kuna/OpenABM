@@ -43,6 +43,10 @@ class Settings:
     smtp_use_starttls: bool = True
     smtp_timeout_seconds: float = 30.0
     metrics_project_id: str = "proj_demo"
+    image_ocr_command: str | None = None
+    image_ocr_language: str = "eng"
+    image_ocr_page_segmentation_mode: str = "11"
+    image_ocr_timeout_seconds: float = 30.0
     cors_origins: tuple[str, ...] = ("http://127.0.0.1:5173", "http://localhost:5173")
 
     @classmethod
@@ -124,6 +128,15 @@ class Settings:
                 os.getenv("OPENABM_SMTP_TIMEOUT_SECONDS", str(cls.smtp_timeout_seconds))
             ),
             metrics_project_id=os.getenv("OPENABM_METRICS_PROJECT_ID", cls.metrics_project_id),
+            image_ocr_command=os.getenv("OPENABM_IMAGE_OCR_COMMAND") or None,
+            image_ocr_language=os.getenv("OPENABM_IMAGE_OCR_LANGUAGE", cls.image_ocr_language),
+            image_ocr_page_segmentation_mode=os.getenv(
+                "OPENABM_IMAGE_OCR_PSM",
+                cls.image_ocr_page_segmentation_mode,
+            ),
+            image_ocr_timeout_seconds=float(
+                os.getenv("OPENABM_IMAGE_OCR_TIMEOUT_SECONDS", str(cls.image_ocr_timeout_seconds))
+            ),
             cors_origins=_csv_env(
                 "OPENABM_CORS_ORIGINS",
                 cls.cors_origins,

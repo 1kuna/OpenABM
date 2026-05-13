@@ -56,8 +56,9 @@ Remaining blockers or explicit non-local-reference work:
   observability backends, and external deployment supervision remain integration
   work beyond the local reference implementation; a default-off SMTP invite
   adapter and configurable local metrics scrape project now exist.
-- Image OCR, production vector-store/ANN choices, broader clustering
-  experiments, and broader UI usability polish remain future hardening.
+- Production vector-store/ANN choices, broader clustering experiments, image
+  OCR quality tuning, and broader UI usability polish remain future hardening;
+  an opt-in local image OCR command adapter now exists for screenshot intake.
 - Any semantic task that the local 9B model cannot handle after prompt/runtime
   tuning should be deferred for a heavier model rather than replaced with
   brittle deterministic heuristics.
@@ -1143,6 +1144,10 @@ Implemented in this pass:
 - Added `OPENABM_METRICS_PROJECT_ID`, passed SMTP/metrics env through the
   Compose deployment, and expanded the deployment smoke script to verify the
   metrics exporter in addition to health/readiness/auth/ops status.
+- Added default-off local image OCR for screenshot/attachment intake via
+  `OPENABM_IMAGE_OCR_COMMAND`; image attachments remain skipped by default, but
+  configured OCR output now becomes searchable intake evidence with parser
+  provenance.
 - Notification target creation now rejects plaintext config blobs and validates
   `config_secret_refs`; active targets require at least one secret ref, while
   paused placeholders can be created without mounting secrets.

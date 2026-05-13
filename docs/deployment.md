@@ -40,6 +40,11 @@ Prometheus-style metrics are exposed at `/metrics`; set
 `OPENABM_METRICS_PROJECT_ID` to the project whose queue, worker, dead-letter,
 and storage gauges should be refreshed during scrapes.
 
+Screenshot and image attachments skip OCR by default. If the runtime image has a
+trusted OCR executable installed, set `OPENABM_IMAGE_OCR_COMMAND` to that
+command, for example `tesseract`; OpenABM passes the image file to the command
+and expects recognized text on stdout.
+
 ## Smoke Check
 
 ```bash

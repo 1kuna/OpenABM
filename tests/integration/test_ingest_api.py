@@ -2,6 +2,7 @@ import base64
 import copy
 import io
 import json
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -2769,6 +2770,61 @@ def test_v1_screenshot_issue_and_chatops_create_canonical_artifacts(tmp_path) ->
     assert chatops.status_code == 201
     assert chatops.json()["issue"]["source_type"] == "chat"
     assert chatops.json()["links"]["investigation_run"].startswith("investigation-run://")
+
+
+def test_v1_screenshot_issue_uses_configured_image_ocr(tmp_path, monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(command, **kwargs) -> subprocess.CompletedProcess:
+        calls.append(command)
+        assert kwargs["check"] is False
+        assert kwargs["capture_output"] is True
+        assert kwargs["text"] is True
+        assert kwargs["timeout"] == 12.0
+        assert command[0] == "fake-tesseract"
+        assert command[2] == "stdout"
+        assert command[3:] == ["--psm", "11", "-l", "eng", "--loglevel", "ERROR"]
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="OCR says damaged refund screenshot requires escalation\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr("openabm_api.main.subprocess.run", fake_run)
+    client = make_client_with_settings(
+        tmp_path,
+        image_ocr_command="fake-tesseract",
+        image_ocr_timeout_seconds=12.0,
+    )
+
+    response = client.post(
+        "/v1/issues/from-screenshot",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "title": "OCR screenshot issue",
+            "screenshot_payload_id_nullable": "payload_screenshot_ocr",
+            "attachments": [
+                {
+                    "payload_id": "payload_image_1",
+                    "content_type": "image/png",
+                    "filename": "support-screenshot.png",
+                    "content_base64": base64.b64encode(b"fake-image-bytes").decode("ascii"),
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert "OCR says damaged refund screenshot" in body["intake_evidence"]["query"]
+    parse_result = body["intake_evidence"]["attachment_parse_results"][0]
+    assert parse_result["status"] == "parsed"
+    assert parse_result["image_like"] is True
+    assert parse_result["extracted_fields"] == ["content_base64"]
+    assert body["intake_evidence"]["source_counts"]["parsed_attachments"] == 1
+    assert len(calls) == 1
 
 
 def test_v1_rubric_judge_run_persists_cited_score(tmp_path, monkeypatch) -> None:

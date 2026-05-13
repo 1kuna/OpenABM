@@ -4,8 +4,12 @@ import base64
 import binascii
 import io
 import json
+import os
+import shlex
 import smtplib
 import sqlite3
+import subprocess
+import tempfile
 import time
 import zipfile
 from collections.abc import Callable
@@ -2553,7 +2557,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 or "Screenshot issue report.",
             }
         )
-        intake_evidence = _normalize_screenshot_intake_evidence(request)
+        intake_evidence = _normalize_screenshot_intake_evidence(request, settings=settings)
         _link_screenshot_intake_payloads(store, issue, intake_evidence)
         candidates = _screenshot_seed_trace_candidates(store, request, intake_evidence)
         store.append_audit(
@@ -4163,6 +4167,7 @@ def _parse_attachment_content_sources(
     *,
     content_type: str | None,
     filename: str | None,
+    settings: Settings,
 ) -> tuple[list[dict[str, str]], dict[str, object]]:
     extracted: list[dict[str, str]] = []
     warnings: list[str] = []
@@ -4212,11 +4217,33 @@ def _parse_attachment_content_sources(
         add_extracted(field, text, parser)
         return True
 
+    def add_image_extracted(field: str, value: str) -> bool:
+        content, error = _decode_base64_bytes(value)
+        if error is not None:
+            warnings.append(f"{field} {error}")
+            return False
+        assert content is not None
+        text, parse_error = _image_attachment_text(
+            content,
+            content_type=content_type,
+            filename=filename,
+            settings=settings,
+        )
+        if parse_error is not None:
+            warnings.append(f"{field} {parse_error}")
+            return False
+        assert text is not None
+        add_extracted(field, text, "image_ocr")
+        return True
+
     for field in ATTACHMENT_RAW_TEXT_FIELDS:
         text = _text_or_none(attachment.get(field))
         if text is None:
             continue
         if content_encoding == "base64":
+            if image_like:
+                add_image_extracted(f"{field}:base64_decoded", text)
+                continue
             if binary_like:
                 add_binary_extracted(f"{field}:base64_decoded", text)
                 continue
@@ -4239,6 +4266,9 @@ def _parse_attachment_content_sources(
         text = _text_or_none(attachment.get(field))
         if text is None:
             continue
+        if image_like:
+            add_image_extracted(field, text)
+            continue
         if binary_like:
             add_binary_extracted(field, text)
             continue
@@ -4256,7 +4286,14 @@ def _parse_attachment_content_sources(
     if extracted:
         status = "parsed_with_warnings" if warnings else "parsed"
     elif warnings:
-        status = "failed"
+        image_ocr_unconfigured = image_like and all(
+            "image OCR parser is not configured" in warning for warning in warnings
+        )
+        status = (
+            "skipped"
+            if image_ocr_unconfigured
+            else "failed"
+        )
     elif image_like:
         warnings.append("image OCR parser is not configured in the local reference")
         status = "skipped"
@@ -4273,7 +4310,88 @@ def _parse_attachment_content_sources(
     }
 
 
-def _normalize_screenshot_intake_evidence(request: dict[str, Any]) -> dict[str, object]:
+def _image_attachment_text(
+    content: bytes,
+    *,
+    content_type: str | None,
+    filename: str | None,
+    settings: Settings,
+) -> tuple[str | None, str | None]:
+    if not settings.image_ocr_command:
+        return None, "image OCR parser is not configured in the local reference"
+    if len(content) > MAX_BINARY_ATTACHMENT_BYTES:
+        return None, f"image exceeds {MAX_BINARY_ATTACHMENT_BYTES} byte OCR limit"
+    suffix = _image_attachment_suffix(content_type, filename)
+    try:
+        command_prefix = shlex.split(settings.image_ocr_command)
+    except ValueError as exc:
+        return None, f"image OCR command parse failed: {exc}"
+    if not command_prefix:
+        return None, "image OCR command is empty"
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+            handle.write(content)
+            temp_path = handle.name
+        command = [
+            *command_prefix,
+            temp_path,
+            "stdout",
+            "--psm",
+            settings.image_ocr_page_segmentation_mode,
+            "-l",
+            settings.image_ocr_language,
+            "--loglevel",
+            "ERROR",
+        ]
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=settings.image_ocr_timeout_seconds,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"image OCR failed: {exc}"
+    finally:
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except FileNotFoundError:
+                pass
+    if completed.returncode != 0:
+        error = completed.stderr.strip() or f"exit code {completed.returncode}"
+        return None, f"image OCR failed: {error}"
+    text = completed.stdout.strip()
+    if not text:
+        return None, "image OCR did not return text"
+    return text, None
+
+
+def _image_attachment_suffix(content_type: str | None, filename: str | None) -> str:
+    normalized_name = (filename or "").lower()
+    for suffix in IMAGE_ATTACHMENT_SUFFIXES:
+        if normalized_name.endswith(suffix):
+            return suffix
+    normalized_type = _normalized_content_type(content_type)
+    if normalized_type == "image/png":
+        return ".png"
+    if normalized_type == "image/jpeg":
+        return ".jpg"
+    if normalized_type == "image/webp":
+        return ".webp"
+    if normalized_type == "image/gif":
+        return ".gif"
+    if normalized_type == "image/tiff":
+        return ".tiff"
+    return ".img"
+
+
+def _normalize_screenshot_intake_evidence(
+    request: dict[str, Any],
+    *,
+    settings: Settings,
+) -> dict[str, object]:
     attachments_raw = request.get("attachments") or []
     if not isinstance(attachments_raw, list):
         raise SchemaValidationFailure(
@@ -4352,6 +4470,7 @@ def _normalize_screenshot_intake_evidence(request: dict[str, Any]) -> dict[str, 
             attachment_raw,
             content_type=content_type,
             filename=filename,
+            settings=settings,
         )
         attachment_parse_results.append(
             {
