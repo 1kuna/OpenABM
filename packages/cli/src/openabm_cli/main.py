@@ -120,6 +120,17 @@ def synthetic_pilot(
         bool,
         typer.Option("--use-model/--no-use-model", help="Run optional local model semantic lanes."),
     ] = False,
+    generate_conversations: Annotated[
+        bool,
+        typer.Option(
+            "--generate-conversations/--no-generate-conversations",
+            help="Use the local model to tool-call generated customer-agent conversations.",
+        ),
+    ] = False,
+    generated_conversation_count: Annotated[
+        int,
+        typer.Option(help="Number of model-generated conversations to request."),
+    ] = 3,
     chat_model: Annotated[
         str | None,
         typer.Option(help="Optional chat model override for local LM Studio runs."),
@@ -134,7 +145,7 @@ def synthetic_pilot(
     ] = 4,
 ) -> None:
     settings = Settings.from_env()
-    if use_model and chat_model:
+    if (use_model or generate_conversations) and chat_model:
         settings = replace(
             settings,
             model_mode="local",
@@ -145,7 +156,7 @@ def synthetic_pilot(
         )
     store = SQLiteStore(settings.sqlite_path)
     provider = None
-    if use_model:
+    if use_model or generate_conversations:
         try:
             provider = model_provider_from_settings(settings)
         except Exception as exc:  # The report records this as a blocked model lane.
@@ -169,6 +180,8 @@ def synthetic_pilot(
                 seed=seed,
                 use_model=use_model,
                 max_model_cases=max_model_cases,
+                generate_agent_conversations=generate_conversations,
+                generated_conversation_count=generated_conversation_count,
                 output_dir=output,
             ),
             model_provider=provider,

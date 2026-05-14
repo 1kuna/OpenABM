@@ -67,12 +67,18 @@ Remaining blockers or explicit non-local-reference work:
 Current validation gate:
 
 - Latest full implementation gates: `make ci` and `make deploy-config-check`
-  passed locally on 2026-05-14 after the Phase 9A synthetic pilot and model
-  runtime compatibility changes.
+  passed locally on 2026-05-14 after the Phase 9A model-generated conversation
+  loop and validation hardening changes.
 - Phase 9A synthetic pilot canaries passed on 2026-05-14:
   deterministic local run wrote `.openabm/synthetic-pilot/latest/report.json`,
   and the LM Studio `qwen3.5-9b-mlx` run with `CONTEXT 32768` completed optional
   semantic lanes under `.openabm/synthetic-pilot/qwen-32k-contract/report.json`.
+- Model-generated fake-conversation testing now exists and passed with LM Studio
+  `qwen3.6-35b-a3b` loaded at `CONTEXT 32768`; the report at
+  `.openabm/synthetic-pilot/agentgen-35b-v5/report.json` generated two
+  customer-agent conversations, ingested them as traces, converted their feedback
+  into dataset labels, and had eval/backtest catch the generated wrong-tool and
+  missed-escalation cases.
 - Remote CI has been checked after each push and remained green; use
   `gh run list --repo 1kuna/OpenABM --branch main --limit 5` for the current
   head run.
@@ -835,6 +841,17 @@ Synthetic validation complete:
   investigation assistance, novelty grouping, grounding extraction/adjudication,
   and a small rubric-judge eval subset. Generation remains no-timeout through
   the existing OpenAI-compatible local adapter.
+- Added model-generated fake conversation testing behind
+  `--generate-conversations`. The local model must submit conversations through
+  the `submit_synthetic_agent_conversations` tool call; OpenABM converts those
+  conversations into traces/spans, dataset labels, behavior feedback actions,
+  eval examples, and behavior backtest candidates.
+- Used feedback from the 2026-05-14 35B canaries to fix the harness instead of
+  merely recording a pass/fail: rejected generated tool outputs that smuggled
+  evaluator labels into raw evidence, widened the feedback schema when useful
+  generated analysis was too long, allowed null raw tool payloads, and hardened
+  quality validation so malformed generated tool calls produce validation
+  feedback instead of crashing the harness.
 - Verified the optional model lanes against LM Studio `qwen3.5-9b-mlx` loaded
   with `CONTEXT 32768`. The report at
   `.openabm/synthetic-pilot/qwen-32k-contract/report.json` completed with
@@ -844,6 +861,14 @@ Synthetic validation complete:
   OpenAI-compatible tool-call adapter, not only freeform JSON output. The
   grounding lane correctly stayed `needs_review` for the synthetic hallucinated
   delivery-status case instead of treating the model output as authoritative.
+- Verified the generated-conversation lane against LM Studio `qwen3.6-35b-a3b`
+  loaded with `CONTEXT 32768`. The final passing report at
+  `.openabm/synthetic-pilot/agentgen-35b-v5/report.json` generated
+  `fulfillment_tracking_error` and `account_support_escalation_failure`, then
+  applied model feedback to labels/backtest/eval. The report completed with
+  `agent_generated_conversations_ingested=true`,
+  `agent_generated_feedback_applied=true`, 10 ingested traces, 8 expected
+  findings, and zero critical validation failures.
 - Added `docs/synthetic-pilot.md`; reports are written to ignored `.openabm/`
   paths so synthetic artifacts do not get committed as real pilot evidence.
 

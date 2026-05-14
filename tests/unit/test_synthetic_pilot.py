@@ -73,3 +73,105 @@ def test_synthetic_pilot_runs_local_reference_surfaces(tmp_path) -> None:
     assert output_dir.joinpath("report.json").exists()
     persisted = json.loads(output_dir.joinpath("report.json").read_text())
     assert persisted["run_id"] == report["run_id"]
+
+
+def test_synthetic_pilot_applies_model_generated_conversation_feedback(tmp_path) -> None:
+    class ConversationProvider:
+        adapter_name = "stub-conversation-provider"
+
+        async def tool_completion(self, request, tools):
+            assert request["tool_choice"]["function"]["name"] == (
+                "submit_synthetic_agent_conversations"
+            )
+            assert tools[0]["function"]["name"] == "submit_synthetic_agent_conversations"
+            return {
+                "status": "succeeded",
+                "tool_calls": [
+                    {
+                        "name": "submit_synthetic_agent_conversations",
+                        "arguments": {
+                            "conversations": [
+                                {
+                                    "scenario_name": "generated enterprise refund loop",
+                                    "workflow": "refund",
+                                    "customer_tier": "enterprise",
+                                    "status": "error",
+                                    "summary": (
+                                        "Generated agent conversation used the wrong "
+                                        "refund tool and missed escalation."
+                                    ),
+                                    "turns": [
+                                        {
+                                            "role": "user",
+                                            "content": "Our enterprise refund is blocking launch.",
+                                        },
+                                        {
+                                            "role": "agent",
+                                            "content": (
+                                                "I checked order status but did not escalate."
+                                            ),
+                                        },
+                                    ],
+                                    "tool_calls": [
+                                        {
+                                            "tool_name": "order_lookup",
+                                            "input": {"order_id": "synthetic-100"},
+                                            "output": {"status": "delivered"},
+                                            "success": True,
+                                            "failure_mode": "wrong_tool",
+                                        }
+                                    ],
+                                    "expected_failure_modes": [
+                                        "wrong_tool",
+                                        "missed_escalation",
+                                    ],
+                                    "grounding_claim_text": None,
+                                    "feedback": (
+                                        "OpenABM should convert this generated "
+                                        "conversation into eval labels and behavior review."
+                                    ),
+                                }
+                            ]
+                        },
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+                "provider": "stub",
+                "model": "stub-model",
+            }
+
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'openabm.sqlite3'}",
+        payload_dir=tmp_path / "payloads",
+    )
+    store = SQLiteStore(settings.sqlite_path)
+
+    report = asyncio.run(
+        run_synthetic_pilot(
+            store,
+            settings=settings,
+            config=SyntheticPilotConfig(
+                trace_count=8,
+                generate_agent_conversations=True,
+                generated_conversation_count=1,
+            ),
+            model_provider=ConversationProvider(),
+        )
+    )
+
+    generated = report["results"]["agent_generated_conversations"]
+    assert generated["status"] == "completed"
+    assert generated["fixture_count"] == 1
+    assert report["trace_count"] == 9
+    assert report["validations"]["checks"]["agent_generated_conversations_ingested"] is True
+    assert report["validations"]["checks"]["agent_generated_feedback_applied"] is True
+    assert any(
+        action["action"] == "converted_model_feedback_to_dataset_labels"
+        for action in generated["feedback_actions"]
+    )
+    trace = store.get_trace(
+        DEFAULT_PROJECT_ID,
+        "trace_agentgen_20260514_000_generated_enterprise_refund_loop",
+    )
+    assert trace is not None
+    assert trace["attributes"]["synthetic_source"] == "model_generated_agent_conversation"

@@ -50,6 +50,13 @@ To run a synthetic real-world-style pilot across the local reference surfaces:
 ./scripts/openabm synthetic-pilot
 ```
 
+To have a local model generate fake customer-agent conversations and feed those
+back through the same pilot surfaces:
+
+```bash
+./scripts/openabm synthetic-pilot --generate-conversations --chat-model qwen3.6-35b-a3b
+```
+
 See `docs/synthetic-pilot.md` for the synthetic/real-pilot boundary and the
 optional LM Studio/Qwen command, including the required 32k+ loaded context
 check.

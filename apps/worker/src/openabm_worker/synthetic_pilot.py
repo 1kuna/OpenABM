@@ -3,10 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from jsonschema import Draft202012Validator
 from openabm_api.ids import new_id
 from openabm_api.secret_management import LocalSecretCipher
 from openabm_api.settings import Settings
@@ -45,6 +47,29 @@ SYNTHETIC_PILOT_VERSION = "2026-05-14.phase9a"
 DEFAULT_PROJECT_ID = "proj_synthetic_pilot"
 DEFAULT_TRACE_COUNT = 24
 DEFAULT_SEED = 20260514
+AGENT_CONVERSATION_TOOL_NAME = "submit_synthetic_agent_conversations"
+SUPPORTED_FAILURE_MODES = (
+    "wrong_tool",
+    "missed_escalation",
+    "fabricated_status",
+    "tool_loop",
+    "pii_overexposure",
+    "duplicate_tool_replay",
+    "unsupported_action",
+    "insufficient_evidence",
+    "prompt_injection_leak",
+)
+PILOT_JUDGE_FAILURE_MODES = (
+    "wrong_tool",
+    "missed_escalation",
+    "fabricated_status",
+    "tool_loop",
+    "pii_overexposure",
+    "duplicate_tool_replay",
+    "unsupported_action",
+    "insufficient_evidence",
+    "prompt_injection_leak",
+)
 
 
 @dataclass(frozen=True)
@@ -54,6 +79,8 @@ class SyntheticPilotConfig:
     seed: int = DEFAULT_SEED
     use_model: bool = False
     max_model_cases: int = 4
+    generate_agent_conversations: bool = False
+    generated_conversation_count: int = 3
     output_dir: Path | None = None
 
 
@@ -123,6 +150,13 @@ async def run_synthetic_pilot(
         baseline_runtime=surfaces["baseline_runtime"],
         candidate_runtime=surfaces["candidate_runtime"],
     )
+    generated_conversations = await _generate_agent_conversation_fixtures(
+        config=config,
+        provider=model_provider,
+        runtime=surfaces["candidate_runtime"],
+        existing_scenarios=[fixture["name"] for fixture in fixtures],
+    )
+    fixtures.extend(generated_conversations.get("fixtures", []))
     _ingest_fixtures(store, fixtures)
     _add_business_dimensions(store, fixtures)
     code_context = _register_code_context(store, config.project_id, fixtures)
@@ -275,6 +309,8 @@ async def run_synthetic_pilot(
         automation_run=automation_run,
         export=export,
         ops_status=ops_status,
+        generated_conversations=generated_conversations,
+        generation_required=config.generate_agent_conversations,
     )
     report = {
         "run_id": run_id,
@@ -287,6 +323,9 @@ async def run_synthetic_pilot(
         "trace_count": len(fixtures),
         "seed": config.seed,
         "conversation_generation_mode": (
+            "seeded_deterministic_plus_model_generated_agent_conversations"
+            if config.generate_agent_conversations
+            else
             "seeded_deterministic; model used only for semantic review lanes"
             if config.use_model
             else "seeded_deterministic"
@@ -347,6 +386,9 @@ async def run_synthetic_pilot(
             "retention_status": retention_result["status"],
             "ops_worker_risk": ops_status.get("worker_risk"),
             "export_manifest": export["manifest"],
+            "agent_generated_conversations": _generated_conversation_report(
+                generated_conversations
+            ),
             "model_lanes": model_lanes,
         },
         "validations": validations,
@@ -475,6 +517,586 @@ def _synthetic_scenarios() -> list[SyntheticScenario]:
             behavior_labels=("duplicate_tool_replay",),
         ),
     ]
+
+
+def _agent_conversation_generation_tool() -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": AGENT_CONVERSATION_TOOL_NAME,
+            "description": (
+                "Submit synthetic customer-agent conversations for OpenABM pilot "
+                "testing. Conversations must include the expected failure feedback "
+                "OpenABM should learn from."
+            ),
+            "parameters": _agent_conversation_parameters_schema(),
+        },
+    }
+
+
+def _agent_conversation_parameters_schema() -> dict[str, Any]:
+    failure_mode_schema = {"type": "string", "enum": list(SUPPORTED_FAILURE_MODES)}
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["conversations"],
+        "properties": {
+            "conversations": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 8,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "scenario_name",
+                        "workflow",
+                        "customer_tier",
+                        "status",
+                        "summary",
+                        "turns",
+                        "tool_calls",
+                        "expected_failure_modes",
+                        "grounding_claim_text",
+                        "feedback",
+                    ],
+                    "properties": {
+                        "scenario_name": {
+                            "type": "string",
+                            "minLength": 3,
+                            "maxLength": 80,
+                        },
+                        "workflow": {
+                            "type": "string",
+                            "enum": [
+                                "refund",
+                                "support_escalation",
+                                "fulfillment",
+                                "checkout",
+                                "account_support",
+                                "order_edit",
+                            ],
+                        },
+                        "customer_tier": {
+                            "type": "string",
+                            "enum": ["standard", "premium", "enterprise"],
+                        },
+                        "status": {
+                            "type": "string",
+                            "enum": ["ok", "error", "failed", "timeout"],
+                        },
+                        "summary": {"type": "string", "minLength": 12, "maxLength": 400},
+                        "turns": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 12,
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["role", "content"],
+                                "properties": {
+                                    "role": {"type": "string", "enum": ["user", "agent"]},
+                                    "content": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 800,
+                                    },
+                                },
+                            },
+                        },
+                        "tool_calls": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 8,
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": [
+                                    "tool_name",
+                                    "input",
+                                    "output",
+                                    "success",
+                                    "failure_mode",
+                                ],
+                                "properties": {
+                                    "tool_name": {
+                                        "type": "string",
+                                        "minLength": 2,
+                                        "maxLength": 80,
+                                    },
+                                    "input": {
+                                        "oneOf": [
+                                            {"type": "object"},
+                                            {"type": "string"},
+                                            {"type": "array"},
+                                            {"type": "null"},
+                                        ]
+                                    },
+                                    "output": {
+                                        "oneOf": [
+                                            {"type": "object"},
+                                            {"type": "string"},
+                                            {"type": "array"},
+                                            {"type": "null"},
+                                        ]
+                                    },
+                                    "success": {"type": "boolean"},
+                                    "failure_mode": {
+                                        "oneOf": [failure_mode_schema, {"type": "null"}]
+                                    },
+                                },
+                            },
+                        },
+                        "expected_failure_modes": {
+                            "type": "array",
+                            "items": failure_mode_schema,
+                            "uniqueItems": True,
+                            "maxItems": 5,
+                        },
+                        "grounding_claim_text": {
+                            "oneOf": [
+                                {"type": "string", "maxLength": 500},
+                                {"type": "null"},
+                            ]
+                        },
+                        "feedback": {
+                            "type": "string",
+                            "minLength": 12,
+                            "maxLength": 1600,
+                        },
+                    },
+                },
+            }
+        },
+    }
+
+
+def _agent_conversation_request(
+    requested_count: int,
+    existing_scenarios: list[str],
+    *,
+    quality_issues: list[str] | None = None,
+) -> dict[str, Any]:
+    requirements = [
+        "include at least one non-happy-path conversation",
+        "include enough raw tool evidence for grounding checks",
+        "include feedback that can be turned into dataset labels",
+        "do not use real personal data",
+        (
+            "tool input/output must look like raw external system data only; "
+            "put critique, labels, and OpenABM expectations only in feedback"
+        ),
+    ]
+    if quality_issues:
+        requirements.append(
+            "repair these validation issues: " + "; ".join(quality_issues[:8])
+        )
+    return {
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You generate realistic synthetic commerce-support conversations "
+                    "for OpenABM testing. Act as both the customer and the candidate "
+                    "support agent. Create messy but plausible traces that include "
+                    "tool use, raw tool evidence, and explicit feedback about what "
+                    "OpenABM should catch. Use the provided tool exactly once. Do not "
+                    "write evaluation labels, critique, or hidden test annotations "
+                    "inside tool input/output."
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "count": requested_count,
+                        "avoid_exact_scenarios": existing_scenarios,
+                        "target_failure_modes": list(SUPPORTED_FAILURE_MODES),
+                        "requirements": requirements,
+                    },
+                    sort_keys=True,
+                ),
+            },
+        ],
+        "temperature": 0.7,
+        "max_tokens": 8192,
+        "tool_choice": {
+            "type": "function",
+            "function": {"name": AGENT_CONVERSATION_TOOL_NAME},
+        },
+    }
+
+
+async def _generate_agent_conversation_fixtures(
+    *,
+    config: SyntheticPilotConfig,
+    provider: Any | None,
+    runtime: RuntimeSurface,
+    existing_scenarios: list[str],
+) -> dict[str, Any]:
+    if not config.generate_agent_conversations:
+        return {"status": "skipped", "reason": "agent conversation generation disabled"}
+    if provider is None:
+        return {
+            "status": "blocked",
+            "reason": "model provider is required for generated agent conversations",
+            "fixtures": [],
+        }
+    try:
+        requested_count = max(1, min(8, config.generated_conversation_count))
+        completion = await provider.tool_completion(
+            _agent_conversation_request(requested_count, existing_scenarios),
+            [_agent_conversation_generation_tool()],
+        )
+        arguments, validation_errors = _conversation_tool_arguments(completion)
+        quality_issues = _generated_conversation_quality_issues(
+            arguments.get("conversations", []) if arguments else []
+        )
+        if arguments and (validation_errors or quality_issues):
+            repair = await provider.tool_completion(
+                _agent_conversation_request(
+                    requested_count,
+                    existing_scenarios,
+                    quality_issues=[*validation_errors, *quality_issues],
+                ),
+                [_agent_conversation_generation_tool()],
+            )
+            repaired_arguments, repaired_errors = _conversation_tool_arguments(repair)
+            repaired_quality_issues = _generated_conversation_quality_issues(
+                repaired_arguments.get("conversations", []) if repaired_arguments else []
+            )
+            if repaired_arguments and not repaired_errors and not repaired_quality_issues:
+                completion = repair
+                arguments = repaired_arguments
+                validation_errors = []
+                quality_issues = []
+            else:
+                validation_errors = [
+                    *validation_errors,
+                    *repaired_errors,
+                    *repaired_quality_issues,
+                ]
+        if validation_errors:
+            return {
+                "status": "failed",
+                "reason": "conversation tool arguments failed validation",
+                "validation_errors": validation_errors,
+                "quality_issues": quality_issues,
+                "fixtures": [],
+                "model_metadata": _model_metadata_from_completion(completion),
+            }
+        fixtures = [
+            _fixture_for_generated_conversation(config, index, conversation, runtime)
+            for index, conversation in enumerate(arguments["conversations"])
+        ]
+        feedback_actions = _conversation_feedback_actions(fixtures)
+        return {
+            "status": "completed",
+            "fixtures": fixtures,
+            "fixture_count": len(fixtures),
+            "scenario_names": [fixture["name"] for fixture in fixtures],
+            "feedback_actions": feedback_actions,
+            "model_metadata": _model_metadata_from_completion(completion),
+        }
+    except (ModelCallsDisabled, ModelConfigurationError, ModelResourceGuardError) as exc:
+        return {"status": "blocked", "reason": str(exc), "fixtures": []}
+    except Exception as exc:
+        return {"status": "failed", "reason": str(exc), "fixtures": []}
+
+
+def _conversation_tool_arguments(
+    completion: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    if completion.get("status") != "succeeded":
+        return {}, [
+            "model did not submit valid conversation tool call",
+            *completion.get("parse_errors", []),
+        ]
+    tool_call = _select_conversation_tool_call(completion.get("tool_calls", []))
+    if tool_call is None:
+        return {}, [f"expected one {AGENT_CONVERSATION_TOOL_NAME} tool call"]
+    arguments = tool_call.get("arguments") or {}
+    errors = [
+        error.message
+        for error in Draft202012Validator(
+            _agent_conversation_parameters_schema()
+        ).iter_errors(arguments)
+    ]
+    return arguments, errors
+
+
+def _select_conversation_tool_call(tool_calls: list[dict[str, Any]]) -> dict[str, Any] | None:
+    matches = [
+        tool_call
+        for tool_call in tool_calls
+        if tool_call.get("name") == AGENT_CONVERSATION_TOOL_NAME
+    ]
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def _generated_conversation_quality_issues(conversations: list[dict[str, Any]]) -> list[str]:
+    issues = []
+    annotation_terms = [
+        "openabm",
+        "wrong_tool",
+        "missed_escalation",
+        "fabricated_status",
+        "tool_loop",
+        "pii_overexposure",
+        "duplicate_tool_replay",
+        "unsupported_action",
+        "insufficient_evidence",
+        "prompt_injection_leak",
+        "agent ignored",
+        "failure mode",
+        "should catch",
+    ]
+    for index, conversation in enumerate(conversations):
+        if not isinstance(conversation, dict):
+            issues.append(f"conversation {index} is not an object")
+            continue
+        for tool_index, tool_call in enumerate(conversation.get("tool_calls", [])):
+            if not isinstance(tool_call, dict):
+                issues.append(
+                    f"conversation {index} tool_call {tool_index} is not an object"
+                )
+                continue
+            serialized = json.dumps(
+                {
+                    "input": tool_call.get("input"),
+                    "output": tool_call.get("output"),
+                },
+                sort_keys=True,
+            ).lower()
+            leaked = [term for term in annotation_terms if term in serialized]
+            if leaked:
+                issues.append(
+                    "conversation "
+                    f"{index} tool_call {tool_index} contains evaluator annotation "
+                    f"in raw tool data: {', '.join(leaked)}"
+                )
+    return issues
+
+
+def _fixture_for_generated_conversation(
+    config: SyntheticPilotConfig,
+    index: int,
+    conversation: dict[str, Any],
+    runtime: RuntimeSurface,
+) -> dict[str, Any]:
+    scenario_name = _slugify(str(conversation["scenario_name"]))
+    trace_id = f"trace_agentgen_{config.seed}_{index:03d}_{scenario_name}"
+    root_span_id = f"span_{trace_id}_root"
+    started_at = f"2026-05-14T13:{index:02d}:00Z"
+    ended_at = None if conversation["status"] == "timeout" else f"2026-05-14T13:{index:02d}:14Z"
+    failure_modes = _normalized_failure_modes(
+        conversation.get("expected_failure_modes", []),
+        conversation["status"],
+    )
+    account_id = f"acct_agentgen_{index + 1:02d}"
+    trace_attributes = {
+        "channel": "chat",
+        "workflow": conversation["workflow"],
+        "customer_tier": conversation["customer_tier"],
+        "scenario": scenario_name,
+        "synthetic_pilot": True,
+        "synthetic_source": "model_generated_agent_conversation",
+        "severity": "high" if conversation["status"] != "ok" else "low",
+        "account_id": account_id,
+        "feedback": conversation["feedback"],
+    }
+    if failure_modes:
+        trace_attributes["error.type"] = failure_modes[0]
+        trace_attributes["expected_failure_modes"] = failure_modes
+    turns = conversation["turns"]
+    tool_calls = conversation["tool_calls"]
+    spans = [
+        {
+            "trace_id": trace_id,
+            "span_id": root_span_id,
+            "parent_span_id": None,
+            "project_id": config.project_id,
+            "name": f"{conversation['workflow']}_agent_generated",
+            "span_type": "agent",
+            "status": conversation["status"],
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "input": {
+                "mode": "inline",
+                "value": [turn for turn in turns if turn["role"] == "user"],
+                "redaction_state": "raw",
+            },
+            "output": {
+                "mode": "inline",
+                "value": [turn for turn in turns if turn["role"] == "agent"],
+                "redaction_state": "raw",
+            },
+            "attributes": {
+                "openabm.environment": "synthetic_pilot",
+                "workflow": conversation["workflow"],
+                "customer_tier": conversation["customer_tier"],
+                "account_id": account_id,
+                "synthetic_source": "model_generated_agent_conversation",
+                **({"error.type": failure_modes[0]} if failure_modes else {}),
+            },
+            "events": [
+                {
+                    "name": "synthetic_agent.feedback",
+                    "time": started_at,
+                    "attributes": {
+                        "feedback": conversation["feedback"],
+                        "expected_failure_modes": failure_modes,
+                    },
+                }
+            ],
+            "links": [],
+        }
+    ]
+    for tool_index, tool_call in enumerate(tool_calls):
+        failure_mode = tool_call.get("failure_mode")
+        tool_span_id = (
+            f"span_{trace_id}_tool_{tool_index:02d}_{_slugify(tool_call['tool_name'])}"
+        )
+        spans.append(
+            {
+                "trace_id": trace_id,
+                "span_id": tool_span_id,
+                "parent_span_id": root_span_id,
+                "project_id": config.project_id,
+                "name": tool_call["tool_name"],
+                "span_type": "tool",
+                "status": "ok" if tool_call.get("success") else "error",
+                "started_at": started_at,
+                "ended_at": ended_at,
+                "input": {
+                    "mode": "inline",
+                    "value": tool_call.get("input"),
+                    "redaction_state": "raw",
+                },
+                "output": {
+                    "mode": "inline",
+                    "value": tool_call.get("output"),
+                    "redaction_state": (
+                        "masked"
+                        if "pii_overexposure" in failure_modes
+                        else "raw"
+                    ),
+                },
+                "attributes": {
+                    "tool.name": tool_call["tool_name"],
+                    "tool.success": bool(tool_call.get("success")),
+                    "workflow": conversation["workflow"],
+                    "synthetic_source": "model_generated_agent_conversation",
+                    **(
+                        {"error.type": failure_mode}
+                        if isinstance(failure_mode, str)
+                        else {}
+                    ),
+                },
+                "events": [],
+                "links": [],
+            }
+        )
+    return {
+        "name": scenario_name,
+        "trace": {
+            "trace_id": trace_id,
+            "project_id": config.project_id,
+            "session_id": f"session_agentgen_{index:03d}",
+            "user_external_id": f"user_agentgen_{index:03d}",
+            "root_span_id": root_span_id,
+            "environment": "synthetic-pilot",
+            "status": conversation["status"],
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "tags": [
+                "synthetic_pilot",
+                "model_generated_agent_conversation",
+                conversation["workflow"],
+                scenario_name,
+                *failure_modes,
+            ],
+            "attributes": trace_attributes,
+            "summary": conversation["summary"],
+            "prompt_version_id": runtime.prompt_version_id,
+            "agent_config_version_id": runtime.agent_config_version_id,
+            "deployment_context_id": runtime.deployment_context_id,
+            "tool_version_ids": runtime.tool_version_ids,
+        },
+        "spans": spans,
+        "expected": {
+            "behavior_labels": failure_modes,
+            "grounding_claim_text": conversation.get("grounding_claim_text"),
+            "account_id": account_id,
+            "agent_generated_feedback": conversation["feedback"],
+        },
+    }
+
+
+def _normalized_failure_modes(values: list[Any], status: str) -> list[str]:
+    modes = [
+        str(value)
+        for value in values
+        if isinstance(value, str) and value in SUPPORTED_FAILURE_MODES
+    ]
+    if not modes and status != "ok":
+        modes = ["insufficient_evidence"]
+    return list(dict.fromkeys(modes))
+
+
+def _conversation_feedback_actions(fixtures: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    actions = []
+    for fixture in fixtures:
+        failure_modes = fixture["expected"].get("behavior_labels", [])
+        actions.append(
+            {
+                "trace_id": fixture["trace"]["trace_id"],
+                "action": "ingested_generated_conversation_as_trace",
+                "feedback": fixture["expected"].get("agent_generated_feedback"),
+            }
+        )
+        if failure_modes:
+            actions.append(
+                {
+                    "trace_id": fixture["trace"]["trace_id"],
+                    "action": "converted_model_feedback_to_dataset_labels",
+                    "failure_modes": failure_modes,
+                }
+            )
+            actions.append(
+                {
+                    "trace_id": fixture["trace"]["trace_id"],
+                    "action": "made_failure_modes_visible_to_eval_and_behavior_backtest",
+                    "failure_modes": [
+                        mode for mode in failure_modes if mode in PILOT_JUDGE_FAILURE_MODES
+                    ],
+                }
+            )
+    return actions
+
+
+def _generated_conversation_report(generated_conversations: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in generated_conversations.items()
+        if key != "fixtures"
+    }
+
+
+def _model_metadata_from_completion(completion: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "provider": completion.get("provider"),
+        "model": completion.get("model"),
+        "usage": completion.get("usage"),
+    }
+
+
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "_", value.strip().lower()).strip("_")
+    return slug[:80] or "generated_conversation"
 
 
 def _fixture_for_scenario(
@@ -869,10 +1491,10 @@ def _create_pilot_behavior(store: SQLiteStore, project_id: str) -> dict[str, Any
     return store.create_behavior(
         {
             "project_id": project_id,
-            "name": "synthetic_wrong_tool_or_missing_escalation",
+            "name": "synthetic_agent_failure_feedback",
             "description": (
-                "Synthetic pilot detector for wrong tool use, missed escalation, or "
-                "repeated tool loops."
+                "Synthetic pilot detector for deterministic and model-generated "
+                "agent failure feedback."
             ),
             "severity": "high",
             "detector": {
@@ -882,13 +1504,8 @@ def _create_pilot_behavior(store: SQLiteStore, project_id: str) -> dict[str, Any
                 "conditions": {
                     "combine": "any",
                     "items": [
-                        {"field": "attributes.error.type", "op": "eq", "value": "wrong_tool"},
-                        {
-                            "field": "attributes.error.type",
-                            "op": "eq",
-                            "value": "missed_escalation",
-                        },
-                        {"field": "attributes.error.type", "op": "eq", "value": "tool_loop"},
+                        {"field": "attributes.error.type", "op": "eq", "value": mode}
+                        for mode in PILOT_JUDGE_FAILURE_MODES
                     ],
                 },
             },
@@ -954,18 +1571,12 @@ def _create_pilot_dataset(
 
 def _pilot_judges() -> list[dict[str, Any]]:
     return [
-        _span_error_judge("judge_no_wrong_tool", "Wrong tool detector", "wrong_tool"),
         _span_error_judge(
-            "judge_no_missed_escalation",
-            "Missed escalation detector",
-            "missed_escalation",
-        ),
-        _span_error_judge("judge_no_tool_loop", "Tool loop detector", "tool_loop"),
-        _span_error_judge(
-            "judge_no_pii_overexposure",
-            "PII overexposure detector",
-            "pii_overexposure",
-        ),
+            f"judge_no_{mode}",
+            f"{mode.replace('_', ' ').title()} detector",
+            mode,
+        )
+        for mode in PILOT_JUDGE_FAILURE_MODES
     ]
 
 
@@ -1413,6 +2024,8 @@ def _summarize_validations(
     automation_run: dict[str, Any],
     export: dict[str, Any],
     ops_status: dict[str, Any],
+    generated_conversations: dict[str, Any],
+    generation_required: bool,
 ) -> dict[str, Any]:
     expected_finding_count = sum(
         1 for fixture in fixtures if fixture["trace"]["status"] != "ok"
@@ -1427,6 +2040,16 @@ def _summarize_validations(
         "export_redaction_manifest_created": "manifest" in export,
         "ops_status_available": bool(ops_status.get("project_id")),
     }
+    if generation_required:
+        generated_feedback_actions = generated_conversations.get("feedback_actions", [])
+        checks["agent_generated_conversations_ingested"] = (
+            generated_conversations.get("status") == "completed"
+            and int(generated_conversations.get("fixture_count", 0)) > 0
+        )
+        checks["agent_generated_feedback_applied"] = any(
+            action.get("action") == "made_failure_modes_visible_to_eval_and_behavior_backtest"
+            for action in generated_feedback_actions
+        )
     failures = [name for name, passed in checks.items() if not passed]
     return {
         "expected_finding_count": expected_finding_count,
@@ -1466,6 +2089,19 @@ def _summary_markdown(report: dict[str, Any]) -> str:
     ]
     for name, passed in report["validations"]["checks"].items():
         lines.append(f"- {'PASS' if passed else 'FAIL'}: `{name}`")
+    generated = report["results"].get("agent_generated_conversations", {})
+    if generated.get("status") != "skipped":
+        lines.extend(
+            [
+                "",
+                "## Agent-Generated Conversations",
+                "",
+                f"- Status: `{generated.get('status')}`",
+                f"- Fixture count: `{generated.get('fixture_count', 0)}`",
+            ]
+        )
+        for scenario in generated.get("scenario_names", []):
+            lines.append(f"- Generated scenario: `{scenario}`")
     lines.extend(
         [
             "",
