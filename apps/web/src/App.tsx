@@ -373,6 +373,14 @@ export function App() {
     setActiveView("investigations");
   }
 
+  function openNowTarget(event: NowEvent) {
+    if (event.targetView === "investigations") {
+      openInvestigation(event.traceIds[0]);
+      return;
+    }
+    setActiveView(event.targetView);
+  }
+
   async function applyNowEvent(event: NowEvent) {
     if (connection === "live") {
       try {
@@ -479,9 +487,9 @@ export function App() {
       {
         id: `now:open:${event.id}`,
         group: "NOW",
-        label: `Open cluster: ${event.cluster}`,
+        label: `${nowOpenLabel(event)}: ${event.cluster}`,
         detail: event.explanation,
-        run: () => openInvestigation(event.traceIds[0])
+        run: () => openNowTarget(event)
       },
       {
         id: `now:close:${event.id}`,
@@ -575,8 +583,7 @@ export function App() {
             lastUpdatedAt={lastUpdatedAt}
             onApply={applyNowEvent}
             onDismiss={dismissNowEvent}
-            onOpenInvestigation={(event) => openInvestigation(event.traceIds[0])}
-            onOpenReviews={() => setActiveView("reviews")}
+            onOpenTarget={openNowTarget}
           />
         ) : activeView === "investigations" ? (
           <TraceExplorer
@@ -688,8 +695,7 @@ function NowSurface(props: {
   lastUpdatedAt: string;
   onApply: (event: NowEvent) => void | Promise<void>;
   onDismiss: (event: NowEvent) => void | Promise<void>;
-  onOpenInvestigation: (event: NowEvent) => void;
-  onOpenReviews: () => void;
+  onOpenTarget: (event: NowEvent) => void;
 }) {
   const { events, traces } = props;
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -794,9 +800,9 @@ function NowSurface(props: {
                 </button>
                 <button
                   className="secondaryActionButton"
-                  onClick={() => event.targetView === "reviews" ? props.onOpenReviews() : props.onOpenInvestigation(event)}
+                  onClick={() => props.onOpenTarget(event)}
                 >
-                  {event.targetView === "reviews" ? "Open queue" : "Open cluster"}
+                  {nowOpenLabel(event)}
                 </button>
                 <button
                   className="secondaryActionButton"
@@ -6800,6 +6806,24 @@ function nowRecordStateNote(record: NowEventRecord) {
       ? `Review task ${taskId} opened with trace evidence attached.`
       : "Review task opened with trace evidence attached.";
   }
+  if (operation === "create_behavior") {
+    const behaviorId = stringFromValue(latest?.behavior_id);
+    return behaviorId
+      ? `Behavior ${behaviorId} created from repeated labels.`
+      : "Behavior created from repeated labels.";
+  }
+  if (operation === "disable_judge") {
+    const judgeId = stringFromValue(latest?.judge_id);
+    return judgeId
+      ? `Judge ${judgeId} disabled pending recalibration.`
+      : "Judge disabled pending recalibration.";
+  }
+  if (operation === "commit_prompt_version") {
+    const commit = stringFromValue(latest?.commit_id);
+    return commit
+      ? `Prompt reverted into ${commit} and tagged for production.`
+      : "Prompt reverted into a new tagged version.";
+  }
   if (verificationStatus === "awaiting_reviews") {
     return "Waiting on review task decisions before closing.";
   }
@@ -6818,6 +6842,15 @@ function nowAdvanceAction(event: NowEvent): "approve" | "verify" | "close" {
   if (event.stage === "verify") return "verify";
   if (event.stage === "close") return "close";
   return "approve";
+}
+
+function nowOpenLabel(event: NowEvent) {
+  if (event.targetView === "reviews") return "Open queue";
+  if (event.targetView === "behaviors") return "Open behavior";
+  if (event.targetView === "judges") return "Open judge";
+  if (event.targetView === "prompts") return "Open prompt";
+  if (event.targetView === "datasets") return "Open eval";
+  return "Open cluster";
 }
 
 function isViewKey(value: string): value is ViewKey {

@@ -3059,7 +3059,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         now_event_id: str,
         request: dict[str, Any],
         actor: dict[str, object] = Depends(
-            auth_dependency(["agent_configs:write", "reviews:write"]),
+            auth_dependency(
+                [
+                    "agent_configs:write",
+                    "behaviors:write",
+                    "judges:write",
+                    "prompts:write",
+                    "reviews:write",
+                ]
+            ),
         ),
     ) -> dict[str, object]:
         project_id = request.get("project_id")

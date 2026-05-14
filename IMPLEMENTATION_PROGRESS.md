@@ -1455,3 +1455,34 @@ Implemented in this pass:
   direction (`revert_prompt`, `raise_threshold`, `add_behavior`,
   `disable_judge`, eval drift/regression signals) still needs dedicated event
   producers and executors.
+- Added the next Now recommendation producer/executor slice:
+  - repeated human behavior labels now produce `add_behavior` events and
+    approval creates the behavior with positive trace evidence attached.
+  - judge calibration invalid-output failures now produce `disable_judge`
+    events and approval disables the judge while preserving the eval evidence.
+  - eval pass-rate regressions with prompt-version provenance now produce
+    `revert_prompt` events and approval writes a new prompt version copied from
+    the prior prompt version, tagged through the prompt registry.
+- Updated Now verification so `add_behavior`, `disable_judge`, and
+  `revert_prompt` close only after the expected registry state is visible.
+- Updated the web Now surface so non-trace events open their real Library
+  destinations (`Behaviors`, `Judges`, `Prompts`) instead of forcing users into
+  Investigations.
+- Added integration coverage for the new library-backed Now actions:
+  repeated behavior labels -> behavior creation, invalid judge output -> judge
+  disabled, and prompt eval regression -> prompt revert/version tag.
+- Verification after this slice:
+  - targeted Now/contracts regression: passed.
+  - `make ci`: passed with 108 pytest tests, contract checks, docs link checks,
+    and the web TypeScript/Vite build.
+  - In-app Browser live check with a seeded DB confirmed `Add behavior`,
+    `Disable judge`, and `Revert prompt` rows render in Now, expose the correct
+    Library open targets, and that `Disable judge` advances to VERIFY with a
+    persisted backend action.
+  - Mobile Browser check at 390px width showed the live Now row without
+    horizontal overflow.
+  - `frontend_static_audit.py` still reports only the existing Web Blob API
+    false positives in download helpers.
+- Remaining UX-direction gap after this slice: `raise_threshold`, dataset
+  pinning/eval-finished events, and automatic route creation for "always apply"
+  recommendations still need first-class producers/executors.

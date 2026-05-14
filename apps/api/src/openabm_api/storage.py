@@ -433,6 +433,25 @@ def _now_trace_after(trace: dict[str, Any], after: str | None) -> bool:
     return bool(started_at and str(started_at) > after)
 
 
+def _behavior_display_name(behavior_id: str) -> str:
+    return behavior_id.replace("_", " ").strip().title() or behavior_id
+
+
+def _eval_failure_trace_ids(results: Iterable[dict[str, Any]]) -> list[str]:
+    trace_ids: list[str] = []
+    for result in results:
+        failed_score = any(
+            (score.get("value") or {}).get("verdict") == "fail"
+            for score in result.get("scores") or []
+        )
+        result_failed = result.get("status") in {"failed", "invalid_output"}
+        if (failed_score or result_failed) and result.get("offline_trace_id"):
+            trace_id = str(result["offline_trace_id"])
+            if trace_id not in trace_ids:
+                trace_ids.append(trace_id)
+    return trace_ids
+
+
 def _first_eval_verdict(result: dict[str, Any] | None) -> str | None:
     if not result or not result.get("scores"):
         return None
@@ -3092,6 +3111,9 @@ class SQLiteStore:
         }
         now = utc_now()
         events = self._derive_now_events(project_id, traces, spans_by_trace, now)
+        events.extend(self._derive_behavior_now_events(project_id, now))
+        events.extend(self._derive_judge_now_events(project_id, now))
+        events.extend(self._derive_eval_regression_now_events(project_id, now))
         for event in events:
             self._upsert_now_event(event, now)
         return self.list_now_events(project_id)
@@ -3151,12 +3173,20 @@ class SQLiteStore:
             raise KeyError(f"now event not found: {now_event_id}")
         if event["stage"] == "close":
             return event
-        if any(result.get("action") == "approve" for result in event["action_results"]):
+        if event["stage"] != "propose_fix" and any(
+            result.get("action") == "approve" for result in event["action_results"]
+        ):
             return event
 
         recommendation = event["recommendation"]
         if recommendation.get("type") == "route_tool":
             action_result = self._apply_now_route_tool(event, actor_id=actor_id)
+        elif recommendation.get("type") == "add_behavior":
+            action_result = self._apply_now_add_behavior(event, actor_id=actor_id)
+        elif recommendation.get("type") == "disable_judge":
+            action_result = self._apply_now_disable_judge(event, actor_id=actor_id)
+        elif recommendation.get("type") == "revert_prompt":
+            action_result = self._apply_now_revert_prompt(event, actor_id=actor_id)
         else:
             action_result = self._apply_now_review_task(event, actor_id=actor_id)
 
@@ -3199,7 +3229,8 @@ class SQLiteStore:
             return event
 
         now = utc_now()
-        if event["recommendation"].get("type") == "create_review_task":
+        recommendation_type = event["recommendation"].get("type")
+        if recommendation_type == "create_review_task":
             tasks = self.list_review_tasks_for_source(project_id, "now_event", now_event_id)
             open_tasks = [task for task in tasks if task["status"] == "open"]
             verification = {
@@ -3209,6 +3240,49 @@ class SQLiteStore:
                 "created_at": now,
             }
             next_stage = "close" if verification["status"] == "passed" else "verify"
+        elif recommendation_type == "add_behavior":
+            behavior_id = (event["recommendation"].get("behavior") or {}).get("behavior_id")
+            behavior = self.get_behavior(project_id, str(behavior_id)) if behavior_id else None
+            verification = {
+                "status": "passed" if behavior else "watching",
+                "behavior_id": behavior_id,
+                "created_at": now,
+            }
+            next_stage = "close" if behavior else "verify"
+        elif recommendation_type == "disable_judge":
+            judge_id = (event["recommendation"].get("judge") or {}).get("judge_id")
+            judge = self.get_judge(project_id, str(judge_id)) if judge_id else None
+            disabled = bool(judge and judge["status"] == "disabled")
+            verification = {
+                "status": "passed" if disabled else "watching",
+                "judge_id": judge_id,
+                "created_at": now,
+            }
+            next_stage = "close" if disabled else "verify"
+        elif recommendation_type == "revert_prompt":
+            latest_action = next(
+                (
+                    result
+                    for result in reversed(event["action_results"])
+                    if result.get("operation") == "commit_prompt_version"
+                ),
+                {},
+            )
+            prompt_id = latest_action.get("prompt_id")
+            commit_id = latest_action.get("commit_id")
+            prompt = self.get_prompt(project_id, str(prompt_id)) if prompt_id else None
+            tag = (event["recommendation"].get("prompt") or {}).get("tag") or "prod"
+            tag_points_to_commit = bool(
+                prompt and commit_id and prompt.get("tags", {}).get(tag) == commit_id
+            )
+            verification = {
+                "status": "passed" if tag_points_to_commit else "watching",
+                "prompt_id": prompt_id,
+                "commit_id": commit_id,
+                "tag": tag,
+                "created_at": now,
+            }
+            next_stage = "close" if tag_points_to_commit else "verify"
         else:
             new_matching_trace_ids = self.matching_now_trace_ids_after(
                 project_id,
@@ -3471,6 +3545,233 @@ class SQLiteStore:
             )
         return events
 
+    def _derive_behavior_now_events(self, project_id: str, now: str) -> list[dict[str, Any]]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for match in self.list_behavior_matches(project_id):
+            if match["status"] != "confirmed":
+                continue
+            behavior_id = match["behavior_id"]
+            if self.get_behavior(project_id, behavior_id) is not None:
+                continue
+            grouped.setdefault(behavior_id, []).append(match)
+
+        events = []
+        for behavior_id, matches in grouped.items():
+            if len(matches) < 2:
+                continue
+            source_trace_ids = sorted({match["trace_id"] for match in matches})
+            display_name = _behavior_display_name(behavior_id)
+            cluster_key = f"behavior_candidate_{_now_slug(behavior_id)}"
+            events.append(
+                {
+                    "now_event_id": _stable_now_id(
+                        "now_event",
+                        project_id,
+                        "behavior_candidate",
+                        cluster_key,
+                    ),
+                    "project_id": project_id,
+                    "event_type": "behavior_candidate",
+                    "cluster_key": cluster_key,
+                    "title": f"behavior `{behavior_id}` was labeled {len(matches)}x",
+                    "summary": "human review pattern",
+                    "severity": "high" if len(matches) >= 4 else "medium",
+                    "trend": f"{len(matches)} labels",
+                    "stage": "propose_fix",
+                    "recommendation": {
+                        "type": "add_behavior",
+                        "label": "Add behavior",
+                        "summary": f"create behavior {behavior_id} from repeated labels",
+                        "explanation": (
+                            "Reviewers repeatedly used the same behavior label; "
+                            "OpenABM can promote it into a reusable behavior with "
+                            "trace evidence attached."
+                        ),
+                        "executor": "behavior_registry",
+                        "behavior": {
+                            "behavior_id": behavior_id,
+                            "name": display_name,
+                            "description": (
+                                f"Promoted from {len(matches)} matching review labels "
+                                "in the Now feed."
+                            ),
+                            "severity": "high" if len(matches) >= 4 else "medium",
+                            "detector": {
+                                "type": "manual_label",
+                                "source": "now_event",
+                                "positive_trace_ids": source_trace_ids,
+                            },
+                            "status": "active",
+                        },
+                    },
+                    "source_trace_ids": source_trace_ids,
+                    "target_view": "behaviors",
+                    "action_results": [],
+                    "verification": {},
+                    "applied_at": None,
+                    "closed_at": None,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+        return events
+
+    def _derive_judge_now_events(self, project_id: str, now: str) -> list[dict[str, Any]]:
+        events = []
+        for judge in self.list_judges(project_id):
+            if judge["status"] == "disabled":
+                continue
+            report = self.build_judge_calibration_report(project_id, judge["judge_id"])
+            invalid_rate = report.get("invalid_output_rate")
+            if not invalid_rate or report["score_count"] == 0:
+                continue
+            source_trace_ids = self._judge_invalid_output_trace_ids(project_id, judge["judge_id"])
+            cluster_key = f"judge_invalid_output_{_now_slug(judge['judge_id'])}"
+            events.append(
+                {
+                    "now_event_id": _stable_now_id(
+                        "now_event",
+                        project_id,
+                        "judge_drift",
+                        cluster_key,
+                    ),
+                    "project_id": project_id,
+                    "event_type": "judge_drift",
+                    "cluster_key": cluster_key,
+                    "title": (
+                        f"judge `{judge['name']}` produced "
+                        f"{invalid_rate:.0%} invalid outputs"
+                    ),
+                    "summary": "calibration drift",
+                    "severity": "critical" if invalid_rate >= 0.5 else "high",
+                    "trend": f"{report['score_count']} scored outputs",
+                    "stage": "propose_fix",
+                    "recommendation": {
+                        "type": "disable_judge",
+                        "label": "Disable judge",
+                        "summary": f"disable judge {judge['name']} until recalibrated",
+                        "explanation": (
+                            "Calibration produced invalid judge outputs; approving "
+                            "takes the judge out of active use while evidence remains "
+                            "attached for recalibration."
+                        ),
+                        "executor": "judge_registry",
+                        "judge": {
+                            "judge_id": judge["judge_id"],
+                            "name": judge["name"],
+                            "invalid_output_rate": invalid_rate,
+                            "score_count": report["score_count"],
+                            "eval_run_ids": report["eval_run_ids"],
+                        },
+                    },
+                    "source_trace_ids": source_trace_ids,
+                    "target_view": "judges",
+                    "action_results": [],
+                    "verification": {},
+                    "applied_at": None,
+                    "closed_at": None,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+        return events
+
+    def _derive_eval_regression_now_events(
+        self,
+        project_id: str,
+        now: str,
+    ) -> list[dict[str, Any]]:
+        analytics = self.eval_run_analytics(project_id)
+        interpretation = analytics["trend_interpretation"]
+        if interpretation["status"] not in {"pass_rate_regression", "invalid_output_regression"}:
+            return []
+        latest_eval_run_id = interpretation.get("latest_eval_run_id")
+        previous_eval_run_id = interpretation.get("previous_eval_run_id")
+        if not latest_eval_run_id or not previous_eval_run_id:
+            return []
+        latest = self.get_eval_run(project_id, latest_eval_run_id)
+        previous = self.get_eval_run(project_id, previous_eval_run_id)
+        if latest is None or previous is None:
+            return []
+        latest_prompt_version_id = latest.get("prompt_version_id")
+        previous_prompt_version_id = previous.get("prompt_version_id")
+        latest_prompt_version = (
+            self.get_prompt_version(project_id, latest_prompt_version_id)
+            if latest_prompt_version_id
+            else None
+        )
+        previous_prompt_version = (
+            self.get_prompt_version(project_id, previous_prompt_version_id)
+            if previous_prompt_version_id
+            else None
+        )
+        if (
+            latest_prompt_version is None
+            or previous_prompt_version is None
+            or latest_prompt_version["prompt_id"] != previous_prompt_version["prompt_id"]
+        ):
+            return []
+        latest_results = self.list_eval_results(project_id, latest_eval_run_id)
+        source_trace_ids = _eval_failure_trace_ids(latest_results)
+        cluster_key = f"eval_regression_{_now_slug(str(latest_eval_run_id))}"
+        prompt = self.get_prompt(project_id, latest_prompt_version["prompt_id"])
+        prompt_name = prompt["name"] if prompt else latest_prompt_version["prompt_id"]
+        events = [
+            {
+                "now_event_id": _stable_now_id(
+                    "now_event",
+                    project_id,
+                    "eval_regression",
+                    cluster_key,
+                ),
+                "project_id": project_id,
+                "event_type": "eval_regression",
+                "cluster_key": cluster_key,
+                "title": f"dataset eval regressed after prompt `{prompt_name}` changed",
+                "summary": interpretation["summary"],
+                "severity": "critical"
+                if interpretation["status"] == "invalid_output_regression"
+                else "high",
+                "trend": interpretation["status"],
+                "stage": "propose_fix",
+                "recommendation": {
+                    "type": "revert_prompt",
+                    "label": "Revert prompt",
+                    "summary": (
+                        "copy the previous prompt text into a new approved prompt version"
+                    ),
+                    "explanation": (
+                        "The latest eval regressed relative to the prior run using "
+                        "the same prompt family; approving writes a new prompt "
+                        "version from the prior passing version."
+                    ),
+                    "executor": "prompt_registry",
+                    "prompt": {
+                        "prompt_id": latest_prompt_version["prompt_id"],
+                        "prompt_name": prompt_name,
+                        "current_prompt_version_id": latest_prompt_version["prompt_version_id"],
+                        "current_commit_id": latest_prompt_version["commit_id"],
+                        "target_prompt_version_id": previous_prompt_version[
+                            "prompt_version_id"
+                        ],
+                        "target_commit_id": previous_prompt_version["commit_id"],
+                        "tag": "prod",
+                        "latest_eval_run_id": latest_eval_run_id,
+                        "previous_eval_run_id": previous_eval_run_id,
+                    },
+                },
+                "source_trace_ids": source_trace_ids,
+                "target_view": "prompts",
+                "action_results": [],
+                "verification": {},
+                "applied_at": None,
+                "closed_at": None,
+                "created_at": now,
+                "updated_at": now,
+            }
+        ]
+        return events
+
     @staticmethod
     def _now_severity(grouped_traces: list[dict[str, Any]]) -> str:
         if len(grouped_traces) > 3:
@@ -3687,6 +3988,134 @@ class SQLiteStore:
             "operation": "create_review_task",
             "status": "applied",
             "review_task_id": task["review_task_id"],
+            "created_at": created_at,
+        }
+
+    def _apply_now_add_behavior(
+        self,
+        event: dict[str, Any],
+        *,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        behavior_request = dict(event["recommendation"].get("behavior") or {})
+        behavior_id = str(behavior_request["behavior_id"])
+        behavior = self.get_behavior(event["project_id"], behavior_id)
+        if behavior is None:
+            behavior = self.create_behavior(
+                {
+                    "behavior_id": behavior_id,
+                    "project_id": event["project_id"],
+                    "name": behavior_request.get("name") or _behavior_display_name(behavior_id),
+                    "description": behavior_request.get("description"),
+                    "severity": behavior_request.get("severity") or "medium",
+                    "detector": {
+                        **(behavior_request.get("detector") or {"type": "manual_label"}),
+                        "now_event_id": event["now_event_id"],
+                    },
+                    "status": behavior_request.get("status") or "active",
+                }
+            )
+            self.append_audit(
+                "create_behavior",
+                "behavior",
+                event["project_id"],
+                behavior["behavior_id"],
+                {"source": "now_event", "now_event_id": event["now_event_id"]},
+                actor_id=actor_id,
+            )
+        created_at = utc_now()
+        return {
+            "action": "approve",
+            "operation": "create_behavior",
+            "status": "applied",
+            "behavior_id": behavior["behavior_id"],
+            "created_at": created_at,
+        }
+
+    def _apply_now_disable_judge(
+        self,
+        event: dict[str, Any],
+        *,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        judge_id = str((event["recommendation"].get("judge") or {})["judge_id"])
+        judge = self._update_judge_status(event["project_id"], judge_id, "disabled")
+        self.append_audit(
+            "disable_judge",
+            "judge",
+            event["project_id"],
+            judge_id,
+            {"source": "now_event", "now_event_id": event["now_event_id"]},
+            actor_id=actor_id,
+        )
+        created_at = utc_now()
+        return {
+            "action": "approve",
+            "operation": "disable_judge",
+            "status": "applied",
+            "judge_id": judge["judge_id"],
+            "created_at": created_at,
+        }
+
+    def _apply_now_revert_prompt(
+        self,
+        event: dict[str, Any],
+        *,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        prompt_request = event["recommendation"].get("prompt") or {}
+        prompt_id = str(prompt_request["prompt_id"])
+        target_version = self.get_prompt_version(
+            event["project_id"],
+            str(prompt_request["target_prompt_version_id"]),
+        )
+        current_version = self.get_prompt_version(
+            event["project_id"],
+            str(prompt_request["current_prompt_version_id"]),
+        )
+        if target_version is None or current_version is None:
+            raise KeyError("prompt version not found")
+        tag = str(prompt_request.get("tag") or "prod")
+        version = self.commit_prompt_version(
+            event["project_id"],
+            prompt_id,
+            template_text=target_version["template_text"],
+            variables_schema=target_version["variables_schema"],
+            metadata={
+                "source": "now_event",
+                "operation": "revert_prompt",
+                "now_event_id": event["now_event_id"],
+                "approved_by": actor_id,
+                "reverted_from_prompt_version_id": current_version["prompt_version_id"],
+                "reverted_from_commit_id": current_version["commit_id"],
+                "target_prompt_version_id": target_version["prompt_version_id"],
+                "target_commit_id": target_version["commit_id"],
+            },
+            parent_commit_id=current_version["commit_id"],
+            tag=tag,
+        )
+        self.append_audit(
+            "commit_prompt_version",
+            "prompt",
+            event["project_id"],
+            prompt_id,
+            {
+                "source": "now_event",
+                "now_event_id": event["now_event_id"],
+                "commit_id": version["commit_id"],
+                "tag": tag,
+            },
+            actor_id=actor_id,
+        )
+        created_at = utc_now()
+        return {
+            "action": "approve",
+            "operation": "commit_prompt_version",
+            "status": "applied",
+            "prompt_id": prompt_id,
+            "prompt_version_id": version["prompt_version_id"],
+            "commit_id": version["commit_id"],
+            "tag": tag,
             "created_at": created_at,
         }
 
@@ -4791,6 +5220,33 @@ class SQLiteStore:
             if task["source_entity_id"] == judge_id
         ]
 
+    def _judge_invalid_output_trace_ids(self, project_id: str, judge_id: str) -> list[str]:
+        judge = self.get_judge(project_id, judge_id)
+        if judge is None:
+            return []
+        judge_aliases = {
+            judge_id,
+            *[
+                version.get("definition", {}).get("judge_id")
+                for version in judge.get("versions", [])
+                if version.get("definition", {}).get("judge_id")
+            ],
+        }
+        trace_ids: list[str] = []
+        for run in self.list_eval_runs(project_id):
+            for result in self.list_eval_results(project_id, run["eval_run_id"]):
+                if not result.get("offline_trace_id"):
+                    continue
+                for score in result.get("scores") or []:
+                    if (
+                        score.get("judge_id") in judge_aliases
+                        and score.get("status") == "invalid_output"
+                    ):
+                        trace_id = str(result["offline_trace_id"])
+                        if trace_id not in trace_ids:
+                            trace_ids.append(trace_id)
+        return trace_ids
+
     def _update_judge_status(
         self,
         project_id: str,
@@ -5093,6 +5549,21 @@ class SQLiteStore:
                 WHERE project_id = ? AND prompt_id = ? AND commit_id = ?
                 """,
                 (project_id, prompt_id, commit_id),
+            ).fetchone()
+        return self._prompt_version_from_row(row) if row else None
+
+    def get_prompt_version(
+        self,
+        project_id: str,
+        prompt_version_id: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM prompt_versions
+                WHERE project_id = ? AND prompt_version_id = ?
+                """,
+                (project_id, prompt_version_id),
             ).fetchone()
         return self._prompt_version_from_row(row) if row else None
 

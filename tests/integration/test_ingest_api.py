@@ -1669,6 +1669,269 @@ def test_now_events_execute_recommendations_and_verify(tmp_path) -> None:
     assert audit_rows(client, "verify_now_event")
 
 
+def test_now_events_execute_library_recommendations(tmp_path) -> None:
+    client = make_client(tmp_path)
+    store = client.app.state.store
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    repeat = _clone_trace_fixture(
+        fixture,
+        trace_id="trace_wrong_tool_repeat",
+        session_id="session_wrong_tool_repeat",
+        span_id_map={
+            "span_wrong_tool_root": "span_wrong_tool_repeat_root",
+            "span_wrong_tool_order_lookup": "span_wrong_tool_repeat_order_lookup",
+        },
+        summary="Agent repeated the wrong refund tool pattern.",
+    )
+    response = client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={
+            "traces": [fixture["trace"], repeat["trace"]],
+            "spans": [*fixture["spans"], *repeat["spans"]],
+        },
+    )
+    assert response.status_code == 207
+    for trace_id, span_id in [
+        ("trace_wrong_tool", "span_wrong_tool_order_lookup"),
+        ("trace_wrong_tool_repeat", "span_wrong_tool_repeat_order_lookup"),
+    ]:
+        label = client.post(
+            f"/v1/traces/{trace_id}/behavior-labels",
+            headers=auth_headers(),
+            json={
+                "project_id": "proj_demo",
+                "behavior_id": "wrong_tool_for_refund",
+                "span_id_nullable": span_id,
+            },
+        )
+        assert label.status_code == 201
+
+    judge = store.create_judge(
+        {
+            "project_id": "proj_demo",
+            "judge_id": "judge_flaky_refund",
+            "name": "Flaky refund judge",
+            "judge_type": "deterministic_rule",
+            "status": "active",
+        },
+        definition={"judge_id": "judge_flaky_refund", "judge_type": "deterministic_rule"},
+        created_by="test",
+    )
+    dataset = store.create_dataset("proj_demo", "Now library recommendations")
+    example = store.add_trace_to_dataset(
+        "proj_demo",
+        dataset["dataset_id"],
+        "trace_wrong_tool",
+        labels=["wrong_tool_for_refund"],
+        created_from="test",
+    )
+    invalid_run = store.create_eval_run(
+        "proj_demo",
+        dataset["latest_version_id"],
+        {"type": "test"},
+        [{"judge_id": judge["judge_id"]}],
+    )
+    store.record_eval_result(
+        "proj_demo",
+        invalid_run["eval_run_id"],
+        example["dataset_example_id"],
+        "invalid_output",
+        [
+            {
+                "score_id": "score_invalid_flaky_refund",
+                "judge_id": judge["judge_id"],
+                "status": "invalid_output",
+                "value": None,
+                "reasoning": "Judge returned malformed output.",
+            }
+        ],
+        offline_trace_id="trace_wrong_tool",
+    )
+    store.complete_eval_run(
+        "proj_demo",
+        invalid_run["eval_run_id"],
+        {
+            "total_examples": 1,
+            "result_status_counts": {"invalid_output": 1},
+            "score_verdict_counts": {},
+            "assertion_status_counts": {},
+            "unsupported_judge_ids": [],
+            "llm_calls": 0,
+        },
+    )
+
+    prompt = store.create_prompt(
+        {
+            "project_id": "proj_demo",
+            "prompt_id": "prompt_refund_policy",
+            "name": "Refund policy prompt",
+        }
+    )
+    prompt_v1 = store.commit_prompt_version(
+        "proj_demo",
+        prompt["prompt_id"],
+        template_text="Use the refund policy tool before answering.",
+        variables_schema={},
+        metadata={"source": "test"},
+        tag="prod",
+    )
+    prompt_v2 = store.commit_prompt_version(
+        "proj_demo",
+        prompt["prompt_id"],
+        template_text="Use order lookup before answering refund questions.",
+        variables_schema={},
+        metadata={"source": "test"},
+        parent_commit_id=prompt_v1["commit_id"],
+        tag="prod",
+    )
+    baseline = store.create_eval_run(
+        "proj_demo",
+        dataset["latest_version_id"],
+        {"type": "test"},
+        [{"judge_id": "judge_prompt_regression"}],
+        prompt_version_id=prompt_v1["prompt_version_id"],
+    )
+    store.record_eval_result(
+        "proj_demo",
+        baseline["eval_run_id"],
+        example["dataset_example_id"],
+        "succeeded",
+        [
+            {
+                "score_id": "score_prompt_baseline",
+                "judge_id": "judge_prompt_regression",
+                "status": "succeeded",
+                "value": {"verdict": "pass"},
+            }
+        ],
+        offline_trace_id="trace_wrong_tool",
+    )
+    store.complete_eval_run(
+        "proj_demo",
+        baseline["eval_run_id"],
+        {
+            "total_examples": 1,
+            "result_status_counts": {"succeeded": 1},
+            "score_verdict_counts": {"pass": 1},
+            "assertion_status_counts": {},
+            "unsupported_judge_ids": [],
+            "llm_calls": 0,
+        },
+    )
+    candidate = store.create_eval_run(
+        "proj_demo",
+        dataset["latest_version_id"],
+        {"type": "test"},
+        [{"judge_id": "judge_prompt_regression"}],
+        baseline_eval_run_id=baseline["eval_run_id"],
+        prompt_version_id=prompt_v2["prompt_version_id"],
+    )
+    store.record_eval_result(
+        "proj_demo",
+        candidate["eval_run_id"],
+        example["dataset_example_id"],
+        "succeeded",
+        [
+            {
+                "score_id": "score_prompt_candidate",
+                "judge_id": "judge_prompt_regression",
+                "status": "succeeded",
+                "value": {"verdict": "fail"},
+            }
+        ],
+        offline_trace_id="trace_wrong_tool",
+    )
+    store.complete_eval_run(
+        "proj_demo",
+        candidate["eval_run_id"],
+        {
+            "total_examples": 1,
+            "result_status_counts": {"succeeded": 1},
+            "score_verdict_counts": {"fail": 1},
+            "assertion_status_counts": {},
+            "unsupported_judge_ids": [],
+            "llm_calls": 0,
+        },
+    )
+
+    listed = client.get(
+        "/v1/now/events",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert listed.status_code == 200
+    events = listed.json()["data"]
+
+    behavior_event = next(
+        event for event in events if event["recommendation"]["type"] == "add_behavior"
+    )
+    approved_behavior = client.post(
+        f"/v1/now/events/{behavior_event['now_event_id']}/advance",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "action": "approve"},
+    )
+    assert approved_behavior.status_code == 200
+    assert approved_behavior.json()["action_results"][0]["operation"] == "create_behavior"
+    verified_behavior = client.post(
+        f"/v1/now/events/{behavior_event['now_event_id']}/advance",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "action": "verify"},
+    )
+    assert verified_behavior.json()["stage"] == "close"
+    behavior = client.get(
+        "/v1/behaviors/wrong_tool_for_refund",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert behavior.status_code == 200
+    assert behavior.json()["status"] == "active"
+
+    judge_event = next(
+        event for event in events if event["recommendation"]["type"] == "disable_judge"
+    )
+    approved_judge = client.post(
+        f"/v1/now/events/{judge_event['now_event_id']}/advance",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "action": "approve"},
+    )
+    assert approved_judge.status_code == 200
+    assert approved_judge.json()["action_results"][0]["operation"] == "disable_judge"
+    verified_judge = client.post(
+        f"/v1/now/events/{judge_event['now_event_id']}/advance",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "action": "verify"},
+    )
+    assert verified_judge.json()["stage"] == "close"
+    assert store.get_judge("proj_demo", judge["judge_id"])["status"] == "disabled"
+
+    prompt_event = next(
+        event for event in events if event["recommendation"]["type"] == "revert_prompt"
+    )
+    approved_prompt = client.post(
+        f"/v1/now/events/{prompt_event['now_event_id']}/advance",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "action": "approve"},
+    )
+    assert approved_prompt.status_code == 200
+    prompt_action = approved_prompt.json()["action_results"][0]
+    assert prompt_action["operation"] == "commit_prompt_version"
+    reverted_prompt = store.get_prompt("proj_demo", prompt["prompt_id"])
+    assert reverted_prompt["tags"]["prod"] == prompt_action["commit_id"]
+    latest_version = next(
+        version for version in reverted_prompt["versions"]
+        if version["commit_id"] == prompt_action["commit_id"]
+    )
+    assert latest_version["template_text"] == prompt_v1["template_text"]
+    verified_prompt = client.post(
+        f"/v1/now/events/{prompt_event['now_event_id']}/advance",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "action": "verify"},
+    )
+    assert verified_prompt.json()["stage"] == "close"
+    assert audit_rows(client, "disable_judge")
+
+
 def test_v1_model_backed_judge_draft_requires_review(tmp_path, monkeypatch) -> None:
     class StubProvider:
         async def structured_completion(self, request, schema):

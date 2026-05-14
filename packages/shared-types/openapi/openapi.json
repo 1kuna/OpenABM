@@ -1507,6 +1507,9 @@
         "summary": "Approve, verify, close, or ignore a Now event.",
         "x-required-scopes": [
           "agent_configs:write",
+          "behaviors:write",
+          "judges:write",
+          "prompts:write",
           "reviews:write"
         ],
         "parameters": [
