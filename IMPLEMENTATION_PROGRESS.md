@@ -9,8 +9,9 @@ work can resume from concrete state instead of memory.
 - `openabm_implementation_spec.md` is the read-only SSOT.
 - Local LLM calls are now allowed through LM Studio when semantic judgment is
   required.
-- The current local model lane is `qwen3.5-9b-mlx` through LM Studio for this
-  implementation pass.
+- The current local model lanes are `qwen3.5-9b-mlx` for routine semantic
+  probes and `qwen3.6-35b-a3b` when the 9B lane is not enough for harder
+  synthetic generation or judgment canaries.
 - Do not disable reasoning, do not apply generation timeouts, and do not use
   less than 32k context for model-backed work.
 - Defer to heavier models only after prompt/runtime tinkering shows an obvious
@@ -49,9 +50,10 @@ Scaffold-complete local surfaces:
 
 Remaining blockers or explicit non-local-reference work:
 
-- Phase 9A synthetic pilot pressure testing now exists, but Phase 9 real-world
-  pilots, usability feedback, performance reports, and revisit decisions still
-  require real users/workloads.
+- Phase 9A synthetic pilot pressure testing now includes a scaled synthetic
+  company simulator and local-model generated conversations, but Phase 9
+  real-world pilots, usability feedback, performance reports, and revisit
+  decisions still require real users/workloads.
 - External IdP/OAuth, vendor-specific invite providers, production
   secret-manager adapters, vendor-specific ChatOps connectors, production
   observability backends, and external deployment supervision remain integration
@@ -73,12 +75,19 @@ Current validation gate:
   deterministic local run wrote `.openabm/synthetic-pilot/latest/report.json`,
   and the LM Studio `qwen3.5-9b-mlx` run with `CONTEXT 32768` completed optional
   semantic lanes under `.openabm/synthetic-pilot/qwen-32k-contract/report.json`.
-- Model-generated fake-conversation testing now exists and passed with LM Studio
-  `qwen3.6-35b-a3b` loaded at `CONTEXT 32768`; the report at
-  `.openabm/synthetic-pilot/agentgen-35b-v5/report.json` generated two
-  customer-agent conversations, ingested them as traces, converted their feedback
-  into dataset labels, and had eval/backtest catch the generated wrong-tool and
-  missed-escalation cases.
+- Scaled synthetic company testing passed on 2026-05-14. The report at
+  `.openabm/synthetic-pilot/company-240/report.json` completed with 248 total
+  traces, 240 synthetic company traces, all 10 company workflows, all 9 expected
+  failure modes, 532 spans, 496 eval results, 109 behavior-backtest positives,
+  and zero failed validation checks.
+- Model-generated fake-conversation testing now runs alongside the company
+  simulator and passed with LM Studio `qwen3.6-35b-a3b` loaded at
+  `CONTEXT 32768`. The report at
+  `.openabm/synthetic-pilot/company-model-120/report.json` completed with 132
+  total traces, 120 synthetic company traces, 4 model-generated conversations,
+  all company workflow/failure coverage gates, generated feedback converted into
+  labels/actions, optional model lanes completed, and zero failed validation
+  checks.
 - Remote CI has been checked after each push and remained green; use
   `gh run list --repo 1kuna/OpenABM --branch main --limit 5` for the current
   head run.
@@ -99,7 +108,7 @@ Prompt-to-artifact checklist:
 | Security/privacy/ops local reference exists | RBAC/API keys, sessions, invite outbox, encrypted secrets, classified payload/business-dimension/code context exports, retention/export/delete, worker heartbeats, MCP observability, ops status, and deployment contract are implemented. | Complete for local reference |
 | Required decision records exist | Governance records now cover license boundary, storage, search, model runtime, sandbox, local stack, similarity experiments, production deployment, and orchestration. | Complete |
 | Final license file | `LICENSE` contains MIT terms; `governance/decisions/008-license-selection.md` records Zach's delegated low-friction choice. | Complete |
-| Synthetic pilot pressure test | `./scripts/openabm synthetic-pilot` generates real-world-style traces, drives local reference surfaces, and writes ignored local reports under `.openabm/synthetic-pilot/latest`. | Complete for synthetic validation |
+| Synthetic pilot pressure test | `./scripts/openabm synthetic-pilot` generates real-world-style traces, `--company-simulation` scales them into synthetic company traffic, and model-generated conversations feed back through the same labels/evals/backtests/review surfaces. Ignored local reports include `.openabm/synthetic-pilot/company-240/report.json` and `.openabm/synthetic-pilot/company-model-120/report.json`. | Complete for synthetic validation |
 | Real-world pilot and revisit decisions | Phase 9 requires 5-10 real pilots, performance/quality reports, and post-pilot revisits. | Blocked on real users/workloads |
 | External integrations beyond local reference | External IdP/OAuth, vendor-specific invite providers, production secret managers, vendor ChatOps, production observability backends, and deployment supervision are adapter boundaries; generic SMTP invite delivery and local metrics export are implemented. | Deferred until concrete integration target |
 
@@ -846,6 +855,13 @@ Synthetic validation complete:
   the `submit_synthetic_agent_conversations` tool call; OpenABM converts those
   conversations into traces/spans, dataset labels, behavior feedback actions,
   eval examples, and behavior backtest candidates.
+- Added a scaled synthetic company simulator behind `--company-simulation`.
+  It deterministically expands the pilot into multi-day company traffic across
+  refund, support escalation, fulfillment, checkout, account support, billing,
+  sales, internal IT, incident response, and compliance workflows. The simulator
+  creates healthy and failing traces, tool spans, events, grounding claims,
+  account/workflow dimensions, feedback expectations, and acceptance gates for
+  workflow/failure-mode coverage at meaningful synthetic scale.
 - Used feedback from the 2026-05-14 35B canaries to fix the harness instead of
   merely recording a pass/fail: rejected generated tool outputs that smuggled
   evaluator labels into raw evidence, widened the feedback schema when useful
@@ -862,13 +878,21 @@ Synthetic validation complete:
   grounding lane correctly stayed `needs_review` for the synthetic hallucinated
   delivery-status case instead of treating the model output as authoritative.
 - Verified the generated-conversation lane against LM Studio `qwen3.6-35b-a3b`
-  loaded with `CONTEXT 32768`. The final passing report at
-  `.openabm/synthetic-pilot/agentgen-35b-v5/report.json` generated
-  `fulfillment_tracking_error` and `account_support_escalation_failure`, then
-  applied model feedback to labels/backtest/eval. The report completed with
+  loaded with `CONTEXT 32768` while the company simulator was enabled. The
+  final passing report at
+  `.openabm/synthetic-pilot/company-model-120/report.json` generated 4 organic
+  model-authored customer-agent conversations, applied their feedback to
+  labels/backtest/eval, ran optional model semantic lanes, and completed with
   `agent_generated_conversations_ingested=true`,
-  `agent_generated_feedback_applied=true`, 10 ingested traces, 8 expected
-  findings, and zero critical validation failures.
+  `agent_generated_feedback_applied=true`,
+  `company_simulation_workflow_coverage=true`,
+  `company_simulation_failure_coverage=true`, 132 ingested traces, 61 expected
+  findings, and zero failed validation checks.
+- Verified the deterministic company-scale canary at
+  `.openabm/synthetic-pilot/company-240/report.json`. It completed with 240
+  synthetic company traces, all 10 company workflows, all 9 judge failure modes,
+  532 spans, 496 deterministic eval results, behavior backtest positives for
+  all expected findings, and zero failed validation checks.
 - Added `docs/synthetic-pilot.md`; reports are written to ignored `.openabm/`
   paths so synthetic artifacts do not get committed as real pilot evidence.
 

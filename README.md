@@ -50,11 +50,25 @@ To run a synthetic real-world-style pilot across the local reference surfaces:
 ./scripts/openabm synthetic-pilot
 ```
 
-To have a local model generate fake customer-agent conversations and feed those
-back through the same pilot surfaces:
+To scale that into a synthetic company run across multiple workflows,
+departments, days, healthy flows, and expected failure modes:
 
 ```bash
-./scripts/openabm synthetic-pilot --generate-conversations --chat-model qwen3.6-35b-a3b
+./scripts/openabm synthetic-pilot --company-simulation --company-trace-count 240
+```
+
+To have a local model generate fake customer-agent conversations and feed those
+back through the same pilot surfaces alongside the company simulator:
+
+```bash
+./scripts/openabm synthetic-pilot \
+  --company-simulation \
+  --company-trace-count 120 \
+  --generate-conversations \
+  --generated-conversation-count 4 \
+  --use-model \
+  --max-model-cases 2 \
+  --chat-model qwen3.6-35b-a3b
 ```
 
 See `docs/synthetic-pilot.md` for the synthetic/real-pilot boundary and the

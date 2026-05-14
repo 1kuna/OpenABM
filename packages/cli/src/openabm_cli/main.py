@@ -22,6 +22,7 @@ from openabm_worker.novelty import run_novelty_clustering_benchmark
 from openabm_worker.offline_eval import run_deterministic_eval
 from openabm_worker.retention import run_retention_once
 from openabm_worker.synthetic_pilot import (
+    DEFAULT_COMPANY_TRACE_COUNT,
     DEFAULT_PROJECT_ID,
     DEFAULT_SEED,
     DEFAULT_TRACE_COUNT,
@@ -116,6 +117,21 @@ def synthetic_pilot(
         Path,
         typer.Option(help="Directory for report.json, fixtures.json, and summary.md."),
     ] = Path(".openabm/synthetic-pilot/latest"),
+    company_simulation: Annotated[
+        bool,
+        typer.Option(
+            "--company-simulation/--no-company-simulation",
+            help="Generate a multi-workflow synthetic company traffic set.",
+        ),
+    ] = False,
+    company_trace_count: Annotated[
+        int,
+        typer.Option(help="Number of synthetic company traces to generate."),
+    ] = DEFAULT_COMPANY_TRACE_COUNT,
+    company_days: Annotated[
+        int,
+        typer.Option(help="Number of synthetic company days to spread traffic across."),
+    ] = 5,
     use_model: Annotated[
         bool,
         typer.Option("--use-model/--no-use-model", help="Run optional local model semantic lanes."),
@@ -178,6 +194,9 @@ def synthetic_pilot(
                 project_id=project_id,
                 trace_count=trace_count,
                 seed=seed,
+                company_simulation=company_simulation,
+                company_trace_count=company_trace_count,
+                company_days=company_days,
                 use_model=use_model,
                 max_model_cases=max_model_cases,
                 generate_agent_conversations=generate_conversations,

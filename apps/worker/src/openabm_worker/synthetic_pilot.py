@@ -47,7 +47,22 @@ SYNTHETIC_PILOT_VERSION = "2026-05-14.phase9a"
 DEFAULT_PROJECT_ID = "proj_synthetic_pilot"
 DEFAULT_TRACE_COUNT = 24
 DEFAULT_SEED = 20260514
+DEFAULT_COMPANY_TRACE_COUNT = 240
 AGENT_CONVERSATION_TOOL_NAME = "submit_synthetic_agent_conversations"
+COMPANY_SYNTHETIC_SOURCE = "synthetic_company_simulator"
+MODEL_GENERATED_SYNTHETIC_SOURCE = "model_generated_agent_conversation"
+COMPANY_WORKFLOWS = (
+    "refund",
+    "support_escalation",
+    "fulfillment",
+    "checkout",
+    "account_support",
+    "billing",
+    "sales",
+    "internal_it",
+    "incident_response",
+    "compliance",
+)
 SUPPORTED_FAILURE_MODES = (
     "wrong_tool",
     "missed_escalation",
@@ -77,6 +92,9 @@ class SyntheticPilotConfig:
     project_id: str = DEFAULT_PROJECT_ID
     trace_count: int = DEFAULT_TRACE_COUNT
     seed: int = DEFAULT_SEED
+    company_simulation: bool = False
+    company_trace_count: int = DEFAULT_COMPANY_TRACE_COUNT
+    company_days: int = 5
     use_model: bool = False
     max_model_cases: int = 4
     generate_agent_conversations: bool = False
@@ -150,6 +168,12 @@ async def run_synthetic_pilot(
         baseline_runtime=surfaces["baseline_runtime"],
         candidate_runtime=surfaces["candidate_runtime"],
     )
+    company_simulation = _build_company_simulation(
+        config=config,
+        baseline_runtime=surfaces["baseline_runtime"],
+        candidate_runtime=surfaces["candidate_runtime"],
+    )
+    fixtures.extend(company_simulation["fixtures"])
     generated_conversations = await _generate_agent_conversation_fixtures(
         config=config,
         provider=model_provider,
@@ -252,7 +276,7 @@ async def run_synthetic_pilot(
                 for fixture in fixtures
                 if fixture["trace"]["status"] != "ok"
             ],
-            "limit": config.trace_count,
+            "limit": len(fixtures),
         }
     )
     context_pack = _create_deterministic_context_pack(
@@ -310,7 +334,9 @@ async def run_synthetic_pilot(
         export=export,
         ops_status=ops_status,
         generated_conversations=generated_conversations,
+        company_simulation=company_simulation,
         generation_required=config.generate_agent_conversations,
+        company_simulation_required=config.company_simulation,
     )
     report = {
         "run_id": run_id,
@@ -386,6 +412,7 @@ async def run_synthetic_pilot(
             "retention_status": retention_result["status"],
             "ops_worker_risk": ops_status.get("worker_risk"),
             "export_manifest": export["manifest"],
+            "company_simulation": _company_simulation_report(company_simulation),
             "agent_generated_conversations": _generated_conversation_report(
                 generated_conversations
             ),
@@ -519,6 +546,492 @@ def _synthetic_scenarios() -> list[SyntheticScenario]:
     ]
 
 
+def _company_workflow_templates() -> list[dict[str, Any]]:
+    return [
+        {
+            "department": "customer_support",
+            "workflow": "refund",
+            "intent": "refund damaged shipment",
+            "tier_mix": ["standard", "premium", "enterprise"],
+            "success_tool": "refund_policy_lookup",
+            "failure_tool": "order_lookup",
+            "success_message": "I found the refund policy and can start a return label.",
+            "failure_message": "I checked shipment status but cannot decide the refund.",
+            "raw_output": {"policy": "damaged_item_refund", "eligible": True},
+        },
+        {
+            "department": "customer_support",
+            "workflow": "fulfillment",
+            "intent": "delivery status update",
+            "tier_mix": ["standard", "premium"],
+            "success_tool": "shipment_lookup",
+            "failure_tool": "refund_tool",
+            "success_message": "The carrier reports the package is delayed with a new ETA.",
+            "failure_message": "I started a refund flow even though you asked about tracking.",
+            "raw_output": {"carrier_status": "delayed", "eta": "next_business_day"},
+        },
+        {
+            "department": "customer_success",
+            "workflow": "support_escalation",
+            "intent": "production incident escalation",
+            "tier_mix": ["enterprise"],
+            "success_tool": "escalation_create",
+            "failure_tool": "ticket_lookup",
+            "success_message": "I escalated this as a critical enterprise incident.",
+            "failure_message": "Please retry later while I check the existing ticket.",
+            "raw_output": {"sla_level": "platinum", "escalation_eligible": True},
+        },
+        {
+            "department": "billing",
+            "workflow": "billing",
+            "intent": "invoice dispute",
+            "tier_mix": ["standard", "premium", "enterprise"],
+            "success_tool": "invoice_lookup",
+            "failure_tool": "subscription_cancel",
+            "success_message": "I found the invoice adjustment and opened a billing review.",
+            "failure_message": "I started a cancellation path before reviewing the invoice.",
+            "raw_output": {"invoice_status": "disputed", "adjustment_possible": True},
+        },
+        {
+            "department": "commerce",
+            "workflow": "checkout",
+            "intent": "checkout payment authorization",
+            "tier_mix": ["standard", "premium"],
+            "success_tool": "payment_authorize",
+            "failure_tool": "payment_authorize",
+            "success_message": "The payment authorization succeeded and the order is placed.",
+            "failure_message": "The payment is still processing after repeated attempts.",
+            "raw_output": {"authorization_status": "approved"},
+        },
+        {
+            "department": "account_support",
+            "workflow": "account_support",
+            "intent": "account access help",
+            "tier_mix": ["standard", "premium", "enterprise"],
+            "success_tool": "account_lookup",
+            "failure_tool": "customer_lookup",
+            "success_message": "I verified the account and sent a secure reset link.",
+            "failure_message": "The account email is jamie.customer@example.invalid.",
+            "raw_output": {"account_status": "active", "mfa_enabled": True},
+        },
+        {
+            "department": "sales",
+            "workflow": "sales",
+            "intent": "security review for expansion",
+            "tier_mix": ["enterprise", "premium"],
+            "success_tool": "security_packet_lookup",
+            "failure_tool": "pricing_lookup",
+            "success_message": "I sent the security packet and routed the review.",
+            "failure_message": "I only found discount pricing and did not answer security.",
+            "raw_output": {"soc2_available": True, "dpa_available": True},
+        },
+        {
+            "department": "internal_it",
+            "workflow": "internal_it",
+            "intent": "employee access request",
+            "tier_mix": ["standard"],
+            "success_tool": "access_request_create",
+            "failure_tool": "directory_lookup",
+            "success_message": "I created an access request with manager approval.",
+            "failure_message": "I found the user record but did not create the access request.",
+            "raw_output": {"manager_approval_required": True, "user_found": True},
+        },
+        {
+            "department": "operations",
+            "workflow": "incident_response",
+            "intent": "payment incident triage",
+            "tier_mix": ["enterprise", "premium"],
+            "success_tool": "incident_create",
+            "failure_tool": "metrics_lookup",
+            "success_message": "I opened an incident and attached the failing payment metrics.",
+            "failure_message": "I refreshed metrics repeatedly without opening an incident.",
+            "raw_output": {"error_rate": 0.19, "affected_region": "us-east"},
+        },
+        {
+            "department": "privacy",
+            "workflow": "compliance",
+            "intent": "data deletion request",
+            "tier_mix": ["standard", "premium", "enterprise"],
+            "success_tool": "privacy_request_create",
+            "failure_tool": "customer_export",
+            "success_message": "I opened the deletion request and preserved the audit trail.",
+            "failure_message": "I exported account data before verifying the deletion request.",
+            "raw_output": {"request_type": "delete", "identity_verified": True},
+        },
+    ]
+
+
+def _build_company_simulation(
+    *,
+    config: SyntheticPilotConfig,
+    baseline_runtime: RuntimeSurface,
+    candidate_runtime: RuntimeSurface,
+) -> dict[str, Any]:
+    if not config.company_simulation:
+        return {"status": "skipped", "reason": "company simulation disabled", "fixtures": []}
+    if config.company_trace_count < len(COMPANY_WORKFLOWS):
+        raise ValueError("company_trace_count must cover every company workflow at least once")
+
+    rng = random.Random(config.seed + 991)
+    templates = _company_workflow_templates()
+    failure_modes = list(PILOT_JUDGE_FAILURE_MODES)
+    fixtures = []
+    for index in range(config.company_trace_count):
+        template = templates[index % len(templates)]
+        if index < len(failure_modes):
+            failure_mode = failure_modes[index]
+        else:
+            failure_mode = _sample_company_failure_mode(rng, template, index)
+        runtime = candidate_runtime if failure_mode else baseline_runtime
+        fixtures.append(
+            _fixture_for_company_interaction(
+                config=config,
+                index=index,
+                template=template,
+                runtime=runtime,
+                failure_mode=failure_mode,
+                rng=rng,
+            )
+        )
+    return {
+        "status": "completed",
+        "fixtures": fixtures,
+        "trace_count": len(fixtures),
+        "workflow_count": len({fixture["trace"]["attributes"]["workflow"] for fixture in fixtures}),
+        "department_count": len(
+            {fixture["trace"]["attributes"]["department"] for fixture in fixtures}
+        ),
+        "failure_modes": sorted(
+            {
+                mode
+                for fixture in fixtures
+                for mode in fixture.get("expected", {}).get("behavior_labels", [])
+            }
+        ),
+    }
+
+
+def _sample_company_failure_mode(
+    rng: random.Random,
+    template: dict[str, Any],
+    index: int,
+) -> str | None:
+    del template
+    if index % 17 == 0:
+        return "insufficient_evidence"
+    if index % 19 == 0:
+        return "unsupported_action"
+    if rng.random() > 0.28:
+        return None
+    return rng.choice(PILOT_JUDGE_FAILURE_MODES)
+
+
+def _fixture_for_company_interaction(
+    *,
+    config: SyntheticPilotConfig,
+    index: int,
+    template: dict[str, Any],
+    runtime: RuntimeSurface,
+    failure_mode: str | None,
+    rng: random.Random,
+) -> dict[str, Any]:
+    tier = rng.choice(template["tier_mix"])
+    workflow = template["workflow"]
+    day_index = index % max(1, config.company_days)
+    minute = index % 60
+    hour = 8 + (index % 10)
+    started_at = f"2026-05-{14 + day_index:02d}T{hour:02d}:{minute:02d}:00Z"
+    ended_at = (
+        None
+        if failure_mode == "tool_loop"
+        else f"2026-05-{14 + day_index:02d}T{hour:02d}:{minute:02d}:42Z"
+    )
+    scenario_slug = _slugify(f"{workflow}_{template['intent']}_{failure_mode or 'ok'}")
+    trace_id = f"trace_company_{config.seed}_{index:04d}_{scenario_slug}"
+    root_span_id = f"span_{trace_id}_root"
+    account_id = f"acct_company_{rng.randint(1, max(12, config.company_trace_count // 4)):04d}"
+    status = _status_for_failure_mode(failure_mode)
+    tool_name = template["failure_tool"] if failure_mode else template["success_tool"]
+    tool_output = _company_tool_output(template, failure_mode, rng)
+    tool_spans = _company_tool_spans(
+        config=config,
+        trace_id=trace_id,
+        root_span_id=root_span_id,
+        started_at=started_at,
+        ended_at=ended_at,
+        workflow=workflow,
+        tool_name=tool_name,
+        tool_output=tool_output,
+        failure_mode=failure_mode,
+    )
+    agent_message = _company_agent_message(template, failure_mode)
+    summary = _company_summary(template, failure_mode)
+    trace_attributes = {
+        "channel": rng.choice(["chat", "email", "slack", "voice_transcript"]),
+        "department": template["department"],
+        "workflow": workflow,
+        "intent": template["intent"],
+        "customer_tier": tier,
+        "scenario": scenario_slug,
+        "synthetic_pilot": True,
+        "synthetic_source": COMPANY_SYNTHETIC_SOURCE,
+        "severity": _severity_for_failure_mode(failure_mode, tier),
+        "account_id": account_id,
+        "company_day": day_index + 1,
+        "region": rng.choice(["us-east", "us-west", "eu-central", "ap-south"]),
+    }
+    if failure_mode:
+        trace_attributes["error.type"] = failure_mode
+        trace_attributes["expected_failure_modes"] = [failure_mode]
+    root_span = {
+        "trace_id": trace_id,
+        "span_id": root_span_id,
+        "parent_span_id": None,
+        "project_id": config.project_id,
+        "name": f"{workflow}_company_agent",
+        "span_type": "agent",
+        "status": status,
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "input": {
+            "mode": "inline",
+            "value": _company_user_message(template, tier, index),
+            "redaction_state": "raw",
+        },
+        "output": {"mode": "inline", "value": agent_message, "redaction_state": "raw"},
+        "attributes": {
+            "openabm.environment": "synthetic_company",
+            "department": template["department"],
+            "workflow": workflow,
+            "customer_tier": tier,
+            "account_id": account_id,
+            "synthetic_source": COMPANY_SYNTHETIC_SOURCE,
+            **({"error.type": failure_mode} if failure_mode else {}),
+        },
+        "events": _company_events(failure_mode, started_at, tier),
+        "links": [],
+    }
+    return {
+        "name": scenario_slug,
+        "trace": {
+            "trace_id": trace_id,
+            "project_id": config.project_id,
+            "session_id": f"session_company_{index:04d}",
+            "user_external_id": f"user_company_{rng.randint(1, 80):04d}",
+            "root_span_id": root_span_id,
+            "environment": "synthetic-company",
+            "status": status,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "tags": [
+                "synthetic_pilot",
+                COMPANY_SYNTHETIC_SOURCE,
+                template["department"],
+                workflow,
+                scenario_slug,
+                *([failure_mode] if failure_mode else []),
+            ],
+            "attributes": trace_attributes,
+            "summary": summary,
+            "prompt_version_id": runtime.prompt_version_id,
+            "agent_config_version_id": runtime.agent_config_version_id,
+            "deployment_context_id": runtime.deployment_context_id,
+            "tool_version_ids": runtime.tool_version_ids,
+        },
+        "spans": [root_span, *tool_spans],
+        "expected": {
+            "behavior_labels": [failure_mode] if failure_mode else [],
+            "grounding_claim_text": _company_grounding_claim(failure_mode, agent_message),
+            "account_id": account_id,
+            "company_feedback": _company_feedback(template, failure_mode),
+        },
+    }
+
+
+def _company_tool_output(
+    template: dict[str, Any],
+    failure_mode: str | None,
+    rng: random.Random,
+) -> dict[str, Any]:
+    output = dict(template["raw_output"])
+    if failure_mode == "fabricated_status":
+        output.update({"actual_status": "delayed", "eta": "tomorrow"})
+    elif failure_mode == "tool_loop":
+        output.update({"retry_budget_remaining": 0, "last_error": "rate_limited"})
+    elif failure_mode == "pii_overexposure":
+        output.update({"customer_email": "synthetic.customer@example.invalid"})
+    elif failure_mode == "duplicate_tool_replay":
+        output.update({"idempotency": "duplicate_replay", "accepted": False})
+    elif failure_mode == "unsupported_action":
+        output.update({"supported": False, "available_actions": ["review", "escalate"]})
+    elif failure_mode == "insufficient_evidence":
+        output.update({"confidence": 0.31, "source_count": 1})
+    elif failure_mode == "prompt_injection_leak":
+        output.update({"prompt_injection_detected": True, "blocked": False})
+    output["request_id"] = f"synthetic_req_{rng.randint(1000, 9999)}"
+    return output
+
+
+def _company_tool_spans(
+    *,
+    config: SyntheticPilotConfig,
+    trace_id: str,
+    root_span_id: str,
+    started_at: str,
+    ended_at: str | None,
+    workflow: str,
+    tool_name: str,
+    tool_output: dict[str, Any],
+    failure_mode: str | None,
+) -> list[dict[str, Any]]:
+    if failure_mode == "tool_loop":
+        repetitions = 4
+    elif failure_mode == "duplicate_tool_replay":
+        repetitions = 2
+    else:
+        repetitions = 1
+    spans = []
+    for index in range(repetitions):
+        span_failure = failure_mode if index == repetitions - 1 or repetitions == 1 else None
+        spans.append(
+            {
+                "trace_id": trace_id,
+                "span_id": f"span_{trace_id}_tool_{index:02d}_{_slugify(tool_name)}",
+                "parent_span_id": root_span_id,
+                "project_id": config.project_id,
+                "name": tool_name,
+                "span_type": "tool",
+                "status": "error" if span_failure in {"tool_loop", "unsupported_action"} else "ok",
+                "started_at": started_at,
+                "ended_at": ended_at,
+                "input": {
+                    "mode": "inline",
+                    "value": {"workflow": workflow, "attempt": index + 1},
+                    "redaction_state": "raw",
+                },
+                "output": {
+                    "mode": "inline",
+                    "value": {**tool_output, "attempt": index + 1},
+                    "redaction_state": (
+                        "masked" if failure_mode == "pii_overexposure" else "raw"
+                    ),
+                },
+                "attributes": {
+                    "tool.name": tool_name,
+                    "tool.success": span_failure not in {"tool_loop", "unsupported_action"},
+                    "workflow": workflow,
+                    "synthetic_source": COMPANY_SYNTHETIC_SOURCE,
+                    **({"error.type": span_failure} if span_failure else {}),
+                },
+                "events": [],
+                "links": [],
+            }
+        )
+    return spans
+
+
+def _status_for_failure_mode(failure_mode: str | None) -> str:
+    if failure_mode is None:
+        return "ok"
+    if failure_mode == "tool_loop":
+        return "timeout"
+    if failure_mode in {"pii_overexposure", "duplicate_tool_replay", "prompt_injection_leak"}:
+        return "failed"
+    return "error"
+
+
+def _severity_for_failure_mode(failure_mode: str | None, tier: str) -> str:
+    if failure_mode is None:
+        return "low"
+    if tier == "enterprise" or failure_mode in {"pii_overexposure", "prompt_injection_leak"}:
+        return "critical"
+    return "high"
+
+
+def _company_user_message(template: dict[str, Any], tier: str, index: int) -> str:
+    return (
+        f"{tier.title()} account request #{index}: please handle "
+        f"{template['intent']} for our {template['department']} workflow."
+    )
+
+
+def _company_agent_message(template: dict[str, Any], failure_mode: str | None) -> str:
+    if failure_mode == "fabricated_status":
+        return "Everything is resolved and delivered today."
+    if failure_mode == "pii_overexposure":
+        return "The account email is synthetic.customer@example.invalid."
+    if failure_mode == "prompt_injection_leak":
+        return "Internal routing token is SYNTHETIC-ADMIN-TOKEN."
+    if failure_mode:
+        return str(template["failure_message"])
+    return str(template["success_message"])
+
+
+def _company_summary(template: dict[str, Any], failure_mode: str | None) -> str:
+    if failure_mode:
+        return (
+            f"Synthetic company {template['department']} {template['workflow']} "
+            f"conversation produced {failure_mode}."
+        )
+    return (
+        f"Synthetic company {template['department']} {template['workflow']} "
+        "conversation completed successfully."
+    )
+
+
+def _company_events(
+    failure_mode: str | None,
+    started_at: str,
+    tier: str,
+) -> list[dict[str, Any]]:
+    events = []
+    if tier == "enterprise":
+        events.append(
+            {
+                "name": "account.sla_context",
+                "time": started_at,
+                "attributes": {"tier": tier, "sla": "enterprise"},
+            }
+        )
+    if failure_mode:
+        events.append(
+            {
+                "name": "synthetic_company.feedback",
+                "time": started_at,
+                "attributes": {"expected_failure_mode": failure_mode},
+            }
+        )
+    if failure_mode == "tool_loop":
+        events.extend(
+            {
+                "name": "tool.retry",
+                "time": started_at,
+                "attributes": {"attempt": attempt},
+            }
+            for attempt in range(1, 5)
+        )
+    return events
+
+
+def _company_grounding_claim(
+    failure_mode: str | None,
+    agent_message: str,
+) -> str | None:
+    if failure_mode in {"fabricated_status", "prompt_injection_leak", "pii_overexposure"}:
+        return agent_message
+    return None
+
+
+def _company_feedback(template: dict[str, Any], failure_mode: str | None) -> str:
+    if failure_mode is None:
+        return "Healthy synthetic company flow; no behavior label expected."
+    return (
+        f"OpenABM should label this {template['department']} "
+        f"{template['workflow']} trace as {failure_mode} and surface it in "
+        "evals, behavior backtests, novelty review, and investigation context."
+    )
+
+
 def _agent_conversation_generation_tool() -> dict[str, Any]:
     return {
         "type": "function",
@@ -569,14 +1082,7 @@ def _agent_conversation_parameters_schema() -> dict[str, Any]:
                         },
                         "workflow": {
                             "type": "string",
-                            "enum": [
-                                "refund",
-                                "support_escalation",
-                                "fulfillment",
-                                "checkout",
-                                "account_support",
-                                "order_edit",
-                            ],
+                            "enum": [*COMPANY_WORKFLOWS, "order_edit"],
                         },
                         "customer_tier": {
                             "type": "string",
@@ -1083,6 +1589,39 @@ def _generated_conversation_report(generated_conversations: dict[str, Any]) -> d
         key: value
         for key, value in generated_conversations.items()
         if key != "fixtures"
+    }
+
+
+def _company_simulation_report(company_simulation: dict[str, Any]) -> dict[str, Any]:
+    fixtures = company_simulation.get("fixtures", [])
+    if not fixtures:
+        return {
+            key: value
+            for key, value in company_simulation.items()
+            if key != "fixtures"
+        }
+    status_counts: dict[str, int] = {}
+    workflow_counts: dict[str, int] = {}
+    department_counts: dict[str, int] = {}
+    failure_counts: dict[str, int] = {}
+    for fixture in fixtures:
+        trace = fixture["trace"]
+        attributes = trace["attributes"]
+        status_counts[str(trace["status"])] = status_counts.get(str(trace["status"]), 0) + 1
+        workflow = str(attributes["workflow"])
+        department = str(attributes["department"])
+        workflow_counts[workflow] = workflow_counts.get(workflow, 0) + 1
+        department_counts[department] = department_counts.get(department, 0) + 1
+        for label in fixture.get("expected", {}).get("behavior_labels", []):
+            failure_counts[label] = failure_counts.get(label, 0) + 1
+    return {
+        "status": company_simulation.get("status"),
+        "trace_count": len(fixtures),
+        "workflow_counts": workflow_counts,
+        "department_counts": department_counts,
+        "status_counts": status_counts,
+        "failure_counts": failure_counts,
+        "failure_modes": sorted(failure_counts),
     }
 
 
@@ -2025,7 +2564,9 @@ def _summarize_validations(
     export: dict[str, Any],
     ops_status: dict[str, Any],
     generated_conversations: dict[str, Any],
+    company_simulation: dict[str, Any],
     generation_required: bool,
+    company_simulation_required: bool,
 ) -> dict[str, Any]:
     expected_finding_count = sum(
         1 for fixture in fixtures if fixture["trace"]["status"] != "ok"
@@ -2040,6 +2581,23 @@ def _summarize_validations(
         "export_redaction_manifest_created": "manifest" in export,
         "ops_status_available": bool(ops_status.get("project_id")),
     }
+    if company_simulation_required:
+        company_fixtures = company_simulation.get("fixtures", [])
+        company_failure_modes = set(company_simulation.get("failure_modes", []))
+        company_workflows = {
+            fixture["trace"]["attributes"]["workflow"]
+            for fixture in company_fixtures
+        }
+        checks["company_simulation_volume_met"] = len(company_fixtures) >= 100
+        checks["company_simulation_workflow_coverage"] = company_workflows >= set(
+            COMPANY_WORKFLOWS
+        )
+        checks["company_simulation_failure_coverage"] = company_failure_modes >= set(
+            PILOT_JUDGE_FAILURE_MODES
+        )
+        checks["company_simulation_eval_scale"] = (
+            deterministic_eval["summary"].get("total_examples", 0) >= len(company_fixtures)
+        )
     if generation_required:
         generated_feedback_actions = generated_conversations.get("feedback_actions", [])
         checks["agent_generated_conversations_ingested"] = (
@@ -2089,6 +2647,19 @@ def _summary_markdown(report: dict[str, Any]) -> str:
     ]
     for name, passed in report["validations"]["checks"].items():
         lines.append(f"- {'PASS' if passed else 'FAIL'}: `{name}`")
+    company = report["results"].get("company_simulation", {})
+    if company.get("status") not in {None, "skipped"}:
+        lines.extend(
+            [
+                "",
+                "## Synthetic Company Simulation",
+                "",
+                f"- Status: `{company.get('status')}`",
+                f"- Trace count: `{company.get('trace_count', 0)}`",
+                f"- Workflows: `{len(company.get('workflow_counts', {}))}`",
+                f"- Failure modes: `{len(company.get('failure_counts', {}))}`",
+            ]
+        )
     generated = report["results"].get("agent_generated_conversations", {})
     if generated.get("status") != "skipped":
         lines.extend(

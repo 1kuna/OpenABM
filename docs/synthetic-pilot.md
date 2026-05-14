@@ -10,6 +10,17 @@ Run the deterministic pilot:
 ./scripts/openabm synthetic-pilot
 ```
 
+Run a scaled synthetic company simulation:
+
+```bash
+./scripts/openabm synthetic-pilot \
+  --trace-count 8 \
+  --company-simulation \
+  --company-trace-count 240 \
+  --company-days 5 \
+  --output .openabm/synthetic-pilot/company-240
+```
+
 Run optional local model semantic lanes against LM Studio:
 
 ```bash
@@ -18,16 +29,23 @@ lms ps
 ./scripts/openabm synthetic-pilot --use-model --chat-model qwen3.5-9b-mlx
 ```
 
-Run model-generated fake conversations through the pilot:
+Run model-generated fake conversations through the pilot alongside the company
+simulator:
 
 ```bash
 lms load qwen3.6-35b-a3b --context-length 32768 --identifier qwen3.6-35b-a3b --parallel 1 -y
 lms ps
 ./scripts/openabm synthetic-pilot \
+  --trace-count 8 \
+  --company-simulation \
+  --company-trace-count 120 \
+  --company-days 5 \
   --generate-conversations \
-  --generated-conversation-count 2 \
+  --generated-conversation-count 4 \
+  --use-model \
+  --max-model-cases 2 \
   --chat-model qwen3.6-35b-a3b \
-  --output .openabm/synthetic-pilot/agentgen-35b
+  --output .openabm/synthetic-pilot/company-model-120
 ```
 
 `lms ps` should show `CONTEXT` of at least `32768` before running the model
@@ -43,6 +61,12 @@ local reports do not get committed accidentally.
 
 - Synthetic commerce-support traces for refund, escalation, fulfillment,
   checkout, prompt-injection, PII, and tool-replay cases.
+- A synthetic company traffic set spanning support, success, billing, commerce,
+  account support, sales, internal IT, operations, and privacy/compliance
+  workflows over multiple synthetic days.
+- Company-scale acceptance gates for at least 100 company traces, every expected
+  company workflow, every deterministic judge failure mode, and deterministic
+  eval coverage across the full generated set.
 - Runtime provenance across prompt versions, agent config versions, deployment
   contexts, and tool versions.
 - Auth users, invites, local secret refs, preview notification targets, and
@@ -58,6 +82,19 @@ local reports do not get committed accidentally.
 - Optional Qwen/LM Studio semantic lanes for context-pack summary, investigation
   assistance, novelty grouping, grounding extraction/adjudication, and a small
   rubric-judge eval subset.
+
+## Latest Local Proof
+
+The 2026-05-14 scaled canary at
+`.openabm/synthetic-pilot/company-240/report.json` completed with 248 total
+traces, 240 synthetic company traces, all 10 company workflows, all 9 expected
+failure modes, 532 spans, 496 eval results, and zero failed validation checks.
+
+The 2026-05-14 model-backed canary at
+`.openabm/synthetic-pilot/company-model-120/report.json` completed with 132
+total traces, 120 synthetic company traces, 4 model-generated conversations,
+LM Studio model lanes, all company workflow/failure coverage gates, generated
+feedback converted into labels/actions, and zero failed validation checks.
 
 ## Boundaries
 

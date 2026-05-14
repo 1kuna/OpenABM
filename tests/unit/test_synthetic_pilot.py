@@ -6,7 +6,9 @@ import json
 from openabm_api.settings import Settings
 from openabm_api.storage import SQLiteStore
 from openabm_worker.synthetic_pilot import (
+    COMPANY_WORKFLOWS,
     DEFAULT_PROJECT_ID,
+    PILOT_JUDGE_FAILURE_MODES,
     RuntimeSurface,
     SyntheticPilotConfig,
     build_synthetic_pilot_fixtures,
@@ -175,3 +177,43 @@ def test_synthetic_pilot_applies_model_generated_conversation_feedback(tmp_path)
     )
     assert trace is not None
     assert trace["attributes"]["synthetic_source"] == "model_generated_agent_conversation"
+
+
+def test_synthetic_company_simulation_exercises_workflow_and_failure_coverage(
+    tmp_path,
+) -> None:
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'openabm.sqlite3'}",
+        payload_dir=tmp_path / "payloads",
+    )
+    store = SQLiteStore(settings.sqlite_path)
+
+    report = asyncio.run(
+        run_synthetic_pilot(
+            store,
+            settings=settings,
+            config=SyntheticPilotConfig(
+                trace_count=8,
+                company_simulation=True,
+                company_trace_count=120,
+                company_days=4,
+            ),
+        )
+    )
+
+    company = report["results"]["company_simulation"]
+    assert company["status"] == "completed"
+    assert company["trace_count"] == 120
+    assert set(company["workflow_counts"]) >= set(COMPANY_WORKFLOWS)
+    assert set(company["failure_counts"]) >= set(PILOT_JUDGE_FAILURE_MODES)
+    assert report["trace_count"] == 128
+    assert report["validations"]["checks"]["company_simulation_volume_met"] is True
+    assert report["validations"]["checks"]["company_simulation_workflow_coverage"] is True
+    assert report["validations"]["checks"]["company_simulation_failure_coverage"] is True
+    assert report["validations"]["checks"]["company_simulation_eval_scale"] is True
+    traces = store.search_traces(
+        DEFAULT_PROJECT_ID,
+        filters={"environment": "synthetic-company"},
+        limit=5,
+    )
+    assert traces
