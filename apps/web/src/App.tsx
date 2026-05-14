@@ -227,6 +227,16 @@ export function App() {
     if (!loaded[0]) setDetail(null);
   }
 
+  const viewOrder: ViewKey[] = [
+    "traces", "issues", "reviews", "judges", "behaviors",
+    "automations", "datasets", "prompts", "configs", "mcp", "ops"
+  ];
+  const activeIndex = viewOrder.indexOf(activeView);
+  const pageNum = String(activeIndex + 1).padStart(2, "0");
+  const totalPages = String(viewOrder.length).padStart(2, "0");
+
+  const errorCount = traces.filter((t) => t.status === "error").length;
+
   return (
     <main className="shell">
       <aside className="sidebar">
@@ -238,17 +248,17 @@ export function App() {
           </div>
         </div>
         <nav className="nav">
-          <NavButton icon={<FileSearch />} label="Traces" active={activeView === "traces"} onClick={() => setActiveView("traces")} />
-          <NavButton icon={<AlertTriangle />} label="Issues" active={activeView === "issues"} onClick={() => setActiveView("issues")} />
-          <NavButton icon={<CheckCircle2 />} label="Reviews" active={activeView === "reviews"} onClick={() => setActiveView("reviews")} />
-          <NavButton icon={<Braces />} label="Judges" active={activeView === "judges"} onClick={() => setActiveView("judges")} />
-          <NavButton icon={<GitBranch />} label="Behaviors" active={activeView === "behaviors"} onClick={() => setActiveView("behaviors")} />
-          <NavButton icon={<Play />} label="Automations" active={activeView === "automations"} onClick={() => setActiveView("automations")} />
-          <NavButton icon={<Database />} label="Datasets" active={activeView === "datasets"} onClick={() => setActiveView("datasets")} />
-          <NavButton icon={<Split />} label="Prompts" active={activeView === "prompts"} onClick={() => setActiveView("prompts")} />
-          <NavButton icon={<KeyRound />} label="Configs" active={activeView === "configs"} onClick={() => setActiveView("configs")} />
-          <NavButton icon={<Network />} label="MCP" active={activeView === "mcp"} onClick={() => setActiveView("mcp")} />
-          <NavButton icon={<Shield />} label="Ops" active={activeView === "ops"} onClick={() => setActiveView("ops")} />
+          <NavButton num="01" label="Traces" active={activeView === "traces"} onClick={() => setActiveView("traces")} />
+          <NavButton num="02" label="Issues" active={activeView === "issues"} onClick={() => setActiveView("issues")} />
+          <NavButton num="03" label="Reviews" active={activeView === "reviews"} onClick={() => setActiveView("reviews")} />
+          <NavButton num="04" label="Judges" active={activeView === "judges"} onClick={() => setActiveView("judges")} />
+          <NavButton num="05" label="Behaviors" active={activeView === "behaviors"} onClick={() => setActiveView("behaviors")} />
+          <NavButton num="06" label="Automations" active={activeView === "automations"} onClick={() => setActiveView("automations")} />
+          <NavButton num="07" label="Datasets" active={activeView === "datasets"} onClick={() => setActiveView("datasets")} />
+          <NavButton num="08" label="Prompts" active={activeView === "prompts"} onClick={() => setActiveView("prompts")} />
+          <NavButton num="09" label="Configs" active={activeView === "configs"} onClick={() => setActiveView("configs")} />
+          <NavButton num="10" label="MCP" active={activeView === "mcp"} onClick={() => setActiveView("mcp")} />
+          <NavButton num="11" label="Ops" active={activeView === "ops"} onClick={() => setActiveView("ops")} />
         </nav>
         <div className="connectionBox">
           <label>
@@ -266,20 +276,23 @@ export function App() {
         <header className="topbar">
           <div>
             <p className="sectionLabel">{activeView}</p>
-            <h2>{viewTitle(activeView)}</h2>
+            <span className="pageNum"><b>{pageNum}</b> / {totalPages}</span>
           </div>
           <div className="topbarControls">
-            <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
-              {projects.map((project) => (
-                <option key={project.project_id} value={project.project_id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-            <button className="primaryButton" onClick={() => void refreshTraces()}>
-              <TimerReset size={16} />
-              Refresh
-            </button>
+            <h2>{viewTitle(activeView)}</h2>
+            <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+              <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
+                {projects.map((project) => (
+                  <option key={project.project_id} value={project.project_id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+              <button className="primaryButton" onClick={() => void refreshTraces()}>
+                <TimerReset size={16} />
+                Refresh
+              </button>
+            </div>
           </div>
         </header>
 
@@ -372,6 +385,28 @@ export function App() {
           />
         )}
       </section>
+      <footer className="statusBar">
+        <span className="statusItem">
+          <span className={`statusDot ${connection}`} />
+          <b>{connection === "live" ? "LIVE" : connection === "fixture" ? "FIXTURE" : "CONNECTING"}</b>
+        </span>
+        <span className="statusItem">
+          ~/proj/<b>{projects.find((p) => p.project_id === projectId)?.name ?? projectId}</b>
+        </span>
+        <span className="statusItem">
+          <b>{traces.length}</b> traces
+          {errorCount > 0 ? <>{" · "}<b>{errorCount}</b> errors</> : null}
+        </span>
+        <span className="statusItem right">
+          <kbd>/</kbd> search
+        </span>
+        <span className="statusItem right">
+          <kbd>r</kbd> refresh
+        </span>
+        <span className="statusItem right">
+          <kbd>?</kbd> help
+        </span>
+      </footer>
     </main>
   );
 }
@@ -6172,11 +6207,11 @@ function scaffoldRows(view: ViewKey) {
   return shared[view];
 }
 
-function NavButton(props: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
+function NavButton(props: { num: string; label: string; active: boolean; onClick: () => void }) {
   return (
     <button className={props.active ? "active" : ""} onClick={props.onClick}>
-      {props.icon}
-      {props.label}
+      <span className="navNum">{props.num}</span>
+      <span className="navLabel">{props.label}</span>
     </button>
   );
 }
