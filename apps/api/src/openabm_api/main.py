@@ -3062,7 +3062,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             auth_dependency(
                 [
                     "agent_configs:write",
+                    "automations:write",
                     "behaviors:write",
+                    "datasets:write",
                     "judges:write",
                     "prompts:write",
                     "reviews:write",
@@ -5519,6 +5521,51 @@ def _execute_automation_action_once(
                 }
             )
             return {**planned, "status": "succeeded", "result": task}
+        if action_type == "route_tool":
+            agent_config_id = action.get("agent_config_id")
+            route = action.get("route") or {}
+            if not agent_config_id or not route:
+                return {
+                    **planned,
+                    "status": "skipped",
+                    "reason": "missing agent config or route",
+                }
+            config = store.get_agent_config(project_id, str(agent_config_id))
+            if config is None:
+                config = store.create_agent_config(
+                    {
+                        "agent_config_id": str(agent_config_id),
+                        "project_id": project_id,
+                        "name": f"Route: {agent_config_id}",
+                        "config_type": "routing_override",
+                    }
+                )
+            version = store.commit_agent_config_version(
+                project_id,
+                config["agent_config_id"],
+                content={
+                    "kind": "routing_override",
+                    "source": "automation",
+                    "source_now_event_id": action.get("source_now_event_id"),
+                    "source_trace_ids": [trace_id] if trace_id else [],
+                    "route": route,
+                },
+                metadata={
+                    "source": "automation",
+                    "trigger_trace_id": trace_id,
+                    "idempotency_key": planned.get("idempotency_key"),
+                },
+                tag="route-active",
+            )
+            return {
+                **planned,
+                "status": "succeeded",
+                "result": {
+                    "agent_config_id": config["agent_config_id"],
+                    "agent_config_version_id": version["agent_config_version_id"],
+                    "commit_id": version["commit_id"],
+                },
+            }
         if action_type == "rollback_review_task":
             review_task_id = _rollback_review_task_id(planned)
             if review_task_id is None:

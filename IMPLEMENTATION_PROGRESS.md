@@ -1486,3 +1486,44 @@ Implemented in this pass:
 - Remaining UX-direction gap after this slice: `raise_threshold`, dataset
   pinning/eval-finished events, and automatic route creation for "always apply"
   recommendations still need first-class producers/executors.
+- Closed the remaining known UX-direction Now-loop action gaps:
+  - repeated false-positive judge review decisions now produce `raise_threshold`
+    events when the judge definition exposes a confidence threshold; approval
+    commits a new judge version with the raised threshold and verification
+    closes only after the new version is visible.
+  - pinned/bookmarked traces now produce `create_dataset` events; approval
+    creates a regression dataset and imports each pinned trace as an example.
+  - completed eval runs with failing examples now produce `eval_finished`
+    events that queue review tasks with failed offline trace evidence attached.
+  - `route_tool` recommendations are now marked `always_apply`; approval still
+    commits the routing override and also creates an active Route/automation
+    artifact that can execute the same route action for future matching traces.
+- Tightened the UI alignment pass:
+  - Routes now live in the Library zone as learned artifacts from approved
+    recommendations.
+  - Reviews no longer exposes a manual refresh button in the WORK zone; it
+    updates from live API loads and filter changes like the other daily-work
+    surfaces.
+  - Now provenance notes now explain created datasets, raised judge thresholds,
+    and saved always-on routes.
+- Added integration coverage proving the remaining UX-direction actions execute
+  end to end: pinned traces -> dataset, judge false positives -> raised
+  threshold version, eval finished with failures -> review task, and route
+  approval -> always-on Route that can run successfully.
+- Verification so far:
+  - targeted Now/contracts regression: passed (`11 passed`).
+  - linter over touched Python paths: passed.
+  - `make ci`: passed with 109 pytest tests, contract checks, docs link checks,
+    and the web TypeScript/Vite build.
+  - Static frontend audit still reports only the known Web Blob API false
+    positives in download helpers.
+  - Chrome/Playwright live check against seeded `/tmp/openabm-ux-final.sqlite3`
+    rendered 8 Now events, showed `Apply route`, `Disable judge`, `Review
+    failures`, `Add behavior`, `Raise threshold`, and `Create dataset` actions,
+    kept Routes in Library rather than Settings, showed no Now refresh button,
+    had no desktop/mobile horizontal overflow, and verified a live `Raise
+    threshold` click advanced the row to verification with provenance.
+- Remaining before calling the UX-direction goal complete: commit/push, remote
+  CI, and a stricter whole-document audit of command-palette parity and bulk
+  selection across secondary list surfaces. The core Now state machine and the
+  previously documented action gaps are covered by executable tests.

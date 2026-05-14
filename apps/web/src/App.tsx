@@ -162,13 +162,13 @@ const NAV_ZONES: Array<{ label: string; views: Array<{ key: ViewKey; label: stri
       { key: "judges", label: "Judges" },
       { key: "datasets", label: "Datasets" },
       { key: "prompts", label: "Prompts" },
-      { key: "configs", label: "Configs" }
+      { key: "configs", label: "Configs" },
+      { key: "routes", label: "Routes" }
     ]
   },
   {
     label: "SETTINGS",
     views: [
-      { key: "routes", label: "Routes" },
       { key: "mcp", label: "MCP" },
       { key: "ops", label: "Ops" }
     ]
@@ -6433,9 +6433,6 @@ function ReviewQueue(props: {
             <option value="affected_entity">affected entity</option>
             <option value="root_cause_candidate">root cause candidate</option>
           </select>
-          <button className="iconButton" onClick={() => void loadTasks()} aria-label="Refresh reviews">
-            <TimerReset size={16} />
-          </button>
         </div>
         <div className="reviewRows">
           {tasks.map((task) => (
@@ -6796,6 +6793,10 @@ function nowRecordStateNote(record: NowEventRecord) {
   }
   if (operation === "commit_agent_config_version") {
     const commit = stringFromValue(latest?.commit_id);
+    const automationId = stringFromValue(latest?.automation_id);
+    if (commit && automationId) {
+      return `Applied route override ${commit} and saved always-on route ${automationId}.`;
+    }
     return commit
       ? `Applied route override ${commit}; watching for recurrence.`
       : "Applied route override; watching for recurrence.";
@@ -6818,11 +6819,27 @@ function nowRecordStateNote(record: NowEventRecord) {
       ? `Judge ${judgeId} disabled pending recalibration.`
       : "Judge disabled pending recalibration.";
   }
+  if (operation === "commit_judge_version") {
+    const judgeId = stringFromValue(latest?.judge_id);
+    const thresholdValue = latest?.proposed_threshold;
+    const threshold = typeof thresholdValue === "number"
+      ? thresholdValue.toFixed(2)
+      : stringFromValue(thresholdValue);
+    return judgeId && threshold
+      ? `Judge ${judgeId} threshold raised to ${threshold}.`
+      : "Judge threshold raised in a new version.";
+  }
   if (operation === "commit_prompt_version") {
     const commit = stringFromValue(latest?.commit_id);
     return commit
       ? `Prompt reverted into ${commit} and tagged for production.`
       : "Prompt reverted into a new tagged version.";
+  }
+  if (operation === "create_dataset") {
+    const datasetId = stringFromValue(latest?.dataset_id);
+    return datasetId
+      ? `Dataset ${datasetId} created from pinned traces.`
+      : "Dataset created from pinned traces.";
   }
   if (verificationStatus === "awaiting_reviews") {
     return "Waiting on review task decisions before closing.";

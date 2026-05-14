@@ -1932,6 +1932,216 @@ def test_now_events_execute_library_recommendations(tmp_path) -> None:
     assert audit_rows(client, "disable_judge")
 
 
+def test_now_events_execute_remaining_ux_direction_recommendations(tmp_path) -> None:
+    client = make_client(tmp_path)
+    store = client.app.state.store
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    pinned_a = _clone_trace_fixture(
+        fixture,
+        trace_id="trace_pinned_refund_a",
+        session_id="session_pinned_refund_a",
+        span_id_map={
+            "span_wrong_tool_root": "span_pinned_refund_a_root",
+            "span_wrong_tool_order_lookup": "span_pinned_refund_a_order_lookup",
+        },
+        summary="Pinned refund trace for regression coverage.",
+    )
+    pinned_b = _clone_trace_fixture(
+        fixture,
+        trace_id="trace_pinned_refund_b",
+        session_id="session_pinned_refund_b",
+        span_id_map={
+            "span_wrong_tool_root": "span_pinned_refund_b_root",
+            "span_wrong_tool_order_lookup": "span_pinned_refund_b_order_lookup",
+        },
+        summary="Bookmarked refund trace for regression coverage.",
+    )
+    for pinned in [pinned_a, pinned_b]:
+        pinned["trace"]["tags"] = [*pinned["trace"].get("tags", []), "pinned"]
+        pinned["trace"]["attributes"] = {
+            **pinned["trace"].get("attributes", {}),
+            "openabm.pinned": True,
+        }
+
+    response = client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={
+            "traces": [fixture["trace"], pinned_a["trace"], pinned_b["trace"]],
+            "spans": [*fixture["spans"], *pinned_a["spans"], *pinned_b["spans"]],
+        },
+    )
+    assert response.status_code == 207
+
+    judge = store.create_judge(
+        {
+            "project_id": "proj_demo",
+            "judge_id": "judge_refund_precision",
+            "name": "Refund precision judge",
+            "judge_type": "rubric_judge",
+            "status": "active",
+        },
+        definition={
+            "judge_id": "judge_refund_precision",
+            "judge_type": "rubric_judge",
+            "confidence_threshold": 0.7,
+        },
+        created_by="test",
+    )
+    for index, trace_id in enumerate(["trace_pinned_refund_a", "trace_pinned_refund_b"]):
+        store.create_review_task(
+            {
+                "project_id": "proj_demo",
+                "task_type": "judge_output",
+                "source_entity_type": "judge",
+                "source_entity_id": judge["judge_id"],
+                "status": "resolved",
+                "decision_nullable": "false_positive",
+                "notes_nullable": f"false-positive calibration sample {index}",
+                "evidence_ids": [trace_id],
+            }
+        )
+
+    dataset = store.create_dataset("proj_demo", "Finished eval dataset")
+    example = store.add_trace_to_dataset(
+        "proj_demo",
+        dataset["dataset_id"],
+        "trace_wrong_tool",
+        labels=["refund"],
+        created_from="test",
+    )
+    eval_run = store.create_eval_run(
+        "proj_demo",
+        dataset["latest_version_id"],
+        {"type": "test"},
+        [{"judge_id": "judge_eval_finished"}],
+    )
+    store.record_eval_result(
+        "proj_demo",
+        eval_run["eval_run_id"],
+        example["dataset_example_id"],
+        "succeeded",
+        [
+            {
+                "score_id": "score_eval_finished_failure",
+                "judge_id": "judge_eval_finished",
+                "status": "succeeded",
+                "value": {"verdict": "fail"},
+            }
+        ],
+        offline_trace_id="trace_wrong_tool",
+    )
+    store.complete_eval_run(
+        "proj_demo",
+        eval_run["eval_run_id"],
+        {
+            "total_examples": 1,
+            "result_status_counts": {"succeeded": 1},
+            "score_verdict_counts": {"fail": 1},
+            "assertion_status_counts": {},
+            "unsupported_judge_ids": [],
+            "llm_calls": 0,
+        },
+    )
+
+    listed = client.get(
+        "/v1/now/events",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert listed.status_code == 200
+    events = listed.json()["data"]
+
+    dataset_event = next(
+        event for event in events if event["recommendation"]["type"] == "create_dataset"
+    )
+    assert dataset_event["target_view"] == "datasets"
+    approved_dataset = client.post(
+        f"/v1/now/events/{dataset_event['now_event_id']}/advance",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "action": "approve"},
+    )
+    assert approved_dataset.status_code == 200
+    dataset_action = approved_dataset.json()["action_results"][0]
+    assert dataset_action["operation"] == "create_dataset"
+    verified_dataset = client.post(
+        f"/v1/now/events/{dataset_event['now_event_id']}/advance",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "action": "verify"},
+    )
+    assert verified_dataset.json()["stage"] == "close"
+    examples = store.list_dataset_examples("proj_demo", dataset_action["dataset_id"])
+    assert {example["source_trace_id"] for example in examples} == {
+        "trace_pinned_refund_a",
+        "trace_pinned_refund_b",
+    }
+
+    threshold_event = next(
+        event for event in events if event["recommendation"]["type"] == "raise_threshold"
+    )
+    approved_threshold = client.post(
+        f"/v1/now/events/{threshold_event['now_event_id']}/advance",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "action": "approve"},
+    )
+    assert approved_threshold.status_code == 200
+    threshold_action = approved_threshold.json()["action_results"][0]
+    assert threshold_action["operation"] == "commit_judge_version"
+    verified_threshold = client.post(
+        f"/v1/now/events/{threshold_event['now_event_id']}/advance",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "action": "verify"},
+    )
+    assert verified_threshold.json()["stage"] == "close"
+    latest_judge = store.get_judge("proj_demo", judge["judge_id"])
+    assert latest_judge["versions"][0]["definition"]["confidence_threshold"] == 0.75
+
+    eval_event = next(
+        event for event in events if event["event_type"] == "eval_finished"
+    )
+    approved_eval = client.post(
+        f"/v1/now/events/{eval_event['now_event_id']}/advance",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "action": "approve"},
+    )
+    assert approved_eval.status_code == 200
+    assert approved_eval.json()["action_results"][0]["operation"] == "create_review_task"
+    assert approved_eval.json()["target_view"] == "datasets"
+
+    route_event = next(
+        event for event in events if event["recommendation"]["type"] == "route_tool"
+    )
+    approved_route = client.post(
+        f"/v1/now/events/{route_event['now_event_id']}/advance",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "action": "approve"},
+    )
+    assert approved_route.status_code == 200
+    route_action = approved_route.json()["action_results"][0]
+    assert route_action["operation"] == "commit_agent_config_version"
+    assert route_action["always_apply"] is True
+    automation = client.get(
+        f"/v1/automations/{route_action['automation_id']}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert automation.status_code == 200
+    assert automation.json()["actions"][0]["type"] == "route_tool"
+
+    run = client.post(
+        f"/v1/automations/{route_action['automation_id']}/run",
+        headers=auth_headers(),
+        json={
+            "project_id": "proj_demo",
+            "trace_id": "trace_wrong_tool",
+            "idempotency_key": "now-route-test",
+        },
+    )
+    assert run.status_code == 201
+    assert run.json()["status"] == "succeeded"
+    assert run.json()["action_results"][0]["status"] == "succeeded"
+
+
 def test_v1_model_backed_judge_draft_requires_review(tmp_path, monkeypatch) -> None:
     class StubProvider:
         async def structured_completion(self, request, schema):

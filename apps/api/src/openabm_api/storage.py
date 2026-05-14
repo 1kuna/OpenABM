@@ -394,6 +394,7 @@ def _now_recommendation_for_signature(
                 "override sends future refund-shaped requests to lookup_order_v2."
             ),
             "executor": "agent_config",
+            "always_apply": True,
             "route": {
                 "intent": "refund",
                 "avoid_tool": "lookup_order",
@@ -414,6 +415,32 @@ def _now_recommendation_for_signature(
         ),
         "executor": "review_task",
     }
+
+
+def _route_conditions(route: dict[str, Any]) -> dict[str, Any]:
+    match = route.get("match") or {}
+    intent = route.get("intent") or match.get("intent")
+    items: list[dict[str, Any]] = []
+    if intent:
+        items.extend(
+            [
+                {"field": "attributes.intent", "op": "eq", "value": intent},
+                {"field": "attributes.workflow", "op": "eq", "value": intent},
+            ]
+        )
+    for text in match.get("utterance_contains") or []:
+        items.append({"field": "trace.summary", "op": "contains", "value": text})
+    if not items:
+        cluster_key = match.get("cluster_key")
+        if cluster_key:
+            items.append(
+                {
+                    "field": "attributes.openabm.cluster_key",
+                    "op": "eq",
+                    "value": cluster_key,
+                }
+            )
+    return {"combine": "any", "items": items} if items else {"combine": "all", "items": []}
 
 
 def _now_event_primary_label(event: dict[str, Any]) -> str:
@@ -450,6 +477,75 @@ def _eval_failure_trace_ids(results: Iterable[dict[str, Any]]) -> list[str]:
             if trace_id not in trace_ids:
                 trace_ids.append(trace_id)
     return trace_ids
+
+
+def _trace_is_pinned(trace: dict[str, Any]) -> bool:
+    tags = {str(tag).lower() for tag in trace.get("tags") or []}
+    if tags.intersection({"pin", "pinned", "bookmark", "bookmarked"}):
+        return True
+    attributes = trace.get("attributes") or {}
+    for key in [
+        "openabm.pinned",
+        "openabm.bookmarked",
+        "pinned",
+        "bookmarked",
+    ]:
+        value = attributes.get(key)
+        if value is True or value in {"true", "yes", "1"}:
+            return True
+    return False
+
+
+def _definition_confidence_threshold(definition: dict[str, Any]) -> float | None:
+    candidates = [
+        definition.get("confidence_threshold"),
+        definition.get("min_confidence"),
+        definition.get("threshold"),
+    ]
+    thresholds = definition.get("thresholds")
+    if isinstance(thresholds, dict):
+        candidates.extend(
+            [
+                thresholds.get("confidence"),
+                thresholds.get("min_confidence"),
+                thresholds.get("score"),
+            ]
+        )
+    for candidate in candidates:
+        if isinstance(candidate, int | float):
+            return float(candidate)
+    return None
+
+
+def _raise_definition_confidence_threshold(
+    definition: dict[str, Any],
+    proposed_threshold: float,
+) -> dict[str, Any]:
+    updated = dict(definition)
+    thresholds = dict(updated.get("thresholds") or {})
+    if "confidence_threshold" in updated:
+        updated["confidence_threshold"] = proposed_threshold
+    elif "min_confidence" in updated:
+        updated["min_confidence"] = proposed_threshold
+    elif "threshold" in updated:
+        updated["threshold"] = proposed_threshold
+    elif "confidence" in thresholds:
+        thresholds["confidence"] = proposed_threshold
+        updated["thresholds"] = thresholds
+    elif "min_confidence" in thresholds:
+        thresholds["min_confidence"] = proposed_threshold
+        updated["thresholds"] = thresholds
+    elif "score" in thresholds:
+        thresholds["score"] = proposed_threshold
+        updated["thresholds"] = thresholds
+    else:
+        thresholds["min_confidence"] = proposed_threshold
+        updated["thresholds"] = thresholds
+    calibration = dict(updated.get("openabm_calibration") or {})
+    calibration["threshold_adjusted_by"] = "now_event"
+    calibration["adjusted_at"] = utc_now()
+    updated["openabm_calibration"] = calibration
+    return updated
 
 
 def _first_eval_verdict(result: dict[str, Any] | None) -> str | None:
@@ -3113,6 +3209,8 @@ class SQLiteStore:
         events = self._derive_now_events(project_id, traces, spans_by_trace, now)
         events.extend(self._derive_behavior_now_events(project_id, now))
         events.extend(self._derive_judge_now_events(project_id, now))
+        events.extend(self._derive_threshold_now_events(project_id, now))
+        events.extend(self._derive_dataset_now_events(project_id, traces, now))
         events.extend(self._derive_eval_regression_now_events(project_id, now))
         for event in events:
             self._upsert_now_event(event, now)
@@ -3185,8 +3283,12 @@ class SQLiteStore:
             action_result = self._apply_now_add_behavior(event, actor_id=actor_id)
         elif recommendation.get("type") == "disable_judge":
             action_result = self._apply_now_disable_judge(event, actor_id=actor_id)
+        elif recommendation.get("type") == "raise_threshold":
+            action_result = self._apply_now_raise_threshold(event, actor_id=actor_id)
         elif recommendation.get("type") == "revert_prompt":
             action_result = self._apply_now_revert_prompt(event, actor_id=actor_id)
+        elif recommendation.get("type") == "create_dataset":
+            action_result = self._apply_now_create_dataset(event, actor_id=actor_id)
         else:
             action_result = self._apply_now_review_task(event, actor_id=actor_id)
 
@@ -3259,6 +3361,40 @@ class SQLiteStore:
                 "created_at": now,
             }
             next_stage = "close" if disabled else "verify"
+        elif recommendation_type == "raise_threshold":
+            latest_action = next(
+                (
+                    result
+                    for result in reversed(event["action_results"])
+                    if result.get("operation") == "commit_judge_version"
+                ),
+                {},
+            )
+            judge_id = latest_action.get("judge_id") or (
+                event["recommendation"].get("judge") or {}
+            ).get("judge_id")
+            judge = self.get_judge(project_id, str(judge_id)) if judge_id else None
+            proposed_threshold = (
+                event["recommendation"].get("judge") or {}
+            ).get("proposed_threshold")
+            version_id = latest_action.get("judge_version_id")
+            threshold_applied = False
+            if judge and isinstance(proposed_threshold, int | float):
+                for version in judge.get("versions", []):
+                    if version_id and version["judge_version_id"] != version_id:
+                        continue
+                    threshold = _definition_confidence_threshold(version["definition"])
+                    if threshold is not None and threshold >= float(proposed_threshold):
+                        threshold_applied = True
+                        break
+            verification = {
+                "status": "passed" if threshold_applied else "watching",
+                "judge_id": judge_id,
+                "judge_version_id": version_id,
+                "proposed_threshold": proposed_threshold,
+                "created_at": now,
+            }
+            next_stage = "close" if threshold_applied else "verify"
         elif recommendation_type == "revert_prompt":
             latest_action = next(
                 (
@@ -3283,6 +3419,31 @@ class SQLiteStore:
                 "created_at": now,
             }
             next_stage = "close" if tag_points_to_commit else "verify"
+        elif recommendation_type == "create_dataset":
+            latest_action = next(
+                (
+                    result
+                    for result in reversed(event["action_results"])
+                    if result.get("operation") == "create_dataset"
+                ),
+                {},
+            )
+            dataset_id = latest_action.get("dataset_id")
+            dataset = self.get_dataset(project_id, str(dataset_id)) if dataset_id else None
+            examples = (
+                self.list_dataset_examples(project_id, str(dataset_id)) if dataset_id else []
+            )
+            example_trace_ids = {example["source_trace_id"] for example in examples}
+            source_trace_ids = set(event.get("source_trace_ids") or [])
+            dataset_complete = bool(dataset and source_trace_ids.issubset(example_trace_ids))
+            verification = {
+                "status": "passed" if dataset_complete else "watching",
+                "dataset_id": dataset_id,
+                "source_trace_ids": sorted(source_trace_ids),
+                "example_trace_ids": sorted(example_trace_ids),
+                "created_at": now,
+            }
+            next_stage = "close" if dataset_complete else "verify"
         else:
             new_matching_trace_ids = self.matching_now_trace_ids_after(
                 project_id,
@@ -3676,6 +3837,218 @@ class SQLiteStore:
             )
         return events
 
+    def _derive_threshold_now_events(self, project_id: str, now: str) -> list[dict[str, Any]]:
+        events = []
+        for judge in self.list_judges(project_id):
+            if judge["status"] == "disabled":
+                continue
+            full_judge = self.get_judge(project_id, judge["judge_id"]) or judge
+            latest_version = (full_judge.get("versions") or [None])[0]
+            if latest_version is None:
+                continue
+            current_threshold = _definition_confidence_threshold(latest_version["definition"])
+            if current_threshold is None:
+                continue
+            report = self.build_judge_calibration_report(project_id, judge["judge_id"])
+            false_positive_reports = int(report.get("false_positive_reports") or 0)
+            if false_positive_reports < 2:
+                continue
+            proposed_threshold = min(0.95, round(current_threshold + 0.05, 4))
+            if proposed_threshold <= current_threshold:
+                continue
+            review_tasks = [
+                task
+                for task in self.list_review_tasks(project_id, task_type="judge_output")
+                if task["source_entity_id"] == judge["judge_id"]
+                and task["decision_nullable"] == "false_positive"
+            ]
+            source_trace_ids = sorted(
+                {
+                    evidence_id
+                    for task in review_tasks
+                    for evidence_id in task.get("evidence_ids") or []
+                    if isinstance(evidence_id, str)
+                }
+            )
+            cluster_key = f"judge_threshold_{_now_slug(judge['judge_id'])}"
+            events.append(
+                {
+                    "now_event_id": _stable_now_id(
+                        "now_event",
+                        project_id,
+                        "judge_threshold",
+                        cluster_key,
+                    ),
+                    "project_id": project_id,
+                    "event_type": "judge_threshold",
+                    "cluster_key": cluster_key,
+                    "title": (
+                        f"judge `{judge['name']}` has "
+                        f"{false_positive_reports} false positives"
+                    ),
+                    "summary": "calibration threshold",
+                    "severity": "high" if false_positive_reports >= 4 else "medium",
+                    "trend": f"{false_positive_reports} false-positive reviews",
+                    "stage": "propose_fix",
+                    "recommendation": {
+                        "type": "raise_threshold",
+                        "label": "Raise threshold",
+                        "summary": (
+                            f"raise confidence threshold from {current_threshold:.2f} "
+                            f"to {proposed_threshold:.2f}"
+                        ),
+                        "explanation": (
+                            "Human review marked repeated judge outputs as false positives; "
+                            "raising the judge confidence threshold reduces future noisy matches."
+                        ),
+                        "executor": "judge_registry",
+                        "judge": {
+                            "judge_id": judge["judge_id"],
+                            "name": judge["name"],
+                            "current_judge_version_id": latest_version["judge_version_id"],
+                            "current_threshold": current_threshold,
+                            "proposed_threshold": proposed_threshold,
+                            "false_positive_reports": false_positive_reports,
+                            "eval_run_ids": report["eval_run_ids"],
+                        },
+                    },
+                    "source_trace_ids": source_trace_ids,
+                    "target_view": "judges",
+                    "action_results": [],
+                    "verification": {},
+                    "applied_at": None,
+                    "closed_at": None,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+        return events
+
+    def _derive_dataset_now_events(
+        self,
+        project_id: str,
+        traces: list[dict[str, Any]],
+        now: str,
+    ) -> list[dict[str, Any]]:
+        events: list[dict[str, Any]] = []
+        existing_dataset_trace_ids = {
+            example["source_trace_id"]
+            for example in self._list_dataset_examples(project_id)
+            if example.get("source_trace_id")
+        }
+        pinned_trace_ids = sorted(
+            {
+                trace["trace_id"]
+                for trace in traces
+                if _trace_is_pinned(trace)
+                and trace["trace_id"] not in existing_dataset_trace_ids
+            }
+        )
+        if pinned_trace_ids:
+            cluster_key = f"pinned_dataset_{_stable_now_id('pin', *pinned_trace_ids)}"
+            events.append(
+                {
+                    "now_event_id": _stable_now_id(
+                        "now_event",
+                        project_id,
+                        "dataset_candidate",
+                        cluster_key,
+                    ),
+                    "project_id": project_id,
+                    "event_type": "dataset_candidate",
+                    "cluster_key": cluster_key,
+                    "title": (
+                        f"{len(pinned_trace_ids)} pinned "
+                        f"{'trace' if len(pinned_trace_ids) == 1 else 'traces'} "
+                        "can become a dataset"
+                    ),
+                    "summary": "pinned trace regression set",
+                    "severity": "medium",
+                    "trend": f"{len(pinned_trace_ids)} pinned",
+                    "stage": "propose_fix",
+                    "recommendation": {
+                        "type": "create_dataset",
+                        "label": "Create dataset",
+                        "summary": "create a regression dataset from pinned traces",
+                        "explanation": (
+                            "Pinned traces already carry the evidence OpenABM needs; "
+                            "approving creates a dataset and imports each trace as an example."
+                        ),
+                        "executor": "dataset_registry",
+                        "dataset": {
+                            "name": "Pinned trace regression set",
+                            "description": "Created from pinned traces in the Now feed.",
+                            "labels": ["pinned", "now_event"],
+                        },
+                    },
+                    "source_trace_ids": pinned_trace_ids,
+                    "target_view": "datasets",
+                    "action_results": [],
+                    "verification": {},
+                    "applied_at": None,
+                    "closed_at": None,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+
+        for run in self.list_eval_runs(project_id)[:5]:
+            if run["status"] != "completed" or not run.get("completed_at"):
+                continue
+            results = self.list_eval_results(project_id, run["eval_run_id"])
+            failed_trace_ids = _eval_failure_trace_ids(results)
+            if not failed_trace_ids:
+                continue
+            total_examples = _total_eval_examples(run.get("summary", {}))
+            passed = int(round(_pass_rate(run.get("summary", {})) * total_examples))
+            cluster_key = f"eval_finished_{_now_slug(run['eval_run_id'])}"
+            events.append(
+                {
+                    "now_event_id": _stable_now_id(
+                        "now_event",
+                        project_id,
+                        "eval_finished",
+                        cluster_key,
+                    ),
+                    "project_id": project_id,
+                    "event_type": "eval_finished",
+                    "cluster_key": cluster_key,
+                    "title": (
+                        f"dataset eval `{run['eval_run_id']}` finished · "
+                        f"{passed}/{total_examples} pass"
+                    ),
+                    "summary": "eval completed with failures",
+                    "severity": "high" if passed < total_examples else "medium",
+                    "trend": f"{len(failed_trace_ids)} failed examples",
+                    "stage": "propose_fix",
+                    "recommendation": {
+                        "type": "create_review_task",
+                        "label": "Review failures",
+                        "summary": "queue failed eval examples for human review",
+                        "explanation": (
+                            "The eval completed with failing examples; approving opens "
+                            "a review task with the failed offline traces already attached."
+                        ),
+                        "executor": "review_task",
+                        "eval": {
+                            "eval_run_id": run["eval_run_id"],
+                            "dataset_version_id": run["dataset_version_id"],
+                            "pass_rate": _pass_rate(run.get("summary", {})),
+                            "failed_trace_ids": failed_trace_ids,
+                        },
+                    },
+                    "source_trace_ids": failed_trace_ids,
+                    "target_view": "datasets",
+                    "action_results": [],
+                    "verification": {},
+                    "applied_at": None,
+                    "closed_at": None,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+        return events
+
     def _derive_eval_regression_now_events(
         self,
         project_id: str,
@@ -3942,8 +4315,17 @@ class SQLiteStore:
             },
             tag="now-approved",
         )
+        automation_id = None
+        if recommendation.get("always_apply"):
+            automation = self._ensure_now_route_automation(
+                event,
+                route=route,
+                agent_config_id=config["agent_config_id"],
+                actor_id=actor_id,
+            )
+            automation_id = automation["automation_id"]
         created_at = utc_now()
-        return {
+        result = {
             "action": "approve",
             "operation": "commit_agent_config_version",
             "status": "applied",
@@ -3952,6 +4334,60 @@ class SQLiteStore:
             "commit_id": version["commit_id"],
             "created_at": created_at,
         }
+        if automation_id:
+            result["automation_id"] = automation_id
+            result["always_apply"] = True
+        return result
+
+    def _ensure_now_route_automation(
+        self,
+        event: dict[str, Any],
+        *,
+        route: dict[str, Any],
+        agent_config_id: str,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        automation_id = _stable_now_id(
+            "automation_now",
+            event["project_id"],
+            event["cluster_key"],
+            "always_apply",
+        )
+        automation = self.get_automation(event["project_id"], automation_id)
+        if automation is not None:
+            return automation
+        automation = self.create_automation(
+            {
+                "automation_id": automation_id,
+                "project_id": event["project_id"],
+                "name": f"Always apply: {event['cluster_key']}",
+                "trigger": {
+                    "type": "trace_completed",
+                    "source": "now_event",
+                    "now_event_id": event["now_event_id"],
+                },
+                "conditions": _route_conditions(route),
+                "actions": [
+                    {
+                        "type": "route_tool",
+                        "route": route,
+                        "agent_config_id": agent_config_id,
+                        "source_now_event_id": event["now_event_id"],
+                    }
+                ],
+                "cooldown": {"seconds": 300, "key": "automation_id + project_id + trace_id"},
+                "status": "active",
+            }
+        )
+        self.append_audit(
+            "create_automation",
+            "automation",
+            event["project_id"],
+            automation["automation_id"],
+            {"source": "now_event", "now_event_id": event["now_event_id"]},
+            actor_id=actor_id,
+        )
+        return automation
 
     def _apply_now_review_task(
         self,
@@ -4057,6 +4493,63 @@ class SQLiteStore:
             "created_at": created_at,
         }
 
+    def _apply_now_raise_threshold(
+        self,
+        event: dict[str, Any],
+        *,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        judge_request = event["recommendation"].get("judge") or {}
+        judge_id = str(judge_request["judge_id"])
+        judge = self.get_judge(event["project_id"], judge_id)
+        if judge is None or not judge.get("versions"):
+            raise KeyError(f"judge not found: {judge_id}")
+        latest_version = judge["versions"][0]
+        proposed_threshold = float(judge_request["proposed_threshold"])
+        current_threshold = _definition_confidence_threshold(latest_version["definition"])
+        if current_threshold is None:
+            raise ValueError("judge definition does not expose a confidence threshold")
+        definition = _raise_definition_confidence_threshold(
+            latest_version["definition"],
+            proposed_threshold,
+        )
+        definition["openabm_calibration"]["now_event_id"] = event["now_event_id"]
+        definition["openabm_calibration"]["previous_judge_version_id"] = latest_version[
+            "judge_version_id"
+        ]
+        version = self.commit_judge_version(
+            event["project_id"],
+            judge_id,
+            definition=definition,
+            created_by=actor_id or "now_event",
+        )
+        self.append_audit(
+            "commit_judge_version",
+            "judge",
+            event["project_id"],
+            judge_id,
+            {
+                "source": "now_event",
+                "operation": "raise_threshold",
+                "now_event_id": event["now_event_id"],
+                "judge_version_id": version["judge_version_id"],
+                "previous_threshold": current_threshold,
+                "proposed_threshold": proposed_threshold,
+            },
+            actor_id=actor_id,
+        )
+        created_at = utc_now()
+        return {
+            "action": "approve",
+            "operation": "commit_judge_version",
+            "status": "applied",
+            "judge_id": judge_id,
+            "judge_version_id": version["judge_version_id"],
+            "previous_threshold": current_threshold,
+            "proposed_threshold": proposed_threshold,
+            "created_at": created_at,
+        }
+
     def _apply_now_revert_prompt(
         self,
         event: dict[str, Any],
@@ -4116,6 +4609,58 @@ class SQLiteStore:
             "prompt_version_id": version["prompt_version_id"],
             "commit_id": version["commit_id"],
             "tag": tag,
+            "created_at": created_at,
+        }
+
+    def _apply_now_create_dataset(
+        self,
+        event: dict[str, Any],
+        *,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        dataset_request = event["recommendation"].get("dataset") or {}
+        labels = [
+            str(label)
+            for label in dataset_request.get("labels") or ["now_event"]
+            if str(label)
+        ]
+        dataset = self.create_dataset(
+            event["project_id"],
+            str(dataset_request.get("name") or f"Now dataset: {event['cluster_key']}"),
+            description=dataset_request.get("description")
+            or f"Created from Now event {event['now_event_id']}.",
+        )
+        examples = []
+        for trace_id in event["source_trace_ids"]:
+            examples.append(
+                self.add_trace_to_dataset(
+                    event["project_id"],
+                    dataset["dataset_id"],
+                    trace_id,
+                    labels=labels,
+                    created_from="now_event",
+                )
+            )
+        self.append_audit(
+            "create_dataset",
+            "dataset",
+            event["project_id"],
+            dataset["dataset_id"],
+            {
+                "source": "now_event",
+                "now_event_id": event["now_event_id"],
+                "source_trace_ids": event["source_trace_ids"],
+            },
+            actor_id=actor_id,
+        )
+        created_at = utc_now()
+        return {
+            "action": "approve",
+            "operation": "create_dataset",
+            "status": "applied",
+            "dataset_id": dataset["dataset_id"],
+            "dataset_version_id": dataset["latest_version_id"],
+            "dataset_example_ids": [example["dataset_example_id"] for example in examples],
             "created_at": created_at,
         }
 
