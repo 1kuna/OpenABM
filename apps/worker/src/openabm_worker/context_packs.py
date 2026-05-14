@@ -91,6 +91,7 @@ async def build_agent_context_pack_content(
                 },
             ],
             "temperature": 0.1,
+            "max_tokens": 8192,
         },
         CONTEXT_PACK_SUMMARY_SCHEMA,
     )

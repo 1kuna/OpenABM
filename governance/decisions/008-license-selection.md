@@ -1,8 +1,10 @@
 # DR-008: License Selection
 
-Status: owner-review-required
+Status: accepted
 
 Date: 2026-05-13
+
+Updated: 2026-05-14
 
 ## Context
 
@@ -10,11 +12,14 @@ OpenABM is intended to be a public open-source project, but adding a license is
 a legal/product choice that should be made by the repository owner rather than
 silently selected by the implementation agent.
 
+On 2026-05-14, Zach delegated the choice and said he did not have a strong
+preference. The default should therefore optimize for low-friction public
+reuse rather than a stronger commercial or network-copyleft strategy.
+
 ## Contract
 
-The repository should not imply an open-source license until a `LICENSE` file is
-committed. Public code, docs, schemas, examples, and assets must remain original
-OpenABM work regardless of license choice.
+The repository license must be explicit in a committed `LICENSE` file. Public
+code, docs, schemas, examples, and assets must remain original OpenABM work.
 
 ## Candidates
 
@@ -34,20 +39,24 @@ OpenABM work regardless of license choice.
 
 ## Decision
 
-Do not add a `LICENSE` file yet. Keep this decision record as the explicit
-placeholder until Zach chooses the license.
+Use MIT as the initial project license.
+
+MIT is the shortest permissive option in the candidate set and fits Zach's
+"I don't really care" direction without creating network-copyleft obligations
+or a more detailed patent posture.
 
 ## Evidence
 
 - The implementation spec requires owner-safe legal/IP boundaries and original
   public artifacts.
-- `IMPLEMENTATION_PROGRESS.md` records the final license file as deferred until
-  owner confirmation.
+- Zach delegated the license choice on 2026-05-14.
+- `LICENSE` now contains the MIT license text.
 - The repository includes governance docs for contribution, conduct, security,
   and decision records without asserting a license grant.
 
 ## Revisit Triggers
 
-- Zach chooses a license.
+- A contributor, downstream user, hosted-service plan, or patent posture requires
+  Apache-2.0, AGPL, or dual-license reconsideration.
 - A first external contributor needs clear contribution/license terms.
 - Packaging, publication, or downstream use requires a concrete license.

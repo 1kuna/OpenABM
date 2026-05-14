@@ -74,6 +74,50 @@ def test_structured_completion_parses_json_without_timeout() -> None:
     assert result["model"] == "local-test"
 
 
+def test_structured_completion_extracts_final_json_after_thinking_text() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        content = """
+Thinking Process:
+The schema example includes {"verdict": "unsure"} but that is not the final
+answer. I will now produce the requested object.
+
+{"verdict": "pass", "evidence_span_ids": ["span_1"]}
+"""
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": content}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 25},
+            },
+        )
+
+    provider = OpenAICompatibleModelProvider(
+        base_url="http://test/v1",
+        chat_model="thinking-local-test",
+        context_length=32768,
+        transport=httpx.MockTransport(handler),
+    )
+    result = asyncio.run(
+        provider.structured_completion(
+            {"messages": [{"role": "user", "content": "judge"}]},
+            {
+                "type": "object",
+                "required": ["verdict", "evidence_span_ids"],
+                "properties": {
+                    "verdict": {"enum": ["pass", "fail", "unsure"]},
+                    "evidence_span_ids": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+        )
+    )
+
+    assert result["status"] == "succeeded"
+    assert result["value"]["verdict"] == "pass"
+    assert result["value"]["evidence_span_ids"] == ["span_1"]
+    assert result["repaired"] is False
+
+
 def test_tool_completion_parses_openai_compatible_tool_calls() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)

@@ -581,8 +581,9 @@ def _with_structured_output_instruction(
     instruction = {
         "role": "system",
         "content": (
-            "Return exactly one JSON object and no markdown. The JSON must validate "
-            "against this schema: "
+            "Return exactly one JSON object and no markdown. Do not include thinking, "
+            "analysis, chain-of-thought, explanations, or preamble in the response. "
+            "The JSON must validate against this schema: "
             + json.dumps(schema, sort_keys=True)
         ),
     }
@@ -644,14 +645,27 @@ def _parse_json(text: str) -> tuple[Any | None, str | None]:
         candidate = candidate.strip("`")
         if candidate.startswith("json"):
             candidate = candidate[4:]
-    start = candidate.find("{")
-    end = candidate.rfind("}")
-    if start >= 0 and end >= start:
-        candidate = candidate[start : end + 1]
     try:
         return json.loads(candidate), None
     except JSONDecodeError as exc:
-        return None, str(exc)
+        direct_error = str(exc)
+
+    decoder = json.JSONDecoder()
+    best_value: Any | None = None
+    best_end = -1
+    for match in re.finditer(r"[\[{]", candidate):
+        start = match.start()
+        try:
+            value, relative_end = decoder.raw_decode(candidate[start:])
+        except JSONDecodeError:
+            continue
+        absolute_end = start + relative_end
+        if absolute_end > best_end:
+            best_value = value
+            best_end = absolute_end
+    if best_value is not None:
+        return best_value, None
+    return None, direct_error
 
 
 def _structured_success(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Annotated
 
@@ -20,6 +21,13 @@ from openabm_worker.model_runtime import model_provider_from_settings
 from openabm_worker.novelty import run_novelty_clustering_benchmark
 from openabm_worker.offline_eval import run_deterministic_eval
 from openabm_worker.retention import run_retention_once
+from openabm_worker.synthetic_pilot import (
+    DEFAULT_PROJECT_ID,
+    DEFAULT_SEED,
+    DEFAULT_TRACE_COUNT,
+    SyntheticPilotConfig,
+    run_synthetic_pilot,
+)
 from rich.console import Console
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -88,6 +96,85 @@ def demo_eval() -> None:
             "summary": run["summary"],
         }
     )
+
+
+@app.command("synthetic-pilot")
+def synthetic_pilot(
+    project_id: Annotated[
+        str,
+        typer.Option(help="Project id to populate with synthetic pilot data."),
+    ] = DEFAULT_PROJECT_ID,
+    trace_count: Annotated[
+        int,
+        typer.Option(help="Number of synthetic real-world-style traces to generate."),
+    ] = DEFAULT_TRACE_COUNT,
+    seed: Annotated[
+        int,
+        typer.Option(help="Deterministic synthetic data seed."),
+    ] = DEFAULT_SEED,
+    output: Annotated[
+        Path,
+        typer.Option(help="Directory for report.json, fixtures.json, and summary.md."),
+    ] = Path(".openabm/synthetic-pilot/latest"),
+    use_model: Annotated[
+        bool,
+        typer.Option("--use-model/--no-use-model", help="Run optional local model semantic lanes."),
+    ] = False,
+    chat_model: Annotated[
+        str | None,
+        typer.Option(help="Optional chat model override for local LM Studio runs."),
+    ] = None,
+    model_base_url: Annotated[
+        str,
+        typer.Option(help="OpenAI-compatible model base URL."),
+    ] = "http://127.0.0.1:1234/v1",
+    max_model_cases: Annotated[
+        int,
+        typer.Option(help="Maximum failure traces used in optional model lanes."),
+    ] = 4,
+) -> None:
+    settings = Settings.from_env()
+    if use_model and chat_model:
+        settings = replace(
+            settings,
+            model_mode="local",
+            model_base_url=model_base_url,
+            chat_model=chat_model,
+            model_context_length=max(32768, settings.model_context_length),
+            max_trace_tokens_for_judge=max(32768, settings.max_trace_tokens_for_judge),
+        )
+    store = SQLiteStore(settings.sqlite_path)
+    provider = None
+    if use_model:
+        try:
+            provider = model_provider_from_settings(settings)
+        except Exception as exc:  # The report records this as a blocked model lane.
+            console.print(
+                {
+                    "model_lane": "blocked",
+                    "reason": str(exc),
+                    "hint": (
+                        "Set OPENABM_MODEL_MODE=local and OPENABM_CHAT_MODEL, "
+                        "or pass --chat-model."
+                    ),
+                }
+            )
+    report = asyncio.run(
+        run_synthetic_pilot(
+            store,
+            settings=settings,
+            config=SyntheticPilotConfig(
+                project_id=project_id,
+                trace_count=trace_count,
+                seed=seed,
+                use_model=use_model,
+                max_model_cases=max_model_cases,
+                output_dir=output,
+            ),
+            model_provider=provider,
+        )
+    )
+    console.print_json(json.dumps(report, sort_keys=True))
 
 
 @bench_app.command("model-runtime")

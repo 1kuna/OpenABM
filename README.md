@@ -16,12 +16,17 @@ live in this repo as original OpenABM artifacts.
 - Operational trace explorer and review UI for the local reference workflow.
 - Governance and decision-record workflow for implementation choices.
 - Docker Compose production-reference deployment contract.
+- Synthetic pilot lab for real-world-style local pressure testing.
 
 ## Non-Goals
 
 - OpenABM is not a vendor clone.
 - OpenABM is not a generic final-answer-only eval dashboard.
 - OpenABM does not require cloud model calls in local development.
+
+## License
+
+OpenABM is released under the MIT License. See `LICENSE`.
 
 ## Development
 
@@ -38,5 +43,15 @@ To deliberately test the local tool-calling lane against the configured model:
 ```bash
 ./scripts/openabm bench agent-flow-smoke
 ```
+
+To run a synthetic real-world-style pilot across the local reference surfaces:
+
+```bash
+./scripts/openabm synthetic-pilot
+```
+
+See `docs/synthetic-pilot.md` for the synthetic/real-pilot boundary and the
+optional LM Studio/Qwen command, including the required 32k+ loaded context
+check.
 
 For self-hosted reference deployment, see `docs/deployment.md`.

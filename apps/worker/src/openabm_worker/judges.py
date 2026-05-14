@@ -122,6 +122,7 @@ async def run_rubric_judge(
                 },
             ],
             "temperature": judge.get("temperature", 0.1),
+            "max_tokens": 8192,
         },
         RUBRIC_JUDGE_OUTPUT_SCHEMA,
     )

@@ -49,9 +49,9 @@ Scaffold-complete local surfaces:
 
 Remaining blockers or explicit non-local-reference work:
 
-- Final license text still needs owner choice before adding a `LICENSE` file.
-- Phase 9 real-world pilots, usability feedback, performance reports, and
-  revisit decisions require real users/workloads.
+- Phase 9A synthetic pilot pressure testing now exists, but Phase 9 real-world
+  pilots, usability feedback, performance reports, and revisit decisions still
+  require real users/workloads.
 - External IdP/OAuth, vendor-specific invite providers, production
   secret-manager adapters, vendor-specific ChatOps connectors, production
   observability backends, and external deployment supervision remain integration
@@ -67,8 +67,12 @@ Remaining blockers or explicit non-local-reference work:
 Current validation gate:
 
 - Latest full implementation gates: `make ci` and `make deploy-config-check`
-  passed after `d048a48`; later audit-only documentation refreshes passed docs
-  link validation before commit.
+  passed locally on 2026-05-14 after the Phase 9A synthetic pilot and model
+  runtime compatibility changes.
+- Phase 9A synthetic pilot canaries passed on 2026-05-14:
+  deterministic local run wrote `.openabm/synthetic-pilot/latest/report.json`,
+  and the LM Studio `qwen3.5-9b-mlx` run with `CONTEXT 32768` completed optional
+  semantic lanes under `.openabm/synthetic-pilot/qwen-32k-contract/report.json`.
 - Remote CI has been checked after each push and remained green; use
   `gh run list --repo 1kuna/OpenABM --branch main --limit 5` for the current
   head run.
@@ -88,13 +92,14 @@ Prompt-to-artifact checklist:
 | Core loop works end to end | Integration tests cover trace ingest/detail, judges, behavior/dataset/eval loop, MCP trace/context-pack access, and reported incident investigation acceptance. | Complete for local fixtures |
 | Security/privacy/ops local reference exists | RBAC/API keys, sessions, invite outbox, encrypted secrets, classified payload/business-dimension/code context exports, retention/export/delete, worker heartbeats, MCP observability, ops status, and deployment contract are implemented. | Complete for local reference |
 | Required decision records exist | Governance records now cover license boundary, storage, search, model runtime, sandbox, local stack, similarity experiments, production deployment, and orchestration. | Complete |
-| Final license file | `governance/decisions/008-license-selection.md` records owner-review-required status. | Blocked on owner choice |
-| Real-world pilot and revisit decisions | Phase 9 requires 5-10 pilots, performance/quality reports, and post-pilot revisits. | Blocked on real users/workloads |
+| Final license file | `LICENSE` contains MIT terms; `governance/decisions/008-license-selection.md` records Zach's delegated low-friction choice. | Complete |
+| Synthetic pilot pressure test | `./scripts/openabm synthetic-pilot` generates real-world-style traces, drives local reference surfaces, and writes ignored local reports under `.openabm/synthetic-pilot/latest`. | Complete for synthetic validation |
+| Real-world pilot and revisit decisions | Phase 9 requires 5-10 real pilots, performance/quality reports, and post-pilot revisits. | Blocked on real users/workloads |
 | External integrations beyond local reference | External IdP/OAuth, vendor-specific invite providers, production secret managers, vendor ChatOps, production observability backends, and deployment supervision are adapter boundaries; generic SMTP invite delivery and local metrics export are implemented. | Deferred until concrete integration target |
 
 ## Phase 0: Product, Legal, And Decision Infrastructure
 
-Status: local-reference complete; final `LICENSE` file blocked on owner choice
+Status: local-reference complete; MIT `LICENSE` file committed
 
 Done:
 
@@ -114,8 +119,8 @@ In this pass:
 - Add similarity-experiment and production-reference deployment decision
   records so the spec's required revisit/evidence gates are represented
   directly instead of only through adjacent search/local-stack records.
-- Add a license-selection decision record that keeps the final `LICENSE` file
-  owner-gated without leaving the legal decision untracked.
+- Add a license-selection decision record and, after Zach delegated the choice,
+  commit MIT as the low-friction permissive default.
 - Source-check the current LangGraph, Deep Agents, and Pi/pi-agent-core project
   surfaces before adding any orchestration dependency; refreshed this read on
   2026-05-13 after Zach clarified the OSS-first preference.
@@ -123,12 +128,12 @@ In this pass:
   dependency review, and Dependabot update tracking, plus a local `make ci`
   target that runs lint, tests, OpenAPI JSON validation, docs link checks, and
   the web build.
-- Leave final license choice pending owner review rather than silently committing
-  legal terms.
+- Keep license revisit triggers documented for future commercial, patent, or
+  copyleft strategy changes.
 
 Skipped or deferred:
 
-- Final license file until Zach confirms the license decision.
+- None for local product/legal scaffolding.
 
 ## Phase 1: Contracts And Fixtures
 
@@ -810,11 +815,42 @@ Done:
 
 ## Phase 9: Real-World Pilot And Revisit Decisions
 
-Status: blocked on real users, owner direction, and pilot workloads
+Status: synthetic pilot lab complete; real pilots still blocked on real users and workloads
+
+Synthetic validation complete:
+
+- Added `apps/worker/src/openabm_worker/synthetic_pilot.py`, a Phase 9A runner
+  that generates real-world-style commerce support traces covering refund,
+  escalation, fulfillment hallucination, checkout loop, prompt-injection, PII,
+  and duplicate-tool replay cases.
+- Added `./scripts/openabm synthetic-pilot` and `make synthetic-pilot`. The
+  command drives real local reference surfaces: auth users/invites, secret refs,
+  preview notification targets, prompt/config/deployment provenance, trace ingest,
+  dimensions, code context, payload metadata, datasets, deterministic evals,
+  eval comparison, behavior backtests, novelty detection, grounding checks,
+  issues, investigations, impact reports, context packs, review tasks,
+  automation runs, retention dry-runs, ops status, and export manifests.
+- Added optional model-backed lanes behind `--use-model --chat-model
+  qwen3.5-9b-mlx` for local LM Studio semantic probes: context-pack summary,
+  investigation assistance, novelty grouping, grounding extraction/adjudication,
+  and a small rubric-judge eval subset. Generation remains no-timeout through
+  the existing OpenAI-compatible local adapter.
+- Verified the optional model lanes against LM Studio `qwen3.5-9b-mlx` loaded
+  with `CONTEXT 32768`. The report at
+  `.openabm/synthetic-pilot/qwen-32k-contract/report.json` completed with
+  `model_lanes.status=completed`, one valid model-assisted investigation draft,
+  model novelty grouping, model grounding extraction/adjudication, and a
+  one-case rubric eval. The novelty and grounding lanes exercise the
+  OpenAI-compatible tool-call adapter, not only freeform JSON output. The
+  grounding lane correctly stayed `needs_review` for the synthetic hallucinated
+  delivery-status case instead of treating the model output as authoritative.
+- Added `docs/synthetic-pilot.md`; reports are written to ignored `.openabm/`
+  paths so synthetic artifacts do not get committed as real pilot evidence.
 
 Blocked:
 
-- Requires real pilot usage and owner direction after the scaffold is runnable.
+- Real Phase 9 completion still requires real pilot usage, real usability
+  feedback, and real workload/performance reports.
 
 ## Running Notes
 
