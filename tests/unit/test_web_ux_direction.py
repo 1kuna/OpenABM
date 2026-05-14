@@ -52,3 +52,18 @@ def test_bulk_selection_styles_are_shared_across_work_lists() -> None:
         ".selectColumn input",
     ]:
         assert token in styles
+
+
+def test_library_create_forms_are_manual_escape_hatches() -> None:
+    source = read_app()
+
+    for token in [
+        "Manual create config",
+        "Manual create prompt",
+        "Manual create behavior",
+        "Manual route setup",
+        "Manual create dataset",
+    ]:
+        assert token in source
+
+    assert ".manualCreateDisclosure" in STYLES.read_text()

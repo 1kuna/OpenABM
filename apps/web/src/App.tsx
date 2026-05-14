@@ -1029,19 +1029,22 @@ function AgentConfigWorkspace(props: {
           </button>
           <span className="systemNote">{stateText}</span>
         </div>
-        <div className="createStrip">
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Config name" />
-          <select value={configType} onChange={(event) => setConfigType(event.target.value)}>
-            <option value="runtime">runtime</option>
-            <option value="workflow">workflow</option>
-            <option value="routing">routing</option>
-            <option value="guardrail">guardrail</option>
-          </select>
-          <button onClick={() => void createConfig()}>
-            <KeyRound size={15} />
-            Create config
-          </button>
-        </div>
+        <details className="manualCreateDisclosure">
+          <summary>Manual create config</summary>
+          <div className="createStrip">
+            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Config name" />
+            <select value={configType} onChange={(event) => setConfigType(event.target.value)}>
+              <option value="runtime">runtime</option>
+              <option value="workflow">workflow</option>
+              <option value="routing">routing</option>
+              <option value="guardrail">guardrail</option>
+            </select>
+            <button onClick={() => void createConfig()}>
+              <KeyRound size={15} />
+              Create config
+            </button>
+          </div>
+        </details>
         <div className="configRows">
           {configs.map((config) => (
             <button
@@ -3329,14 +3332,17 @@ function PromptRegistryWorkspace(props: {
           </button>
           <span className="systemNote">{stateText}</span>
         </div>
-        <div className="createStrip">
-          <input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Prompt name" />
-          <input value={newDescription} onChange={(event) => setNewDescription(event.target.value)} placeholder="Description" />
-          <button onClick={() => void createPrompt()}>
-            <Split size={15} />
-            Create prompt
-          </button>
-        </div>
+        <details className="manualCreateDisclosure">
+          <summary>Manual create prompt</summary>
+          <div className="createStrip">
+            <input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Prompt name" />
+            <input value={newDescription} onChange={(event) => setNewDescription(event.target.value)} placeholder="Description" />
+            <button onClick={() => void createPrompt()}>
+              <Split size={15} />
+              Create prompt
+            </button>
+          </div>
+        </details>
         <div className="promptRows">
           {prompts.map((prompt) => (
             <button
@@ -3669,38 +3675,41 @@ function BehaviorWorkspace(props: {
           </button>
           <span className="systemNote">{stateText}</span>
         </div>
-        <div className="behaviorCreate">
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Behavior name" />
-          <input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Description" />
-          <div className="inlineControls">
-            <select value={severity} onChange={(event) => setSeverity(event.target.value)}>
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-              <option value="critical">critical</option>
-            </select>
-            <select value={detectorType} onChange={(event) => setDetectorType(event.target.value)}>
-              <option value="rule">rule</option>
-              <option value="manual_label">manual label</option>
-            </select>
-          </div>
-          {detectorType === "rule" ? (
-            <div className="ruleControls">
-              <input value={ruleField} onChange={(event) => setRuleField(event.target.value)} placeholder="field" />
-              <select value={ruleOp} onChange={(event) => setRuleOp(event.target.value)}>
-                <option value="eq">eq</option>
-                <option value="neq">neq</option>
-                <option value="contains">contains</option>
-                <option value="exists">exists</option>
+        <details className="manualCreateDisclosure">
+          <summary>Manual create behavior</summary>
+          <div className="behaviorCreate">
+            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Behavior name" />
+            <input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Description" />
+            <div className="inlineControls">
+              <select value={severity} onChange={(event) => setSeverity(event.target.value)}>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+                <option value="critical">critical</option>
               </select>
-              <input value={ruleValue} onChange={(event) => setRuleValue(event.target.value)} placeholder="value" />
+              <select value={detectorType} onChange={(event) => setDetectorType(event.target.value)}>
+                <option value="rule">rule</option>
+                <option value="manual_label">manual label</option>
+              </select>
             </div>
-          ) : null}
-          <button onClick={() => void createBehavior()}>
-            <GitBranch size={15} />
-            Create behavior
-          </button>
-        </div>
+            {detectorType === "rule" ? (
+              <div className="ruleControls">
+                <input value={ruleField} onChange={(event) => setRuleField(event.target.value)} placeholder="field" />
+                <select value={ruleOp} onChange={(event) => setRuleOp(event.target.value)}>
+                  <option value="eq">eq</option>
+                  <option value="neq">neq</option>
+                  <option value="contains">contains</option>
+                  <option value="exists">exists</option>
+                </select>
+                <input value={ruleValue} onChange={(event) => setRuleValue(event.target.value)} placeholder="value" />
+              </div>
+            ) : null}
+            <button onClick={() => void createBehavior()}>
+              <GitBranch size={15} />
+              Create behavior
+            </button>
+          </div>
+        </details>
         <div className="behaviorRows">
           {behaviors.map((behavior) => (
             <button
@@ -4084,82 +4093,85 @@ function AutomationWorkspace(props: {
           </button>
           <span className="systemNote">{stateText}</span>
         </div>
-        <div className="automationCreate">
-          <input value={targetName} onChange={(event) => setTargetName(event.target.value)} placeholder="Target name" />
-          <div className="inlineControls">
-            <select value={targetType} onChange={(event) => setTargetType(event.target.value as NotificationTarget["type"])}>
-              <option value="webhook">webhook</option>
-              <option value="chat">chat</option>
-              <option value="email">email</option>
-              <option value="issue_tracker">issue tracker</option>
-              <option value="custom">custom</option>
-            </select>
-            <input value={secretRefs} onChange={(event) => setSecretRefs(event.target.value)} placeholder="secret refs" />
+        <details className="manualCreateDisclosure">
+          <summary>Manual route setup</summary>
+          <div className="automationCreate">
+            <input value={targetName} onChange={(event) => setTargetName(event.target.value)} placeholder="Target name" />
+            <div className="inlineControls">
+              <select value={targetType} onChange={(event) => setTargetType(event.target.value as NotificationTarget["type"])}>
+                <option value="webhook">webhook</option>
+                <option value="chat">chat</option>
+                <option value="email">email</option>
+                <option value="issue_tracker">issue tracker</option>
+                <option value="custom">custom</option>
+              </select>
+              <input value={secretRefs} onChange={(event) => setSecretRefs(event.target.value)} placeholder="secret refs" />
+            </div>
+            <button onClick={() => void createTarget()}>
+              <KeyRound size={15} />
+              Create target
+            </button>
           </div>
-          <button onClick={() => void createTarget()}>
-            <KeyRound size={15} />
-            Create target
-          </button>
-        </div>
-        <div className="automationCreate secondaryCreate">
-          <input value={automationName} onChange={(event) => setAutomationName(event.target.value)} placeholder="Route name" />
-          <div className="inlineControls">
-            <select value={triggerType} onChange={(event) => setTriggerType(event.target.value)}>
-              <option value="trace_completed">trace completed</option>
-              <option value="trace_failed">trace failed</option>
-              <option value="manual_test">manual test</option>
-            </select>
-            <select value={conditionField} onChange={(event) => setConditionField(event.target.value)}>
-              <option value="">Condition optional</option>
-              <option value="trace.status">trace status</option>
-              <option value="trace.environment">trace environment</option>
-              <option value="trace.trace_id">trace id</option>
-              <option value="attributes.openabm.environment">attribute environment</option>
-            </select>
+          <div className="automationCreate secondaryCreate">
+            <input value={automationName} onChange={(event) => setAutomationName(event.target.value)} placeholder="Route name" />
+            <div className="inlineControls">
+              <select value={triggerType} onChange={(event) => setTriggerType(event.target.value)}>
+                <option value="trace_completed">trace completed</option>
+                <option value="trace_failed">trace failed</option>
+                <option value="manual_test">manual test</option>
+              </select>
+              <select value={conditionField} onChange={(event) => setConditionField(event.target.value)}>
+                <option value="">Condition optional</option>
+                <option value="trace.status">trace status</option>
+                <option value="trace.environment">trace environment</option>
+                <option value="trace.trace_id">trace id</option>
+                <option value="attributes.openabm.environment">attribute environment</option>
+              </select>
+            </div>
+            <div className="ruleControls">
+              <select value={conditionOp} onChange={(event) => setConditionOp(event.target.value)}>
+                <option value="eq">eq</option>
+                <option value="neq">neq</option>
+                <option value="contains">contains</option>
+                <option value="exists">exists</option>
+              </select>
+              <input value={conditionValue} onChange={(event) => setConditionValue(event.target.value)} placeholder="condition value" />
+              <select value={previewStatus} onChange={(event) => setPreviewStatus(event.target.value)}>
+                <option value="">Preview any</option>
+                <option value="error">error</option>
+                <option value="ok">ok</option>
+                <option value="timeout">timeout</option>
+                <option value="incomplete">incomplete</option>
+              </select>
+            </div>
+            <div className="inlineControls">
+              <select value={actionType} onChange={(event) => setActionType(event.target.value)}>
+                <option value="create_review_task">create review task</option>
+                <option value="send_notification">send notification</option>
+                <option value="review_and_notification">review and notification</option>
+              </select>
+              <select value={onFailure} onChange={(event) => setOnFailure(event.target.value)}>
+                <option value="stop">stop on failure</option>
+                <option value="continue">continue on failure</option>
+                <option value="compensate">compensate on failure</option>
+              </select>
+            </div>
+            <input value={notificationMessage} onChange={(event) => setNotificationMessage(event.target.value)} placeholder="Notification message" />
+            <div className="inlineControls">
+              <input value={cooldownSeconds} onChange={(event) => setCooldownSeconds(event.target.value)} placeholder="cooldown seconds" />
+              <input value={cooldownKey} onChange={(event) => setCooldownKey(event.target.value)} placeholder="cooldown key" />
+            </div>
+            <input value={retryAttempts} onChange={(event) => setRetryAttempts(event.target.value)} placeholder="retry attempts" />
+            <div className="actionPreview">
+              <strong>Action list</strong>
+              <pre>{JSON.stringify({ trigger: { type: triggerType }, conditions: draftConditions, actions: draftActions }, null, 2)}</pre>
+            </div>
+            <button onClick={() => void createAutomation()}>
+              <Play size={15} />
+              Create route
+            </button>
           </div>
-          <div className="ruleControls">
-            <select value={conditionOp} onChange={(event) => setConditionOp(event.target.value)}>
-              <option value="eq">eq</option>
-              <option value="neq">neq</option>
-              <option value="contains">contains</option>
-              <option value="exists">exists</option>
-            </select>
-            <input value={conditionValue} onChange={(event) => setConditionValue(event.target.value)} placeholder="condition value" />
-            <select value={previewStatus} onChange={(event) => setPreviewStatus(event.target.value)}>
-              <option value="">Preview any</option>
-              <option value="error">error</option>
-              <option value="ok">ok</option>
-              <option value="timeout">timeout</option>
-              <option value="incomplete">incomplete</option>
-            </select>
-          </div>
-          <div className="inlineControls">
-            <select value={actionType} onChange={(event) => setActionType(event.target.value)}>
-              <option value="create_review_task">create review task</option>
-              <option value="send_notification">send notification</option>
-              <option value="review_and_notification">review and notification</option>
-            </select>
-            <select value={onFailure} onChange={(event) => setOnFailure(event.target.value)}>
-              <option value="stop">stop on failure</option>
-              <option value="continue">continue on failure</option>
-              <option value="compensate">compensate on failure</option>
-            </select>
-          </div>
-          <input value={notificationMessage} onChange={(event) => setNotificationMessage(event.target.value)} placeholder="Notification message" />
-          <div className="inlineControls">
-            <input value={cooldownSeconds} onChange={(event) => setCooldownSeconds(event.target.value)} placeholder="cooldown seconds" />
-            <input value={cooldownKey} onChange={(event) => setCooldownKey(event.target.value)} placeholder="cooldown key" />
-          </div>
-          <input value={retryAttempts} onChange={(event) => setRetryAttempts(event.target.value)} placeholder="retry attempts" />
-          <div className="actionPreview">
-            <strong>Action list</strong>
-            <pre>{JSON.stringify({ trigger: { type: triggerType }, conditions: draftConditions, actions: draftActions }, null, 2)}</pre>
-          </div>
-          <button onClick={() => void createAutomation()}>
-            <Play size={15} />
-            Create route
-          </button>
-        </div>
+        </details>
         <div className="automationRows">
           {automations.map((automation) => (
             <button
@@ -4637,14 +4649,17 @@ function DatasetEvalWorkspace(props: {
           </button>
           <span className="systemNote">{stateText}</span>
         </div>
-        <div className="createStrip">
-          <input value={newDatasetName} onChange={(event) => setNewDatasetName(event.target.value)} placeholder="Dataset name" />
-          <input value={newDatasetDescription} onChange={(event) => setNewDatasetDescription(event.target.value)} placeholder="Description" />
-          <button onClick={() => void createDataset()}>
-            <Database size={15} />
-            Create
-          </button>
-        </div>
+        <details className="manualCreateDisclosure">
+          <summary>Manual create dataset</summary>
+          <div className="createStrip">
+            <input value={newDatasetName} onChange={(event) => setNewDatasetName(event.target.value)} placeholder="Dataset name" />
+            <input value={newDatasetDescription} onChange={(event) => setNewDatasetDescription(event.target.value)} placeholder="Description" />
+            <button onClick={() => void createDataset()}>
+              <Database size={15} />
+              Create
+            </button>
+          </div>
+        </details>
         <div className="datasetRows">
           {datasets.map((dataset) => (
             <button

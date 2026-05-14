@@ -2645,6 +2645,35 @@ td span {
   background: var(--black);
 }
 
+.manualCreateDisclosure {
+  border-bottom: 1px solid var(--rule);
+  background: var(--black);
+}
+
+.manualCreateDisclosure summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  color: var(--bone-dim);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.manualCreateDisclosure summary:hover {
+  color: var(--signal);
+}
+
+.manualCreateDisclosure .createStrip,
+.manualCreateDisclosure .behaviorCreate,
+.manualCreateDisclosure .automationCreate {
+  border-bottom: 0;
+}
+
+.manualCreateDisclosure .secondaryCreate {
+  border-top: 1px dashed var(--rule);
+}
+
 .secondaryCreate {
   background: transparent;
   border-top: 1px dashed var(--rule);
@@ -3330,11 +3359,14 @@ td span {
   display: grid;
   place-items: center;
   min-height: 160px;
+  padding: 16px;
+  text-align: center;
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: 0.08em;
   color: var(--dim);
   text-transform: lowercase;
+  overflow-wrap: anywhere;
 }
 
 .emptyState::before {

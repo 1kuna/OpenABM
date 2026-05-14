@@ -124,12 +124,20 @@ Done in the current app slice:
 - Browser QA found and fixed two layout regressions in the slice: clipped Review
   bulk actions in the desktop split panel, and mobile horizontal-nav width
   forcing the workspace off-screen after selecting later tabs.
+- Demoted standalone Library create forms for Configs, Prompts, Behaviors,
+  Routes, and Datasets into collapsed manual escape hatches so catalog pages are
+  read-first and setup remains a byproduct of WORK.
+- Added padding/wrapping to empty states so descriptive empty messages remain
+  readable inside narrow list rails.
 
 Validation for this slice:
 
 - `npm --prefix apps/web run build` passed.
 - `uv run --python 3.12 --extra dev pytest tests/unit/test_web_ux_direction.py`
   passed.
+- `make ci` passed locally after the WORK command/bulk slice.
+- `make deploy-config-check` passed locally after the WORK command/bulk slice.
+- Remote CI run `25891862988` passed for commit `4650008`.
 - Browser QA passed at the default 1280x720 viewport for Now, Investigations,
   Reviews, and Ops Local connection controls.
 - Browser QA passed at a 390x844 mobile viewport for Now, Investigations, and
@@ -141,9 +149,8 @@ Validation for this slice:
 
 Remaining before calling the UX direction complete:
 
-- Full local CI and remote CI after committing/pushing the UX slice.
-- Final audit that secondary LIBRARY/SETTINGS list surfaces do not contradict
-  the UX direction's workflow-first stance.
+- Full local CI and remote CI after committing/pushing the final Library
+  escape-hatch polish.
 
 Prompt-to-artifact checklist:
 
