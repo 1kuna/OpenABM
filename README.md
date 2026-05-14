@@ -57,6 +57,12 @@ departments, days, healthy flows, and expected failure modes:
 ./scripts/openabm synthetic-pilot --company-simulation --company-trace-count 240
 ```
 
+To run the larger deterministic battle-test profile with a spec evidence matrix:
+
+```bash
+./scripts/openabm synthetic-pilot --battle-test-profile
+```
+
 To have a local model generate fake customer-agent conversations and feed those
 back through the same pilot surfaces alongside the company simulator:
 

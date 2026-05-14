@@ -4,7 +4,8 @@ import hashlib
 import json
 import random
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -43,11 +44,13 @@ from openabm_worker.offline_eval import run_eval
 from openabm_worker.retention import run_retention_once
 from openabm_worker.similarity import build_trace_embedding_document
 
-SYNTHETIC_PILOT_VERSION = "2026-05-14.phase9a"
+SYNTHETIC_PILOT_VERSION = "2026-05-14.phase9b"
 DEFAULT_PROJECT_ID = "proj_synthetic_pilot"
 DEFAULT_TRACE_COUNT = 24
 DEFAULT_SEED = 20260514
 DEFAULT_COMPANY_TRACE_COUNT = 240
+DEFAULT_BATTLE_TEST_COMPANY_TRACE_COUNT = 2000
+DEFAULT_BATTLE_TEST_COMPANY_DAYS = 20
 AGENT_CONVERSATION_TOOL_NAME = "submit_synthetic_agent_conversations"
 COMPANY_SYNTHETIC_SOURCE = "synthetic_company_simulator"
 MODEL_GENERATED_SYNTHETIC_SOURCE = "model_generated_agent_conversation"
@@ -85,6 +88,31 @@ PILOT_JUDGE_FAILURE_MODES = (
     "insufficient_evidence",
     "prompt_injection_leak",
 )
+REQUIRED_TRACE_FIXTURE_NAMES = (
+    "happy_path_support_trace",
+    "wrong_tool_failure_trace",
+    "missed_escalation_trace",
+    "tool_loop_trace",
+    "retrieval_miss_trace",
+    "hallucinated_final_answer_trace",
+    "fabricated_business_value_trace",
+    "unsupported_numeric_claim_trace",
+    "malformed_partial_trace",
+    "late_arriving_span_trace",
+    "duplicate_span_update_trace",
+    "large_payload_trace",
+    "redacted_payload_trace",
+    "offline_eval_trace",
+    "external_feedback_trace",
+    "manual_issue_from_screenshot",
+    "issue_with_unknown_seed_trace",
+    "investigation_run_with_matching_cohort",
+    "impact_report_with_affected_entities",
+    "multi_root_trace",
+    "missing_parent_trace",
+    "clock_skew_trace",
+)
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 @dataclass(frozen=True)
@@ -95,6 +123,7 @@ class SyntheticPilotConfig:
     company_simulation: bool = False
     company_trace_count: int = DEFAULT_COMPANY_TRACE_COUNT
     company_days: int = 5
+    battle_test_profile: bool = False
     use_model: bool = False
     max_model_cases: int = 4
     generate_agent_conversations: bool = False
@@ -156,7 +185,7 @@ async def run_synthetic_pilot(
     model_provider: Any | None = None,
 ) -> dict[str, Any]:
     settings = settings or Settings.from_env()
-    config = config or SyntheticPilotConfig()
+    config = _normalize_pilot_config(config or SyntheticPilotConfig())
     if config.trace_count < len(_synthetic_scenarios()):
         raise ValueError("trace_count must cover every synthetic scenario at least once")
 
@@ -335,8 +364,10 @@ async def run_synthetic_pilot(
         ops_status=ops_status,
         generated_conversations=generated_conversations,
         company_simulation=company_simulation,
+        backtest=backtest,
         generation_required=config.generate_agent_conversations,
         company_simulation_required=config.company_simulation,
+        battle_test_profile=config.battle_test_profile,
     )
     report = {
         "run_id": run_id,
@@ -348,6 +379,16 @@ async def run_synthetic_pilot(
         "project_id": config.project_id,
         "trace_count": len(fixtures),
         "seed": config.seed,
+        "battle_test_profile": config.battle_test_profile,
+        "scale_targets": {
+            "company_trace_count": config.company_trace_count,
+            "company_days": config.company_days,
+            "battle_test_company_trace_floor": (
+                DEFAULT_BATTLE_TEST_COMPANY_TRACE_COUNT
+                if config.battle_test_profile
+                else None
+            ),
+        },
         "conversation_generation_mode": (
             "seeded_deterministic_plus_model_generated_agent_conversations"
             if config.generate_agent_conversations
@@ -399,7 +440,8 @@ async def run_synthetic_pilot(
         },
         "results": {
             "behavior_backtest": backtest,
-            "behavior_backtest_match_count": len(backtest_matches),
+            "behavior_backtest_match_count": backtest.get("positive_count", 0),
+            "behavior_backtest_stored_example_count": len(backtest_matches),
             "deterministic_eval_summary": candidate_eval["summary"],
             "eval_comparison": eval_comparison,
             "novelty_metrics": {
@@ -425,8 +467,23 @@ async def run_synthetic_pilot(
             "Collect real user feedback before closing Phase 9.",
         ],
     }
+    report["spec_evidence_matrix"] = _build_spec_evidence_matrix(report)
     _write_artifacts(config.output_dir, report, fixtures)
     return report
+
+
+def _normalize_pilot_config(config: SyntheticPilotConfig) -> SyntheticPilotConfig:
+    if not config.battle_test_profile:
+        return config
+    return replace(
+        config,
+        company_simulation=True,
+        company_trace_count=max(
+            config.company_trace_count,
+            DEFAULT_BATTLE_TEST_COMPANY_TRACE_COUNT,
+        ),
+        company_days=max(config.company_days, DEFAULT_BATTLE_TEST_COMPANY_DAYS),
+    )
 
 
 def _synthetic_scenarios() -> list[SyntheticScenario]:
@@ -675,12 +732,13 @@ def _build_company_simulation(
     rng = random.Random(config.seed + 991)
     templates = _company_workflow_templates()
     failure_modes = list(PILOT_JUDGE_FAILURE_MODES)
+    coverage_plan = _company_coverage_plan(templates, failure_modes)
     fixtures = []
     for index in range(config.company_trace_count):
-        template = templates[index % len(templates)]
-        if index < len(failure_modes):
-            failure_mode = failure_modes[index]
+        if index < len(coverage_plan):
+            template, failure_mode = coverage_plan[index]
         else:
+            template = templates[index % len(templates)]
             failure_mode = _sample_company_failure_mode(rng, template, index)
         runtime = candidate_runtime if failure_mode else baseline_runtime
         fixtures.append(
@@ -709,6 +767,19 @@ def _build_company_simulation(
             }
         ),
     }
+
+
+def _company_coverage_plan(
+    templates: list[dict[str, Any]],
+    failure_modes: list[str],
+) -> list[tuple[dict[str, Any], str | None]]:
+    healthy_cases = [(template, None) for template in templates]
+    failure_cases = [
+        (template, failure_mode)
+        for template in templates
+        for failure_mode in failure_modes
+    ]
+    return [*healthy_cases, *failure_cases]
 
 
 def _sample_company_failure_mode(
@@ -740,12 +811,12 @@ def _fixture_for_company_interaction(
     day_index = index % max(1, config.company_days)
     minute = index % 60
     hour = 8 + (index % 10)
-    started_at = f"2026-05-{14 + day_index:02d}T{hour:02d}:{minute:02d}:00Z"
-    ended_at = (
-        None
-        if failure_mode == "tool_loop"
-        else f"2026-05-{14 + day_index:02d}T{hour:02d}:{minute:02d}:42Z"
+    started_dt = datetime(2026, 5, 14, hour, minute, tzinfo=UTC) + timedelta(
+        days=day_index
     )
+    ended_dt = started_dt + timedelta(seconds=42)
+    started_at = _format_utc_z(started_dt)
+    ended_at = None if failure_mode == "tool_loop" else _format_utc_z(ended_dt)
     scenario_slug = _slugify(f"{workflow}_{template['intent']}_{failure_mode or 'ok'}")
     trace_id = f"trace_company_{config.seed}_{index:04d}_{scenario_slug}"
     root_span_id = f"span_{trace_id}_root"
@@ -846,6 +917,13 @@ def _fixture_for_company_interaction(
             "company_feedback": _company_feedback(template, failure_mode),
         },
     }
+
+
+def _format_utc_z(value: datetime) -> str:
+    return value.astimezone(UTC).replace(microsecond=0).isoformat().replace(
+        "+00:00",
+        "Z",
+    )
 
 
 def _company_tool_output(
@@ -1604,6 +1682,12 @@ def _company_simulation_report(company_simulation: dict[str, Any]) -> dict[str, 
     workflow_counts: dict[str, int] = {}
     department_counts: dict[str, int] = {}
     failure_counts: dict[str, int] = {}
+    workflow_failure_matrix: dict[str, dict[str, int]] = {
+        workflow: {"ok": 0, **{mode: 0 for mode in PILOT_JUDGE_FAILURE_MODES}}
+        for workflow in COMPANY_WORKFLOWS
+    }
+    account_ids: set[str] = set()
+    company_days: set[int] = set()
     for fixture in fixtures:
         trace = fixture["trace"]
         attributes = trace["attributes"]
@@ -1612,8 +1696,25 @@ def _company_simulation_report(company_simulation: dict[str, Any]) -> dict[str, 
         department = str(attributes["department"])
         workflow_counts[workflow] = workflow_counts.get(workflow, 0) + 1
         department_counts[department] = department_counts.get(department, 0) + 1
-        for label in fixture.get("expected", {}).get("behavior_labels", []):
+        account_ids.add(str(attributes.get("account_id")))
+        company_days.add(int(attributes.get("company_day") or 0))
+        labels = fixture.get("expected", {}).get("behavior_labels", [])
+        if not labels:
+            workflow_failure_matrix.setdefault(workflow, {"ok": 0})["ok"] = (
+                workflow_failure_matrix.setdefault(workflow, {"ok": 0}).get("ok", 0) + 1
+            )
+        for label in labels:
             failure_counts[label] = failure_counts.get(label, 0) + 1
+            workflow_failure_matrix.setdefault(workflow, {"ok": 0})[label] = (
+                workflow_failure_matrix.setdefault(workflow, {"ok": 0}).get(label, 0) + 1
+            )
+    expected_pairs = len(COMPANY_WORKFLOWS) * (len(PILOT_JUDGE_FAILURE_MODES) + 1)
+    covered_pairs = sum(
+        1
+        for workflow in COMPANY_WORKFLOWS
+        for state in ("ok", *PILOT_JUDGE_FAILURE_MODES)
+        if workflow_failure_matrix.get(workflow, {}).get(state, 0) > 0
+    )
     return {
         "status": company_simulation.get("status"),
         "trace_count": len(fixtures),
@@ -1622,6 +1723,12 @@ def _company_simulation_report(company_simulation: dict[str, Any]) -> dict[str, 
         "status_counts": status_counts,
         "failure_counts": failure_counts,
         "failure_modes": sorted(failure_counts),
+        "workflow_failure_matrix": workflow_failure_matrix,
+        "workflow_failure_pair_count": covered_pairs,
+        "expected_workflow_failure_pair_count": expected_pairs,
+        "workflow_failure_matrix_complete": covered_pairs == expected_pairs,
+        "unique_account_count": len(account_ids),
+        "company_day_count": len(company_days),
     }
 
 
@@ -2565,21 +2672,47 @@ def _summarize_validations(
     ops_status: dict[str, Any],
     generated_conversations: dict[str, Any],
     company_simulation: dict[str, Any],
+    backtest: dict[str, Any],
     generation_required: bool,
     company_simulation_required: bool,
+    battle_test_profile: bool,
 ) -> dict[str, Any]:
     expected_finding_count = sum(
         1 for fixture in fixtures if fixture["trace"]["status"] != "ok"
     )
     verdict_counts = deterministic_eval["summary"].get("score_verdict_counts", {})
+    fixture_corpus = _fixture_corpus_status()
     checks = {
         "ingested_expected_traces": len(fixtures) >= len(_synthetic_scenarios()),
         "deterministic_eval_surfaced_failures": int(verdict_counts.get("fail", 0)) > 0,
+        "deterministic_eval_dataset_parity": (
+            deterministic_eval["summary"].get("total_examples", 0) == len(fixtures)
+        ),
+        "behavior_backtest_expected_finding_parity": (
+            backtest.get("positive_count") == expected_finding_count
+        ),
         "novelty_candidates_created": bool(novelty_result.get("new_behavior_candidates")),
         "grounding_needs_review": grounding_check["status"] in {"needs_review", "contradicted"},
         "automation_created_review_work": automation_run["status"] == "succeeded",
         "export_redaction_manifest_created": "manifest" in export,
         "ops_status_available": bool(ops_status.get("project_id")),
+        "spec_fixture_corpus_complete": fixture_corpus["complete"],
+        "core_loop_artifacts_created": bool(
+            deterministic_eval.get("eval_run_id")
+            and deterministic_eval.get("baseline_eval_run_id")
+        ),
+        "reported_incident_investigation_artifacts_created": (
+            export.get("manifest", {}).get("sections", {}).get("investigations", {}).get(
+                "count",
+                0,
+            )
+            > 0
+            and export.get("manifest", {}).get("sections", {}).get("impact_reports", {}).get(
+                "count",
+                0,
+            )
+            > 0
+        ),
     }
     if company_simulation_required:
         company_fixtures = company_simulation.get("fixtures", [])
@@ -2588,6 +2721,8 @@ def _summarize_validations(
             fixture["trace"]["attributes"]["workflow"]
             for fixture in company_fixtures
         }
+        company_report = _company_simulation_report(company_simulation)
+        company_trace_ids = [fixture["trace"]["trace_id"] for fixture in company_fixtures]
         checks["company_simulation_volume_met"] = len(company_fixtures) >= 100
         checks["company_simulation_workflow_coverage"] = company_workflows >= set(
             COMPANY_WORKFLOWS
@@ -2595,8 +2730,23 @@ def _summarize_validations(
         checks["company_simulation_failure_coverage"] = company_failure_modes >= set(
             PILOT_JUDGE_FAILURE_MODES
         )
+        checks["company_simulation_workflow_failure_matrix"] = bool(
+            company_report.get("workflow_failure_matrix_complete")
+        )
+        checks["company_simulation_unique_trace_ids"] = len(company_trace_ids) == len(
+            set(company_trace_ids)
+        )
         checks["company_simulation_eval_scale"] = (
             deterministic_eval["summary"].get("total_examples", 0) >= len(company_fixtures)
+        )
+    if battle_test_profile:
+        company_fixtures = company_simulation.get("fixtures", [])
+        checks["battle_test_thousand_scale_met"] = (
+            len(company_fixtures) >= DEFAULT_BATTLE_TEST_COMPANY_TRACE_COUNT
+        )
+        checks["battle_test_company_days_met"] = (
+            _company_simulation_report(company_simulation).get("company_day_count", 0)
+            >= DEFAULT_BATTLE_TEST_COMPANY_DAYS
         )
     if generation_required:
         generated_feedback_actions = generated_conversations.get("feedback_actions", [])
@@ -2618,6 +2768,242 @@ def _summarize_validations(
             "Harness completion means synthetic pressure paths ran and expected issues "
             "were surfaced; it is not real pilot validation."
         ),
+        "fixture_corpus": fixture_corpus,
+    }
+
+
+def _fixture_corpus_status() -> dict[str, Any]:
+    path = REPO_ROOT / "evals" / "golden-fixtures" / "trace_fixtures.json"
+    if not path.exists():
+        return {
+            "complete": False,
+            "path": str(path),
+            "present_count": 0,
+            "required_count": len(REQUIRED_TRACE_FIXTURE_NAMES),
+            "missing": list(REQUIRED_TRACE_FIXTURE_NAMES),
+        }
+    corpus = json.loads(path.read_text())
+    present = {fixture.get("name") for fixture in corpus.get("fixtures", [])}
+    missing = [name for name in REQUIRED_TRACE_FIXTURE_NAMES if name not in present]
+    return {
+        "complete": not missing,
+        "path": str(path.relative_to(REPO_ROOT)),
+        "present_count": len(present),
+        "required_count": len(REQUIRED_TRACE_FIXTURE_NAMES),
+        "missing": missing,
+    }
+
+
+def _build_spec_evidence_matrix(report: dict[str, Any]) -> dict[str, Any]:
+    checks = report["validations"]["checks"]
+    results = report["results"]
+    artifacts = report["artifacts"]
+    backtest_result = results.get("behavior_backtest", {})
+    eval_summary = results.get("deterministic_eval_summary", {})
+    company = results.get("company_simulation", {})
+    generated = results.get("agent_generated_conversations", {})
+    model_lanes = results.get("model_lanes", {})
+    model_eval_summary = model_lanes.get("model_eval_summary", {})
+
+    items = [
+        _spec_gate(
+            "core_product_loop",
+            "Spec 6, 42.1",
+            "Trace-to-behavior-to-dataset-to-offline-eval provenance loop.",
+            "passed_current_run" if checks.get("core_loop_artifacts_created") else "failed",
+            [
+                f"dataset_id={artifacts.get('dataset_id')}",
+                f"candidate_eval_run_id={artifacts.get('candidate_eval_run_id')}",
+                f"behavior_positive_count={backtest_result.get('positive_count')}",
+                f"eval_examples={eval_summary.get('total_examples')}",
+            ],
+            "Synthetic traces prove the mechanics, not real production usefulness.",
+        ),
+        _spec_gate(
+            "reported_incident_investigation",
+            "Spec 42.2",
+            "Manual issue, investigation, impact report, behavior/eval loop, and linked evidence.",
+            (
+                "passed_current_run"
+                if checks.get("reported_incident_investigation_artifacts_created")
+                else "failed"
+            ),
+            [
+                f"issue_id={artifacts.get('issue_id')}",
+                f"investigation_run_id={artifacts.get('investigation_run_id')}",
+                f"impact_report_id={artifacts.get('impact_report_id')}",
+            ],
+            "Root-cause hypotheses are synthetic unless model lanes and real traces are used.",
+        ),
+        _spec_gate(
+            "fixture_corpus",
+            "Spec 38",
+            "Required golden trace fixture corpus exists with named fixture shapes.",
+            (
+                "passed_repo_regression"
+                if report["validations"]["fixture_corpus"]["complete"]
+                else "failed"
+            ),
+            [
+                f"path={report['validations']['fixture_corpus']['path']}",
+                (
+                    "present="
+                    f"{report['validations']['fixture_corpus']['present_count']}/"
+                    f"{report['validations']['fixture_corpus']['required_count']}"
+                ),
+            ],
+            "The current synthetic pilot does not replay every golden malformed-trace fixture.",
+        ),
+        _spec_gate(
+            "workflow_failure_matrix",
+            "Spec 7, 38, 42",
+            "Company-scale traces cover every configured workflow and judge failure mode pair.",
+            (
+                "passed_current_run"
+                if company.get("workflow_failure_matrix_complete")
+                else "not_proven_current_run"
+            ),
+            [
+                f"pairs={company.get('workflow_failure_pair_count')}/"
+                f"{company.get('expected_workflow_failure_pair_count')}",
+                f"company_traces={company.get('trace_count')}",
+                f"company_days={company.get('company_day_count')}",
+            ],
+            (
+                "This is deterministic scenario expansion; organic production "
+                "distribution remains unproven."
+            ),
+        ),
+        _spec_gate(
+            "thousand_scale_profile",
+            "Spec 35, 36, 42",
+            "Large deterministic run reaches the battle-test trace floor.",
+            (
+                "passed_current_run"
+                if checks.get("battle_test_thousand_scale_met")
+                else "not_requested_current_run"
+            ),
+            [
+                f"target={report.get('scale_targets', {}).get('battle_test_company_trace_floor')}",
+                f"company_traces={company.get('trace_count')}",
+            ],
+            "Scale targets are experiments and do not prove production performance.",
+        ),
+        _spec_gate(
+            "model_generated_conversations",
+            "Spec 39, 42",
+            (
+                "Local model uses tool calling to generate synthetic conversations "
+                "that become labels/evals."
+            ),
+            (
+                "passed_current_run"
+                if generated.get("status") == "completed"
+                else "not_requested_current_run"
+            ),
+            [
+                f"status={generated.get('status')}",
+                f"fixture_count={generated.get('fixture_count', 0)}",
+                f"feedback_actions={len(generated.get('feedback_actions', []))}",
+            ],
+            "Generated conversations are useful test pressure, not external user feedback.",
+        ),
+        _spec_gate(
+            "model_semantic_lanes",
+            "Spec 39, 42.2",
+            "Local model lanes produce investigation, novelty, grounding, and rubric-eval signals.",
+            (
+                "passed_current_run"
+                if model_lanes.get("status") == "completed"
+                else "not_requested_current_run"
+            ),
+            [
+                f"status={model_lanes.get('status')}",
+                f"model_eval_examples={model_eval_summary.get('total_examples')}",
+            ],
+            "Local model outputs remain inspectable signals, not ground truth.",
+        ),
+        _spec_gate(
+            "mcp_acceptance",
+            "Spec 29, 42.1",
+            "MCP trace/context access cites IDs and records observations.",
+            "passed_repo_regression",
+            [
+                (
+                    "tests/integration/test_ingest_api.py::"
+                    "test_core_loop_acceptance_preserves_provenance_through_mcp"
+                ),
+            ],
+            (
+                "The synthetic pilot report references the regression test; it "
+                "does not launch an MCP server."
+            ),
+        ),
+        _spec_gate(
+            "privacy_ops_export_retention",
+            "Spec 34, 44",
+            "Classification, export redaction, retention dry-run, and ops status are exercised.",
+            (
+                "passed_current_run"
+                if checks.get("export_redaction_manifest_created")
+                and checks.get("ops_status_available")
+                else "failed"
+            ),
+            [
+                f"retention_status={results.get('retention_status')}",
+                f"export_id={results.get('export_manifest', {}).get('export_id')}",
+                f"ops_worker_risk={results.get('ops_worker_risk')}",
+            ],
+            (
+                "External secret managers and real production observability "
+                "backends remain integration work."
+            ),
+        ),
+        _spec_gate(
+            "ui_usability",
+            "Spec 30, 42",
+            "Trace explorer and review UI behavior.",
+            "not_proven_current_run",
+            ["remote/local CI web build checks compilation only"],
+            "Usability and browser interaction still require a real UI smoke or pilot session.",
+        ),
+        _spec_gate(
+            "real_world_phase_9",
+            "Spec 37 Phase 9",
+            "5-10 real agent-builder pilots, friction log, performance and judge-quality reports.",
+            "blocked_real_pilot",
+            ["next_real_pilot_gate"],
+            "Synthetic runs cannot close this gate.",
+        ),
+    ]
+    summary: dict[str, int] = {}
+    for item in items:
+        summary[item["status"]] = summary.get(item["status"], 0) + 1
+    return {
+        "status_counts": summary,
+        "items": items,
+        "interpretation": (
+            "This matrix records what the current run proves, what is covered by "
+            "repo regression tests, and what remains synthetic-only or blocked."
+        ),
+    }
+
+
+def _spec_gate(
+    gate_id: str,
+    spec_ref: str,
+    claim: str,
+    status: str,
+    evidence: list[str],
+    limitation: str,
+) -> dict[str, Any]:
+    return {
+        "gate_id": gate_id,
+        "spec_ref": spec_ref,
+        "claim": claim,
+        "status": status,
+        "evidence": evidence,
+        "limitation": limitation,
     }
 
 
@@ -2658,6 +3044,12 @@ def _summary_markdown(report: dict[str, Any]) -> str:
                 f"- Trace count: `{company.get('trace_count', 0)}`",
                 f"- Workflows: `{len(company.get('workflow_counts', {}))}`",
                 f"- Failure modes: `{len(company.get('failure_counts', {}))}`",
+                (
+                    "- Workflow/failure pairs: "
+                    f"`{company.get('workflow_failure_pair_count', 0)}/"
+                    f"{company.get('expected_workflow_failure_pair_count', 0)}`"
+                ),
+                f"- Synthetic days: `{company.get('company_day_count', 0)}`",
             ]
         )
     generated = report["results"].get("agent_generated_conversations", {})
@@ -2673,6 +3065,16 @@ def _summary_markdown(report: dict[str, Any]) -> str:
         )
         for scenario in generated.get("scenario_names", []):
             lines.append(f"- Generated scenario: `{scenario}`")
+    lines.extend(
+        [
+            "",
+            "## Spec Evidence Matrix",
+            "",
+        ]
+    )
+    matrix_counts = report.get("spec_evidence_matrix", {}).get("status_counts", {})
+    for status, count in sorted(matrix_counts.items()):
+        lines.append(f"- `{status}`: {count}")
     lines.extend(
         [
             "",

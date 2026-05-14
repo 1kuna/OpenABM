@@ -88,6 +88,18 @@ Current validation gate:
   all company workflow/failure coverage gates, generated feedback converted into
   labels/actions, optional model lanes completed, and zero failed validation
   checks.
+- Battle-test profile validation passed on 2026-05-14. The report at
+  `.openabm/synthetic-pilot/battle-test-2000-v2/report.json` completed with
+  2,008 total traces, 2,000 synthetic company traces, 20 synthetic company days,
+  100/100 workflow/failure pairs, 756 expected findings, 4,237 spans, 4,016 eval
+  results, zero failed validation checks, and a spec evidence matrix that
+  explicitly leaves UI usability and real Phase 9 pilots unproven.
+- Bounded model-backed validation passed on 2026-05-14 with LM Studio
+  `qwen3.6-35b-a3b` loaded at `CONTEXT 32768`. The report at
+  `.openabm/synthetic-pilot/battle-test-model-120/report.json` completed with
+  132 total traces, 120 synthetic company traces, 100/100 workflow/failure
+  pairs, 4 tool-called model-generated conversations, completed model semantic
+  lanes, 106 expected findings, and zero failed validation checks.
 - Remote CI has been checked after each push and remained green; use
   `gh run list --repo 1kuna/OpenABM --branch main --limit 5` for the current
   head run.
@@ -108,7 +120,7 @@ Prompt-to-artifact checklist:
 | Security/privacy/ops local reference exists | RBAC/API keys, sessions, invite outbox, encrypted secrets, classified payload/business-dimension/code context exports, retention/export/delete, worker heartbeats, MCP observability, ops status, and deployment contract are implemented. | Complete for local reference |
 | Required decision records exist | Governance records now cover license boundary, storage, search, model runtime, sandbox, local stack, similarity experiments, production deployment, and orchestration. | Complete |
 | Final license file | `LICENSE` contains MIT terms; `governance/decisions/008-license-selection.md` records Zach's delegated low-friction choice. | Complete |
-| Synthetic pilot pressure test | `./scripts/openabm synthetic-pilot` generates real-world-style traces, `--company-simulation` scales them into synthetic company traffic, and model-generated conversations feed back through the same labels/evals/backtests/review surfaces. Ignored local reports include `.openabm/synthetic-pilot/company-240/report.json` and `.openabm/synthetic-pilot/company-model-120/report.json`. | Complete for synthetic validation |
+| Synthetic pilot pressure test | `./scripts/openabm synthetic-pilot` generates real-world-style traces, `--company-simulation` scales them into synthetic company traffic, `--battle-test-profile` enforces 2,000+ company traces and a workflow/failure matrix, and model-generated conversations feed back through the same labels/evals/backtests/review surfaces. Ignored local reports include `.openabm/synthetic-pilot/battle-test-2000-v2/report.json` and `.openabm/synthetic-pilot/battle-test-model-120/report.json`. | Complete for synthetic validation |
 | Real-world pilot and revisit decisions | Phase 9 requires 5-10 real pilots, performance/quality reports, and post-pilot revisits. | Blocked on real users/workloads |
 | External integrations beyond local reference | External IdP/OAuth, vendor-specific invite providers, production secret managers, vendor ChatOps, production observability backends, and deployment supervision are adapter boundaries; generic SMTP invite delivery and local metrics export are implemented. | Deferred until concrete integration target |
 
@@ -862,6 +874,11 @@ Synthetic validation complete:
   creates healthy and failing traces, tool spans, events, grounding claims,
   account/workflow dimensions, feedback expectations, and acceptance gates for
   workflow/failure-mode coverage at meaningful synthetic scale.
+- Added `--battle-test-profile`, which enforces a larger deterministic
+  synthetic profile with 2,000+ company traces, 20 synthetic company days, unique
+  trace IDs, complete workflow/failure-pair coverage, dataset/eval parity,
+  behavior-backtest expected-finding parity, and a report-level spec evidence
+  matrix.
 - Used feedback from the 2026-05-14 35B canaries to fix the harness instead of
   merely recording a pass/fail: rejected generated tool outputs that smuggled
   evaluator labels into raw evidence, widened the feedback schema when useful
@@ -880,19 +897,26 @@ Synthetic validation complete:
 - Verified the generated-conversation lane against LM Studio `qwen3.6-35b-a3b`
   loaded with `CONTEXT 32768` while the company simulator was enabled. The
   final passing report at
-  `.openabm/synthetic-pilot/company-model-120/report.json` generated 4 organic
-  model-authored customer-agent conversations, applied their feedback to
+  `.openabm/synthetic-pilot/battle-test-model-120/report.json` generated 4
+  organic model-authored customer-agent conversations, applied their feedback to
   labels/backtest/eval, ran optional model semantic lanes, and completed with
   `agent_generated_conversations_ingested=true`,
   `agent_generated_feedback_applied=true`,
   `company_simulation_workflow_coverage=true`,
-  `company_simulation_failure_coverage=true`, 132 ingested traces, 61 expected
+  `company_simulation_failure_coverage=true`,
+  `company_simulation_workflow_failure_matrix=true`, 132 ingested traces, 106 expected
   findings, and zero failed validation checks.
-- Verified the deterministic company-scale canary at
-  `.openabm/synthetic-pilot/company-240/report.json`. It completed with 240
-  synthetic company traces, all 10 company workflows, all 9 judge failure modes,
-  532 spans, 496 deterministic eval results, behavior backtest positives for
-  all expected findings, and zero failed validation checks.
+- Verified the deterministic battle-test profile at
+  `.openabm/synthetic-pilot/battle-test-2000-v2/report.json`. It completed with
+  2,000 synthetic company traces, 20 synthetic company days, all 10 company
+  workflows, all 9 judge failure modes, 100/100 workflow/failure pairs, 4,237
+  spans, 4,016 deterministic eval results, behavior backtest positives for all
+  756 expected findings, and zero failed validation checks.
+- The report-level spec evidence matrix is intentionally not all green. It
+  records current-run proof for the core loop, reported-incident investigation,
+  workflow/failure matrix, thousand-scale profile, and privacy/ops/export paths;
+  repo-regression proof for fixture corpus and MCP acceptance; and explicit
+  non-proof for UI usability and real Phase 9 pilots.
 - Added `docs/synthetic-pilot.md`; reports are written to ignored `.openabm/`
   paths so synthetic artifacts do not get committed as real pilot evidence.
 

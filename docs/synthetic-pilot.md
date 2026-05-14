@@ -21,6 +21,15 @@ Run a scaled synthetic company simulation:
   --output .openabm/synthetic-pilot/company-240
 ```
 
+Run the deterministic battle-test profile:
+
+```bash
+./scripts/openabm synthetic-pilot \
+  --trace-count 8 \
+  --battle-test-profile \
+  --output .openabm/synthetic-pilot/battle-test-2000-v2
+```
+
 Run optional local model semantic lanes against LM Studio:
 
 ```bash
@@ -67,6 +76,9 @@ local reports do not get committed accidentally.
 - Company-scale acceptance gates for at least 100 company traces, every expected
   company workflow, every deterministic judge failure mode, and deterministic
   eval coverage across the full generated set.
+- Battle-test profile gates for at least 2,000 synthetic company traces, at
+  least 20 synthetic company days, unique trace IDs, and complete coverage of
+  every configured workflow/failure pair.
 - Runtime provenance across prompt versions, agent config versions, deployment
   contexts, and tool versions.
 - Auth users, invites, local secret refs, preview notification targets, and
@@ -82,8 +94,24 @@ local reports do not get committed accidentally.
 - Optional Qwen/LM Studio semantic lanes for context-pack summary, investigation
   assistance, novelty grouping, grounding extraction/adjudication, and a small
   rubric-judge eval subset.
+- A spec evidence matrix in each report that separates current-run proof,
+  repo-regression proof, not-requested gates, synthetic-only limits, and real
+  pilot blockers.
 
 ## Latest Local Proof
+
+The 2026-05-14 deterministic battle-test profile at
+`.openabm/synthetic-pilot/battle-test-2000-v2/report.json` completed with
+2,008 total traces, 2,000 synthetic company traces, 20 synthetic company days,
+100/100 workflow/failure pairs, 756 expected findings, 4,237 spans, 4,016 eval
+results, zero failed validation checks, and a spec evidence matrix that still
+marks UI usability and real Phase 9 pilots as unproven.
+
+The 2026-05-14 bounded model-backed canary at
+`.openabm/synthetic-pilot/battle-test-model-120/report.json` completed with
+132 total traces, 120 synthetic company traces, 100/100 workflow/failure pairs,
+4 LM Studio tool-called conversations, completed model semantic lanes, 106
+expected findings, and zero failed validation checks.
 
 The 2026-05-14 scaled canary at
 `.openabm/synthetic-pilot/company-240/report.json` completed with 248 total

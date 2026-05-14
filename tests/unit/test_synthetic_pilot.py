@@ -206,11 +206,27 @@ def test_synthetic_company_simulation_exercises_workflow_and_failure_coverage(
     assert company["trace_count"] == 120
     assert set(company["workflow_counts"]) >= set(COMPANY_WORKFLOWS)
     assert set(company["failure_counts"]) >= set(PILOT_JUDGE_FAILURE_MODES)
+    assert company["workflow_failure_matrix_complete"] is True
+    assert company["workflow_failure_pair_count"] == (
+        len(COMPANY_WORKFLOWS) * (len(PILOT_JUDGE_FAILURE_MODES) + 1)
+    )
     assert report["trace_count"] == 128
     assert report["validations"]["checks"]["company_simulation_volume_met"] is True
     assert report["validations"]["checks"]["company_simulation_workflow_coverage"] is True
     assert report["validations"]["checks"]["company_simulation_failure_coverage"] is True
+    assert report["validations"]["checks"]["company_simulation_workflow_failure_matrix"] is True
+    assert report["validations"]["checks"]["company_simulation_unique_trace_ids"] is True
     assert report["validations"]["checks"]["company_simulation_eval_scale"] is True
+    assert report["validations"]["checks"]["behavior_backtest_expected_finding_parity"] is True
+    assert report["validations"]["fixture_corpus"]["complete"] is True
+    evidence = report["spec_evidence_matrix"]
+    assert evidence["status_counts"]["passed_current_run"] >= 4
+    matrix_gate = next(
+        item
+        for item in evidence["items"]
+        if item["gate_id"] == "workflow_failure_matrix"
+    )
+    assert matrix_gate["status"] == "passed_current_run"
     traces = store.search_traces(
         DEFAULT_PROJECT_ID,
         filters={"environment": "synthetic-company"},

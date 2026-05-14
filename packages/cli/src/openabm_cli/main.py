@@ -22,6 +22,7 @@ from openabm_worker.novelty import run_novelty_clustering_benchmark
 from openabm_worker.offline_eval import run_deterministic_eval
 from openabm_worker.retention import run_retention_once
 from openabm_worker.synthetic_pilot import (
+    DEFAULT_BATTLE_TEST_COMPANY_TRACE_COUNT,
     DEFAULT_COMPANY_TRACE_COUNT,
     DEFAULT_PROJECT_ID,
     DEFAULT_SEED,
@@ -132,6 +133,17 @@ def synthetic_pilot(
         int,
         typer.Option(help="Number of synthetic company days to spread traffic across."),
     ] = 5,
+    battle_test_profile: Annotated[
+        bool,
+        typer.Option(
+            "--battle-test-profile/--no-battle-test-profile",
+            help=(
+                "Enforce the larger synthetic battle-test profile: company simulation, "
+                f"{DEFAULT_BATTLE_TEST_COMPANY_TRACE_COUNT}+ company traces, and "
+                "multi-day workflow/failure matrix coverage."
+            ),
+        ),
+    ] = False,
     use_model: Annotated[
         bool,
         typer.Option("--use-model/--no-use-model", help="Run optional local model semantic lanes."),
@@ -197,6 +209,7 @@ def synthetic_pilot(
                 company_simulation=company_simulation,
                 company_trace_count=company_trace_count,
                 company_days=company_days,
+                battle_test_profile=battle_test_profile,
                 use_model=use_model,
                 max_model_cases=max_model_cases,
                 generate_agent_conversations=generate_conversations,
