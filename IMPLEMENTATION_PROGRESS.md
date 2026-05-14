@@ -104,6 +104,47 @@ Current validation gate:
   `gh run list --repo 1kuna/OpenABM --branch main --limit 5` for the current
   head run.
 
+## UX Direction App Update: 2026-05-14
+
+Status: in progress against `docs/ux-direction.md`
+
+Done in the current app slice:
+
+- Added child-view command registration so WORK drill-down actions from
+  Investigations and Reviews can appear in the canonical command palette.
+- Added bulk selection and bulk actions to the Investigations trace list:
+  select visible traces, add selected traces to a dataset, and clear selection.
+- Added bulk selection and bulk review decisions to Reviews: accept, mark needs
+  evidence, reject, and clear selected tasks.
+- Moved API base URL/key controls out of the global app shell and into the Ops
+  settings surface as Local connection controls.
+- Added `tests/unit/test_web_ux_direction.py` to protect the UX-direction
+  invariants for WORK bulk actions, command registration, no WORK manual refresh
+  gate regression, and Settings-owned connection controls.
+- Browser QA found and fixed two layout regressions in the slice: clipped Review
+  bulk actions in the desktop split panel, and mobile horizontal-nav width
+  forcing the workspace off-screen after selecting later tabs.
+
+Validation for this slice:
+
+- `npm --prefix apps/web run build` passed.
+- `uv run --python 3.12 --extra dev pytest tests/unit/test_web_ux_direction.py`
+  passed.
+- Browser QA passed at the default 1280x720 viewport for Now, Investigations,
+  Reviews, and Ops Local connection controls.
+- Browser QA passed at a 390x844 mobile viewport for Now, Investigations, and
+  Reviews after the responsive nav fix; the trace table keeps horizontal scroll
+  inside its own table wrapper.
+- `python3 /Users/zach/.codex/skills/frontend-product-design/scripts/frontend_static_audit.py apps/web/src/styles.css apps/web/src/App.tsx`
+  returned only false-positive warnings for the JavaScript `Blob` file download
+  API, not decorative blob/orb UI.
+
+Remaining before calling the UX direction complete:
+
+- Full local CI and remote CI after committing/pushing the UX slice.
+- Final audit that secondary LIBRARY/SETTINGS list surfaces do not contradict
+  the UX direction's workflow-first stance.
+
 Prompt-to-artifact checklist:
 
 | Requirement | Evidence | Status |

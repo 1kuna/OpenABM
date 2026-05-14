@@ -194,6 +194,7 @@ export function App() {
   const [similarResult, setSimilarResult] = useState<SimilarTraceSearchResult | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState(new Date().toISOString());
   const [commandOpen, setCommandOpen] = useState(false);
+  const [viewCommands, setViewCommands] = useState<CommandItem[]>([]);
   const [nowActionState, setNowActionState] = useState<Record<string, NowActionState>>({});
   const [serverNowEvents, setServerNowEvents] = useState<NowEventRecord[] | null>(null);
 
@@ -295,6 +296,10 @@ export function App() {
     }, 15000);
     return () => window.clearInterval(timer);
   }, [activeView, refreshTraces]);
+
+  useEffect(() => {
+    setViewCommands([]);
+  }, [activeView]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -475,6 +480,7 @@ export function App() {
       detail: `${traces.length} traces in the current stream`,
       run: () => void openTraceFilter("")
     },
+    ...viewCommands,
     ...nowEvents.flatMap((event) => [
       {
         id: `now:apply:${event.id}`,
@@ -531,16 +537,6 @@ export function App() {
             </div>
           ))}
         </nav>
-        <div className="connectionBox">
-          <label>
-            API
-            <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} />
-          </label>
-          <label>
-            Key
-            <input value={apiKey} onChange={(event) => setApiKey(event.target.value)} type="password" />
-          </label>
-        </div>
       </aside>
 
       <section className="workspace">
@@ -605,9 +601,15 @@ export function App() {
             onCheckSimilarity={() => void checkSimilarity()}
             onOpenPrompts={() => setActiveView("prompts")}
             onOpenConfigs={() => setActiveView("configs")}
+            onCommandsChange={setViewCommands}
           />
         ) : activeView === "reviews" ? (
-          <ReviewQueue client={client} connection={connection} projectId={projectId} />
+          <ReviewQueue
+            client={client}
+            connection={connection}
+            projectId={projectId}
+            onCommandsChange={setViewCommands}
+          />
         ) : activeView === "judges" ? (
           <JudgeWorkspace client={client} connection={connection} projectId={projectId} />
         ) : activeView === "datasets" ? (
@@ -653,7 +655,15 @@ export function App() {
             }}
           />
         ) : activeView === "ops" ? (
-          <OpsWorkspace client={client} connection={connection} projectId={projectId} />
+          <OpsWorkspace
+            client={client}
+            connection={connection}
+            projectId={projectId}
+            baseUrl={baseUrl}
+            apiKey={apiKey}
+            onBaseUrlChange={setBaseUrl}
+            onApiKeyChange={setApiKey}
+          />
         ) : (
           <ScaffoldView
             activeView={activeView}
@@ -1156,8 +1166,12 @@ function OpsWorkspace(props: {
   client: OpenAbmClient;
   connection: ConnectionState;
   projectId: string;
+  baseUrl: string;
+  apiKey: string;
+  onBaseUrlChange: (value: string) => void;
+  onApiKeyChange: (value: string) => void;
 }) {
-  const { client, connection, projectId } = props;
+  const { client, connection, projectId, baseUrl, apiKey, onBaseUrlChange, onApiKeyChange } = props;
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [ready, setReady] = useState<HealthStatus | null>(null);
   const [metricsText, setMetricsText] = useState("");
@@ -1620,6 +1634,33 @@ function OpsWorkspace(props: {
         <p className="systemNote">{stateText}</p>
 
         <div className="opsSections">
+          <section className="opsSection connectionSection">
+            <h4>Local connection</h4>
+            <div className="inlineControls connectionControls">
+              <input
+                value={baseUrl}
+                onChange={(event) => onBaseUrlChange(event.target.value)}
+                aria-label="API base URL"
+              />
+              <input
+                value={apiKey}
+                onChange={(event) => onApiKeyChange(event.target.value)}
+                type="password"
+                aria-label="API key"
+              />
+            </div>
+            <dl className="reviewFacts">
+              <div>
+                <dt>Runtime</dt>
+                <dd>{connectionLabel(connection)}</dd>
+              </div>
+              <div>
+                <dt>Project</dt>
+                <dd>{projectId}</dd>
+              </div>
+            </dl>
+          </section>
+
           <section className="opsSection">
             <h4>Readiness</h4>
             <dl className="reviewFacts">
@@ -5447,9 +5488,11 @@ function TraceExplorer(props: {
   onCheckSimilarity: () => void;
   onOpenPrompts: () => void;
   onOpenConfigs: () => void;
+  onCommandsChange?: (commands: CommandItem[]) => void;
 }) {
   const { traces, detail } = props;
   const [detailMode, setDetailMode] = useState<TraceDetailMode>("timeline");
+  const [selectedTraceIds, setSelectedTraceIds] = useState<Set<string>>(() => new Set());
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
   const [datasets, setDatasets] = useState<DatasetDefinition[]>([]);
   const [savedSearchName, setSavedSearchName] = useState("Current trace search");
@@ -5473,6 +5516,12 @@ function TraceExplorer(props: {
   const selectedSavedSearch = savedSearches.find((item) => item.saved_search_id === selectedSavedSearchId) ?? null;
   const selectedDataset = datasets.find((dataset) => dataset.dataset_id === selectedDatasetId) ?? datasets[0] ?? null;
   const selectedJudge = judgeDefinitions.find((judge) => judge.judge_id === selectedJudgeId) ?? judgeDefinitions[0] ?? null;
+  const selectedVisibleTraceIds = useMemo(
+    () => traces.filter((trace) => selectedTraceIds.has(trace.trace_id)).map((trace) => trace.trace_id),
+    [selectedTraceIds, traces]
+  );
+  const selectedTraceCount = selectedVisibleTraceIds.length;
+  const allVisibleTracesSelected = traces.length > 0 && selectedTraceCount === traces.length;
 
   async function loadTraceListTools() {
     if (props.connection !== "live") {
@@ -5569,6 +5618,172 @@ function TraceExplorer(props: {
     setAssertionResult(null);
   }, [detail?.trace.trace_id]);
 
+  useEffect(() => {
+    setSelectedTraceIds((current) => {
+      const visibleIds = new Set(traces.map((trace) => trace.trace_id));
+      const next = new Set([...current].filter((traceId) => visibleIds.has(traceId)));
+      return next.size === current.size ? current : next;
+    });
+  }, [traces]);
+
+  useEffect(() => () => props.onCommandsChange?.([]), [props.onCommandsChange]);
+
+  useEffect(() => {
+    props.onCommandsChange?.([
+      {
+        id: "investigations:search",
+        group: "INVESTIGATIONS",
+        label: "Run trace search",
+        detail: "Apply the current search and status filters.",
+        run: props.onSearch
+      },
+      {
+        id: "investigations:saved-search:create",
+        group: "INVESTIGATIONS",
+        label: "Save current search",
+        detail: savedSearchName.trim() || "Name the search before saving.",
+        disabled: props.connection !== "live" || !savedSearchName.trim(),
+        run: () => void createSavedSearch()
+      },
+      {
+        id: "investigations:saved-search:apply",
+        group: "INVESTIGATIONS",
+        label: "Apply selected saved search",
+        detail: selectedSavedSearch ? selectedSavedSearch.name : "Choose a saved search first.",
+        disabled: !selectedSavedSearch,
+        run: () => {
+          if (selectedSavedSearch) props.onApplySavedSearch(selectedSavedSearch);
+        }
+      },
+      {
+        id: "investigations:dataset:create",
+        group: "INVESTIGATIONS",
+        label: "Create trace dataset",
+        detail: datasetName.trim() || "Name the dataset before creating it.",
+        disabled: props.connection !== "live" || !datasetName.trim(),
+        run: () => void createDatasetForTraceList()
+      },
+      {
+        id: "investigations:dataset:add-selected",
+        group: "INVESTIGATIONS",
+        label: "Add selected traces to dataset",
+        detail: `${selectedTraceCount} traces selected.`,
+        disabled: props.connection !== "live" || selectedTraceCount === 0,
+        run: () => void addSelectedTracesToDataset()
+      },
+      {
+        id: "investigations:dataset:add-visible",
+        group: "INVESTIGATIONS",
+        label: "Add visible traces to dataset",
+        detail: `${traces.length} traces visible.`,
+        disabled: props.connection !== "live" || traces.length === 0,
+        run: () => void addVisibleTracesToDataset()
+      },
+      {
+        id: "investigations:similar",
+        group: "TRACE DETAIL",
+        label: "Find similar traces",
+        detail: detail ? detail.trace.trace_id : "Select a trace first.",
+        disabled: !detail,
+        run: props.onCheckSimilarity
+      },
+      {
+        id: "investigations:judge",
+        group: "TRACE DETAIL",
+        label: "Run selected judge",
+        detail: selectedJudge ? selectedJudge.name : "Choose a judge first.",
+        disabled: props.connection !== "live" || !detail || !selectedJudge,
+        run: () => void runSelectedJudge()
+      },
+      {
+        id: "investigations:behavior-label",
+        group: "TRACE DETAIL",
+        label: "Label selected behavior",
+        detail: labelBehaviorId || "Choose a behavior first.",
+        disabled: props.connection !== "live" || !detail || !labelBehaviorId,
+        run: () => void labelSelectedTraceBehavior()
+      },
+      {
+        id: "investigations:assertions",
+        group: "TRACE DETAIL",
+        label: "Run deterministic assertion check",
+        detail: detail ? "Validate this trace with the assertion JSON." : "Select a trace first.",
+        disabled: props.connection !== "live" || !detail,
+        run: () => void runAssertionCheck()
+      },
+      {
+        id: "investigations:dataset:add-current",
+        group: "TRACE DETAIL",
+        label: "Add current trace to dataset",
+        detail: detail ? detail.trace.trace_id : "Select a trace first.",
+        disabled: props.connection !== "live" || !detail,
+        run: () => void addSelectedTraceToDataset()
+      },
+      {
+        id: "investigations:open-prompts",
+        group: "TRACE DETAIL",
+        label: "Open prompt registry",
+        detail: "Inspect the prompt version referenced by this trace.",
+        disabled: !detail,
+        run: props.onOpenPrompts
+      },
+      {
+        id: "investigations:open-configs",
+        group: "TRACE DETAIL",
+        label: "Open runtime configs",
+        detail: "Inspect the runtime config referenced by this trace.",
+        disabled: !detail,
+        run: props.onOpenConfigs
+      },
+      ...traceModeLabels.map((mode) => ({
+        id: `investigations:mode:${mode.value}`,
+        group: "TRACE DETAIL",
+        label: `Show ${mode.label}`,
+        detail: detail ? `Switch trace detail to ${mode.label.toLowerCase()}.` : "Select a trace first.",
+        disabled: !detail || detailMode === mode.value,
+        run: () => setDetailMode(mode.value)
+      }))
+    ]);
+  }, [
+    datasetName,
+    detail?.trace.trace_id,
+    detailMode,
+    labelBehaviorId,
+    props.connection,
+    props.onCommandsChange,
+    props.query,
+    props.status,
+    savedSearchName,
+    selectedDataset?.dataset_id,
+    selectedJudge?.judge_id,
+    selectedSavedSearch?.saved_search_id,
+    selectedVisibleTraceIds,
+    selectedTraceCount,
+    traces.length
+  ]);
+
+  function toggleTraceSelection(traceId: string) {
+    setSelectedTraceIds((current) => {
+      const next = new Set(current);
+      if (next.has(traceId)) next.delete(traceId);
+      else next.add(traceId);
+      return next;
+    });
+  }
+
+  function toggleAllVisibleTraces(checked: boolean) {
+    setSelectedTraceIds((current) => {
+      const next = new Set(current);
+      if (checked) traces.forEach((trace) => next.add(trace.trace_id));
+      else traces.forEach((trace) => next.delete(trace.trace_id));
+      return next;
+    });
+  }
+
+  function clearSelectedTraces() {
+    setSelectedTraceIds(new Set());
+  }
+
   async function createSavedSearch() {
     if (props.connection !== "live" || !savedSearchName.trim()) return;
     const queryObject = {
@@ -5610,6 +5825,39 @@ function TraceExplorer(props: {
       setTraceListState(`added ${examples.length} traces to ${dataset.name}`);
     } catch (error) {
       setTraceListState(error instanceof Error ? error.message : "bulk dataset action failed");
+    }
+  }
+
+  async function addSelectedTracesToDataset() {
+    if (props.connection !== "live" || !selectedVisibleTraceIds.length) return;
+    const dataset = selectedDataset ?? (await createDatasetForTraceList());
+    if (!dataset) return;
+    try {
+      const examples = await Promise.all(
+        selectedVisibleTraceIds.map((traceId) =>
+          props.client.addTraceToDataset(props.projectId, dataset.dataset_id, traceId, ["trace_list_selected"])
+        )
+      );
+      setDatasetMembershipByTrace((current) => {
+        const next = { ...current };
+        examples.forEach((example) => {
+          next[example.source_trace_id] = [
+            {
+              dataset_id: dataset.dataset_id,
+              dataset_name: dataset.name,
+              dataset_example_id: example.dataset_example_id,
+              labels: example.labels
+            },
+            ...(next[example.source_trace_id] ?? []).filter(
+              (membership) => membership.dataset_example_id !== example.dataset_example_id
+            )
+          ];
+        });
+        return next;
+      });
+      setTraceListState(`added ${examples.length} selected traces to ${dataset.name}`);
+    } catch (error) {
+      setTraceListState(error instanceof Error ? error.message : "selected trace add failed");
     }
   }
 
@@ -5777,12 +6025,41 @@ function TraceExplorer(props: {
               Add visible
             </button>
           </div>
+          <div className="listBulkBar">
+            <label className="bulkToggle">
+              <input
+                type="checkbox"
+                checked={allVisibleTracesSelected}
+                onChange={(event) => toggleAllVisibleTraces(event.target.checked)}
+              />
+              {selectedTraceCount ? `${selectedTraceCount} selected` : "Select visible"}
+            </label>
+            <div className="nowBulkActions">
+              <button
+                onClick={() => void addSelectedTracesToDataset()}
+                disabled={props.connection !== "live" || selectedTraceCount === 0}
+              >
+                Add selected
+              </button>
+              <button onClick={clearSelectedTraces} disabled={selectedTraceCount === 0}>
+                Clear
+              </button>
+            </div>
+          </div>
           <p className="systemNote">{traceListState}</p>
         </div>
         <div className="tableWrap">
           <table>
             <thead>
               <tr>
+                <th className="selectColumn">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all visible traces"
+                    checked={allVisibleTracesSelected}
+                    onChange={(event) => toggleAllVisibleTraces(event.target.checked)}
+                  />
+                </th>
                 <th>Status</th>
                 <th>Trace</th>
                 <th>Latency</th>
@@ -5801,6 +6078,14 @@ function TraceExplorer(props: {
                   className={trace.trace_id === props.selectedTraceId ? "selectedRow" : ""}
                   onClick={() => props.onSelectTrace(trace.trace_id)}
                 >
+                  <td className="tableSelectCell" onClick={(event) => event.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select trace ${trace.trace_id}`}
+                      checked={selectedTraceIds.has(trace.trace_id)}
+                      onChange={() => toggleTraceSelection(trace.trace_id)}
+                    />
+                  </td>
                   <td><StatusBadge status={trace.status} /></td>
                   <td>
                     <strong>{trace.trace_id}</strong>
@@ -6357,16 +6642,24 @@ function ReviewQueue(props: {
   client: OpenAbmClient;
   connection: ConnectionState;
   projectId: string;
+  onCommandsChange?: (commands: CommandItem[]) => void;
 }) {
   const { client, connection, projectId } = props;
   const [tasks, setTasks] = useState<ReviewTask[]>([]);
   const [statusFilter, setStatusFilter] = useState("open");
   const [typeFilter, setTypeFilter] = useState("");
   const [selectedId, setSelectedId] = useState("");
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => new Set());
   const [notes, setNotes] = useState("");
   const [reviewState, setReviewState] = useState("Review queue needs a live API");
 
   const selectedTask = tasks.find((task) => task.review_task_id === selectedId) ?? tasks[0] ?? null;
+  const selectedTasks = useMemo(
+    () => tasks.filter((task) => selectedTaskIds.has(task.review_task_id)),
+    [selectedTaskIds, tasks]
+  );
+  const selectedTaskCount = selectedTasks.length;
+  const allVisibleTasksSelected = tasks.length > 0 && selectedTaskCount === tasks.length;
 
   async function loadTasks() {
     if (connection !== "live") {
@@ -6400,17 +6693,156 @@ function ReviewQueue(props: {
     setNotes(selectedTask?.notes_nullable ?? "");
   }, [selectedTask?.review_task_id]);
 
-  async function decide(status: ReviewTask["status"], decision: string) {
-    if (!selectedTask || connection !== "live") return;
-    const updated = await client.updateReviewTask(projectId, selectedTask.review_task_id, {
-      status,
-      decision,
-      notes
+  useEffect(() => {
+    setSelectedTaskIds((current) => {
+      const visibleIds = new Set(tasks.map((task) => task.review_task_id));
+      const next = new Set([...current].filter((taskId) => visibleIds.has(taskId)));
+      return next.size === current.size ? current : next;
     });
-    setTasks((current) =>
-      current.map((task) => (task.review_task_id === updated.review_task_id ? updated : task))
-    );
-    setReviewState(`${updated.status}: ${updated.review_task_id}`);
+  }, [tasks]);
+
+  useEffect(() => () => props.onCommandsChange?.([]), [props.onCommandsChange]);
+
+  useEffect(() => {
+    props.onCommandsChange?.([
+      {
+        id: "reviews:filter-open",
+        group: "REVIEWS",
+        label: "Show open reviews",
+        detail: "Filter the review queue to unresolved work.",
+        disabled: statusFilter === "open",
+        run: () => setStatusFilter("open")
+      },
+      {
+        id: "reviews:filter-any",
+        group: "REVIEWS",
+        label: "Show every review",
+        detail: "Clear the review status filter.",
+        disabled: statusFilter === "",
+        run: () => setStatusFilter("")
+      },
+      {
+        id: "reviews:accept-current",
+        group: "REVIEWS",
+        label: "Accept current review",
+        detail: selectedTask ? selectedTask.review_task_id : "Select a review task first.",
+        disabled: connection !== "live" || !selectedTask,
+        run: () => void decide("accepted", "accepted")
+      },
+      {
+        id: "reviews:evidence-current",
+        group: "REVIEWS",
+        label: "Mark current review needs evidence",
+        detail: selectedTask ? selectedTask.review_task_id : "Select a review task first.",
+        disabled: connection !== "live" || !selectedTask,
+        run: () => void decide("needs_more_evidence", "needs_more_evidence")
+      },
+      {
+        id: "reviews:reject-current",
+        group: "REVIEWS",
+        label: "Reject current review",
+        detail: selectedTask ? selectedTask.review_task_id : "Select a review task first.",
+        disabled: connection !== "live" || !selectedTask,
+        run: () => void decide("rejected", "rejected")
+      },
+      {
+        id: "reviews:accept-selected",
+        group: "REVIEWS",
+        label: "Accept selected reviews",
+        detail: `${selectedTaskCount} selected.`,
+        disabled: connection !== "live" || selectedTaskCount === 0,
+        run: () => void decideTasks(selectedTasks, "accepted", "accepted")
+      },
+      {
+        id: "reviews:evidence-selected",
+        group: "REVIEWS",
+        label: "Mark selected reviews need evidence",
+        detail: `${selectedTaskCount} selected.`,
+        disabled: connection !== "live" || selectedTaskCount === 0,
+        run: () => void decideTasks(selectedTasks, "needs_more_evidence", "needs_more_evidence")
+      },
+      {
+        id: "reviews:reject-selected",
+        group: "REVIEWS",
+        label: "Reject selected reviews",
+        detail: `${selectedTaskCount} selected.`,
+        disabled: connection !== "live" || selectedTaskCount === 0,
+        run: () => void decideTasks(selectedTasks, "rejected", "rejected")
+      }
+    ]);
+  }, [
+    connection,
+    notes,
+    props.onCommandsChange,
+    selectedTask?.review_task_id,
+    selectedTasks,
+    selectedTaskCount,
+    statusFilter,
+    typeFilter
+  ]);
+
+  function toggleTaskSelection(taskId: string) {
+    setSelectedTaskIds((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }
+
+  function toggleAllVisibleTasks(checked: boolean) {
+    setSelectedTaskIds((current) => {
+      const next = new Set(current);
+      if (checked) tasks.forEach((task) => next.add(task.review_task_id));
+      else tasks.forEach((task) => next.delete(task.review_task_id));
+      return next;
+    });
+  }
+
+  function clearSelectedTasks() {
+    setSelectedTaskIds(new Set());
+  }
+
+  function taskMatchesActiveFilters(task: ReviewTask) {
+    return (!statusFilter || task.status === statusFilter) && (!typeFilter || task.task_type === typeFilter);
+  }
+
+  async function decideTasks(targetTasks: ReviewTask[], status: ReviewTask["status"], decision: string) {
+    if (!targetTasks.length || connection !== "live") return;
+    try {
+      const updatedTasks = await Promise.all(
+        targetTasks.map((task) =>
+          client.updateReviewTask(projectId, task.review_task_id, {
+            status,
+            decision,
+            notes: task.review_task_id === selectedTask?.review_task_id ? notes : task.notes_nullable ?? ""
+          })
+        )
+      );
+      const updatedById = new Map(updatedTasks.map((task) => [task.review_task_id, task]));
+      const nextTasks = tasks
+        .map((task) => updatedById.get(task.review_task_id) ?? task)
+        .filter((task) => taskMatchesActiveFilters(task));
+      setTasks(nextTasks);
+      setSelectedTaskIds((current) => {
+        const next = new Set(current);
+        updatedTasks.forEach((task) => next.delete(task.review_task_id));
+        return next;
+      });
+      setSelectedId((current) =>
+        nextTasks.some((task) => task.review_task_id === current)
+          ? current
+          : nextTasks[0]?.review_task_id ?? ""
+      );
+      setReviewState(`${updatedTasks.length} ${decision} review${updatedTasks.length === 1 ? "" : "s"}`);
+    } catch (error) {
+      setReviewState(error instanceof Error ? error.message : "review decision failed");
+    }
+  }
+
+  async function decide(status: ReviewTask["status"], decision: string) {
+    if (!selectedTask) return;
+    await decideTasks([selectedTask], status, decision);
   }
 
   return (
@@ -6434,17 +6866,59 @@ function ReviewQueue(props: {
             <option value="root_cause_candidate">root cause candidate</option>
           </select>
         </div>
+        <div className="listBulkBar">
+          <label className="bulkToggle">
+            <input
+              type="checkbox"
+              checked={allVisibleTasksSelected}
+              onChange={(event) => toggleAllVisibleTasks(event.target.checked)}
+            />
+            {selectedTaskCount ? `${selectedTaskCount} selected` : "Select visible"}
+          </label>
+          <div className="nowBulkActions">
+            <button
+              onClick={() => void decideTasks(selectedTasks, "accepted", "accepted")}
+              disabled={connection !== "live" || selectedTaskCount === 0}
+            >
+              Accept
+            </button>
+            <button
+              onClick={() => void decideTasks(selectedTasks, "needs_more_evidence", "needs_more_evidence")}
+              disabled={connection !== "live" || selectedTaskCount === 0}
+            >
+              Evidence
+            </button>
+            <button
+              onClick={() => void decideTasks(selectedTasks, "rejected", "rejected")}
+              disabled={connection !== "live" || selectedTaskCount === 0}
+            >
+              Reject
+            </button>
+            <button onClick={clearSelectedTasks} disabled={selectedTaskCount === 0}>
+              Clear
+            </button>
+          </div>
+        </div>
         <div className="reviewRows">
           {tasks.map((task) => (
-            <button
-              className={task.review_task_id === selectedTask?.review_task_id ? "selectedReview" : ""}
+            <div
+              className={`reviewRowItem ${task.review_task_id === selectedTask?.review_task_id ? "selectedReview" : ""}`}
               key={task.review_task_id}
-              onClick={() => setSelectedId(task.review_task_id)}
             >
-              <span className={`reviewStatus ${task.status}`}>{task.status}</span>
-              <strong>{task.task_type}</strong>
-              <small>{task.source_entity_type} · {task.source_entity_id}</small>
-            </button>
+              <label className="rowSelect">
+                <input
+                  type="checkbox"
+                  aria-label={`Select review ${task.review_task_id}`}
+                  checked={selectedTaskIds.has(task.review_task_id)}
+                  onChange={() => toggleTaskSelection(task.review_task_id)}
+                />
+              </label>
+              <button onClick={() => setSelectedId(task.review_task_id)}>
+                <span className={`reviewStatus ${task.status}`}>{task.status}</span>
+                <strong>{task.task_type}</strong>
+                <small>{task.source_entity_type} · {task.source_entity_id}</small>
+              </button>
+            </div>
           ))}
           {!tasks.length ? <div className="emptyState">Approved Now events can queue review tasks with evidence attached.</div> : null}
         </div>
