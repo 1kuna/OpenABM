@@ -16,7 +16,7 @@ import {
   TimerReset,
   XCircle
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { OpenAbmClient } from "./api";
 import { fixtureDetails, fixtureProjects, fixtureTraces } from "./fixtures";
@@ -90,17 +90,90 @@ const DEFAULT_API_KEY = "dev-openabm-key";
 type ConnectionState = "connecting" | "live" | "fixture";
 type TraceDetailMode = "tree" | "timeline" | "conversation" | "tools" | "code";
 type ViewKey =
-  | "traces"
-  | "issues"
+  | "now"
+  | "investigations"
   | "reviews"
   | "judges"
   | "behaviors"
-  | "automations"
+  | "routes"
   | "datasets"
   | "prompts"
   | "configs"
   | "mcp"
   | "ops";
+type NowStage = "detect" | "cluster" | "propose_fix" | "apply" | "verify" | "close";
+type NowSeverity = "critical" | "high" | "medium" | "low";
+type NowActionState = {
+  stage: NowStage;
+  note: string;
+  updatedAt: string;
+};
+type NowEvent = {
+  id: string;
+  title: string;
+  meta: string;
+  cluster: string;
+  recommendation: string;
+  primaryLabel: string;
+  explanation: string;
+  severity: NowSeverity;
+  trend: string;
+  traceIds: string[];
+  stage: NowStage;
+  stateNote?: string;
+  targetView: ViewKey;
+};
+type CommandItem = {
+  id: string;
+  group: string;
+  label: string;
+  detail: string;
+  disabled?: boolean;
+  run: () => void;
+};
+const WORK_VIEWS = new Set<ViewKey>(["now", "investigations", "reviews"]);
+const VIEW_ORDER: ViewKey[] = [
+  "now",
+  "investigations",
+  "reviews",
+  "behaviors",
+  "judges",
+  "datasets",
+  "prompts",
+  "configs",
+  "routes",
+  "mcp",
+  "ops"
+];
+const NAV_ZONES: Array<{ label: string; views: Array<{ key: ViewKey; label: string }> }> = [
+  {
+    label: "WORK",
+    views: [
+      { key: "now", label: "Now" },
+      { key: "investigations", label: "Investigations" },
+      { key: "reviews", label: "Reviews" }
+    ]
+  },
+  {
+    label: "LIBRARY",
+    views: [
+      { key: "behaviors", label: "Behaviors" },
+      { key: "judges", label: "Judges" },
+      { key: "datasets", label: "Datasets" },
+      { key: "prompts", label: "Prompts" },
+      { key: "configs", label: "Configs" }
+    ]
+  },
+  {
+    label: "SETTINGS",
+    views: [
+      { key: "routes", label: "Routes" },
+      { key: "mcp", label: "MCP" },
+      { key: "ops", label: "Ops" }
+    ]
+  }
+];
+const NOW_LOOP: NowStage[] = ["detect", "cluster", "propose_fix", "apply", "verify", "close"];
 const affectedEntityActionStatuses = ["contacted", "fixed", "ignored", "false_positive"] as const;
 const affectedEntityStatuses = ["needs_review", ...affectedEntityActionStatuses] as const;
 
@@ -115,9 +188,12 @@ export function App() {
   const [detail, setDetail] = useState<TraceDetail | null>(fixtureDetails[0] ?? null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
-  const [activeView, setActiveView] = useState<ViewKey>("traces");
+  const [activeView, setActiveView] = useState<ViewKey>("now");
   const [similarState, setSimilarState] = useState("semantic similarity ready when a model provider is configured");
   const [similarResult, setSimilarResult] = useState<SimilarTraceSearchResult | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(new Date().toISOString());
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [nowActionState, setNowActionState] = useState<Record<string, NowActionState>>({});
 
   const client = useMemo(() => new OpenAbmClient({ baseUrl, apiKey }), [baseUrl, apiKey]);
 
@@ -140,6 +216,7 @@ export function App() {
         if (cancelled) return;
         setConnection("live");
         setTraces(loadedTraces);
+        setLastUpdatedAt(new Date().toISOString());
         setSelectedTraceId((current) =>
           loadedTraces.some((trace) => trace.trace_id === current)
             ? current
@@ -152,6 +229,7 @@ export function App() {
         setProjects(fixtureProjects);
         setTraces(fixtureTraces);
         setProjectId("proj_demo");
+        setLastUpdatedAt(new Date().toISOString());
         setSelectedTraceId(fixtureTraces[0]?.trace_id ?? "");
       }
     }
@@ -183,18 +261,46 @@ export function App() {
     };
   }, [client, connection, projectId, selectedTraceId]);
 
-  async function refreshTraces() {
+  const refreshTraces = useCallback(async (options: { preserveSelection?: boolean } = {}) => {
     if (connection !== "live") {
       setTraces(fixtureTraces);
+      setLastUpdatedAt(new Date().toISOString());
       return;
     }
     const loaded = query
       ? await client.searchTraces(projectId, query)
       : await client.listTraces(projectId, status || undefined);
     setTraces(loaded);
-    setSelectedTraceId(loaded[0]?.trace_id ?? "");
+    setLastUpdatedAt(new Date().toISOString());
+    setSelectedTraceId((current) =>
+      options.preserveSelection && loaded.some((trace) => trace.trace_id === current)
+        ? current
+        : loaded[0]?.trace_id ?? ""
+    );
     if (!loaded[0]) setDetail(null);
-  }
+  }, [client, connection, projectId, query, status]);
+
+  useEffect(() => {
+    if (!WORK_VIEWS.has(activeView)) return;
+    const timer = window.setInterval(() => {
+      void refreshTraces({ preserveSelection: true });
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [activeView, refreshTraces]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandOpen(true);
+        return;
+      }
+      if (event.key === "Escape") setCommandOpen(false);
+      if (!isTypingTarget(event.target) && event.key.toLowerCase() === "n") setActiveView("now");
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   async function checkSimilarity() {
     if (!selectedTraceId) return;
@@ -223,19 +329,119 @@ export function App() {
       ? await client.searchTraces(projectId, nextQuery)
       : await client.listTraces(projectId, nextStatus || undefined);
     setTraces(loaded);
+    setLastUpdatedAt(new Date().toISOString());
     setSelectedTraceId(loaded[0]?.trace_id ?? "");
     if (!loaded[0]) setDetail(null);
   }
 
-  const viewOrder: ViewKey[] = [
-    "traces", "issues", "reviews", "judges", "behaviors",
-    "automations", "datasets", "prompts", "configs", "mcp", "ops"
-  ];
-  const activeIndex = viewOrder.indexOf(activeView);
+  async function openTraceFilter(nextStatus: TraceStatus | "") {
+    setQuery("");
+    setStatus(nextStatus);
+    setActiveView("investigations");
+    if (connection !== "live") {
+      const filtered = nextStatus
+        ? fixtureTraces.filter((trace) => trace.status === nextStatus)
+        : fixtureTraces;
+      setTraces(filtered);
+      setLastUpdatedAt(new Date().toISOString());
+      setSelectedTraceId(filtered[0]?.trace_id ?? "");
+      if (!filtered[0]) setDetail(null);
+      return;
+    }
+    const loaded = await client.listTraces(projectId, nextStatus || undefined);
+    setTraces(loaded);
+    setLastUpdatedAt(new Date().toISOString());
+    setSelectedTraceId(loaded[0]?.trace_id ?? "");
+    if (!loaded[0]) setDetail(null);
+  }
+
+  function openInvestigation(traceId?: string) {
+    if (traceId) setSelectedTraceId(traceId);
+    setActiveView("investigations");
+  }
+
+  function applyNowEvent(event: NowEvent) {
+    const nextStage = nextNowStage(event.stage);
+    setNowActionState((current) => ({
+      ...current,
+      [event.id]: {
+        stage: nextStage,
+        note: nowActionNote(nextStage, event),
+        updatedAt: new Date().toISOString()
+      }
+    }));
+  }
+
+  function dismissNowEvent(event: NowEvent) {
+    setNowActionState((current) => ({
+      ...current,
+      [event.id]: {
+        stage: "close",
+        note: "Closed from Now; provenance remains attached to the cluster.",
+        updatedAt: new Date().toISOString()
+      }
+    }));
+  }
+
+  const nowEvents = useMemo(
+    () => buildNowEvents(traces, nowActionState),
+    [nowActionState, traces]
+  );
+  const activeIndex = VIEW_ORDER.indexOf(activeView);
   const pageNum = String(activeIndex + 1).padStart(2, "0");
-  const totalPages = String(viewOrder.length).padStart(2, "0");
+  const totalPages = String(VIEW_ORDER.length).padStart(2, "0");
 
   const errorCount = traces.filter((t) => t.status === "error").length;
+  const activeZone = zoneLabelForView(activeView);
+  const commands: CommandItem[] = [
+    ...VIEW_ORDER.map((view) => ({
+      id: `go:${view}`,
+      group: zoneLabelForView(view),
+      label: `Go to ${viewTitle(view)}`,
+      detail: view === "now" ? "Open the live work inbox" : `Open ${viewTitle(view).toLowerCase()}`,
+      run: () => setActiveView(view)
+    })),
+    {
+      id: "trace:errors",
+      group: "WORK",
+      label: "Show failing traces",
+      detail: `${errorCount} errors in the current stream`,
+      disabled: errorCount === 0,
+      run: () => void openTraceFilter("error")
+    },
+    {
+      id: "trace:all",
+      group: "WORK",
+      label: "Show all traces",
+      detail: `${traces.length} traces in the current stream`,
+      run: () => void openTraceFilter("")
+    },
+    ...nowEvents.flatMap((event) => [
+      {
+        id: `now:apply:${event.id}`,
+        group: "NOW",
+        label: `${nowPrimaryLabel(event)}: ${event.title}`,
+        detail: event.recommendation,
+        disabled: event.stage === "close",
+        run: () => applyNowEvent(event)
+      },
+      {
+        id: `now:open:${event.id}`,
+        group: "NOW",
+        label: `Open cluster: ${event.cluster}`,
+        detail: event.explanation,
+        run: () => openInvestigation(event.traceIds[0])
+      },
+      {
+        id: `now:close:${event.id}`,
+        group: "NOW",
+        label: `Close: ${event.title}`,
+        detail: "Archive the item with provenance visible in the row.",
+        disabled: event.stage === "close",
+        run: () => dismissNowEvent(event)
+      }
+    ])
+  ];
 
   return (
     <main className="shell">
@@ -248,17 +454,23 @@ export function App() {
           </div>
         </div>
         <nav className="nav">
-          <NavButton num="01" label="Traces" active={activeView === "traces"} onClick={() => setActiveView("traces")} />
-          <NavButton num="02" label="Issues" active={activeView === "issues"} onClick={() => setActiveView("issues")} />
-          <NavButton num="03" label="Reviews" active={activeView === "reviews"} onClick={() => setActiveView("reviews")} />
-          <NavButton num="04" label="Judges" active={activeView === "judges"} onClick={() => setActiveView("judges")} />
-          <NavButton num="05" label="Behaviors" active={activeView === "behaviors"} onClick={() => setActiveView("behaviors")} />
-          <NavButton num="06" label="Automations" active={activeView === "automations"} onClick={() => setActiveView("automations")} />
-          <NavButton num="07" label="Datasets" active={activeView === "datasets"} onClick={() => setActiveView("datasets")} />
-          <NavButton num="08" label="Prompts" active={activeView === "prompts"} onClick={() => setActiveView("prompts")} />
-          <NavButton num="09" label="Configs" active={activeView === "configs"} onClick={() => setActiveView("configs")} />
-          <NavButton num="10" label="MCP" active={activeView === "mcp"} onClick={() => setActiveView("mcp")} />
-          <NavButton num="11" label="Ops" active={activeView === "ops"} onClick={() => setActiveView("ops")} />
+          {NAV_ZONES.map((zone) => (
+            <div className="navZone" key={zone.label}>
+              <span className="navZoneLabel">{zone.label}</span>
+              {zone.views.map((view) => {
+                const num = String(VIEW_ORDER.indexOf(view.key) + 1).padStart(2, "0");
+                return (
+                  <NavButton
+                    key={view.key}
+                    num={num}
+                    label={view.label}
+                    active={activeView === view.key}
+                    onClick={() => setActiveView(view.key)}
+                  />
+                );
+              })}
+            </div>
+          ))}
         </nav>
         <div className="connectionBox">
           <label>
@@ -275,12 +487,19 @@ export function App() {
       <section className="workspace">
         <header className="topbar">
           <div>
-            <p className="sectionLabel">{activeView}</p>
+            <p className="sectionLabel">{activeZone}</p>
             <span className="pageNum"><b>{pageNum}</b> / {totalPages}</span>
           </div>
           <div className="topbarControls">
             <h2>{viewTitle(activeView)}</h2>
-            <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+            <div className="topbarActionGroup">
+              {WORK_VIEWS.has(activeView) ? (
+                <span className="livePulse">streaming · last {formatClockTime(lastUpdatedAt)}</span>
+              ) : null}
+              <button className="secondaryButton" onClick={() => setCommandOpen(true)}>
+                <Search size={16} />
+                Command
+              </button>
               <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
                 {projects.map((project) => (
                   <option key={project.project_id} value={project.project_id}>
@@ -288,15 +507,27 @@ export function App() {
                   </option>
                 ))}
               </select>
-              <button className="primaryButton" onClick={() => void refreshTraces()}>
-                <TimerReset size={16} />
-                Refresh
-              </button>
+              {!WORK_VIEWS.has(activeView) ? (
+                <button className="primaryButton" onClick={() => void refreshTraces()}>
+                  <TimerReset size={16} />
+                  Refresh
+                </button>
+              ) : null}
             </div>
           </div>
         </header>
 
-        {activeView === "traces" ? (
+        {activeView === "now" ? (
+          <NowSurface
+            events={nowEvents}
+            traces={traces}
+            lastUpdatedAt={lastUpdatedAt}
+            onApply={applyNowEvent}
+            onDismiss={dismissNowEvent}
+            onOpenInvestigation={(event) => openInvestigation(event.traceIds[0])}
+            onOpenReviews={() => setActiveView("reviews")}
+          />
+        ) : activeView === "investigations" ? (
           <TraceExplorer
             traces={traces}
             detail={detail}
@@ -317,17 +548,6 @@ export function App() {
             onOpenPrompts={() => setActiveView("prompts")}
             onOpenConfigs={() => setActiveView("configs")}
           />
-        ) : activeView === "issues" ? (
-          <IssueInvestigationWorkspace
-            client={client}
-            connection={connection}
-            projectId={projectId}
-            traces={traces}
-            onOpenTrace={(traceId) => {
-              setSelectedTraceId(traceId);
-              setActiveView("traces");
-            }}
-          />
         ) : activeView === "reviews" ? (
           <ReviewQueue client={client} connection={connection} projectId={projectId} />
         ) : activeView === "judges" ? (
@@ -339,7 +559,7 @@ export function App() {
             projectId={projectId}
             onOpenTrace={(traceId) => {
               setSelectedTraceId(traceId);
-              setActiveView("traces");
+              setActiveView("investigations");
             }}
           />
         ) : activeView === "behaviors" ? (
@@ -349,10 +569,10 @@ export function App() {
             projectId={projectId}
             onOpenTrace={(traceId) => {
               setSelectedTraceId(traceId);
-              setActiveView("traces");
+              setActiveView("investigations");
             }}
           />
-        ) : activeView === "automations" ? (
+        ) : activeView === "routes" ? (
           <AutomationWorkspace client={client} connection={connection} projectId={projectId} traces={traces} />
         ) : activeView === "prompts" ? (
           <PromptRegistryWorkspace
@@ -361,7 +581,7 @@ export function App() {
             projectId={projectId}
             onOpenTrace={(traceId) => {
               setSelectedTraceId(traceId);
-              setActiveView("traces");
+              setActiveView("investigations");
             }}
           />
         ) : activeView === "configs" ? (
@@ -371,7 +591,7 @@ export function App() {
             projectId={projectId}
             onOpenTrace={(traceId) => {
               setSelectedTraceId(traceId);
-              setActiveView("traces");
+              setActiveView("investigations");
             }}
           />
         ) : activeView === "ops" ? (
@@ -386,28 +606,239 @@ export function App() {
         )}
       </section>
       <footer className="statusBar">
-        <span className="statusItem">
+        <button className="statusItem statusButton" onClick={() => setActiveView("now")}>
           <span className={`statusDot ${connection}`} />
           <b>{connection === "live" ? "LIVE" : connection === "fixture" ? "FIXTURE" : "CONNECTING"}</b>
-        </span>
+        </button>
         <span className="statusItem">
           ~/proj/<b>{projects.find((p) => p.project_id === projectId)?.name ?? projectId}</b>
         </span>
-        <span className="statusItem">
+        <button className="statusItem statusButton" onClick={() => void openTraceFilter("")}>
           <b>{traces.length}</b> traces
-          {errorCount > 0 ? <>{" · "}<b>{errorCount}</b> errors</> : null}
-        </span>
-        <span className="statusItem right">
-          <kbd>/</kbd> search
-        </span>
-        <span className="statusItem right">
-          <kbd>r</kbd> refresh
-        </span>
-        <span className="statusItem right">
-          <kbd>?</kbd> help
-        </span>
+        </button>
+        <button className="statusItem statusButton" onClick={() => void openTraceFilter("error")} disabled={errorCount === 0}>
+          <b>{errorCount}</b> errors
+        </button>
+        <button className="statusItem statusButton right" onClick={() => setCommandOpen(true)}>
+          <kbd>⌘K</kbd> commands
+        </button>
+        <button className="statusItem statusButton right" onClick={() => setActiveView("now")}>
+          <kbd>N</kbd> now
+        </button>
       </footer>
+      {commandOpen ? <CommandPalette commands={commands} onClose={() => setCommandOpen(false)} /> : null}
     </main>
+  );
+}
+
+function NowSurface(props: {
+  events: NowEvent[];
+  traces: TraceEnvelope[];
+  lastUpdatedAt: string;
+  onApply: (event: NowEvent) => void;
+  onDismiss: (event: NowEvent) => void;
+  onOpenInvestigation: (event: NowEvent) => void;
+  onOpenReviews: () => void;
+}) {
+  const { events, traces } = props;
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selectedEvents = events.filter((event) => selectedIds.has(event.id) && event.stage !== "close");
+  const allSelected = events.length > 0 && events.every((event) => selectedIds.has(event.id));
+
+  useEffect(() => {
+    setSelectedIds((current) => {
+      const liveIds = new Set(events.map((event) => event.id));
+      return new Set(Array.from(current).filter((id) => liveIds.has(id)));
+    });
+  }, [events]);
+
+  function toggleEvent(eventId: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(eventId)) next.delete(eventId);
+      else next.add(eventId);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelectedIds((current) => (
+      events.length > 0 && events.every((event) => current.has(event.id))
+        ? new Set()
+        : new Set(events.map((event) => event.id))
+    ));
+  }
+
+  return (
+    <div className="nowGrid">
+      <section className="panel nowPanel">
+        <div className="nowToolbar">
+          <label className="bulkToggle">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleAll}
+              aria-label="Select all Now events"
+            />
+            <span>{selectedIds.size ? `${selectedIds.size} selected` : `${events.length} live events`}</span>
+          </label>
+          <span className="livePulse">last pulse {formatClockTime(props.lastUpdatedAt)}</span>
+          <div className="nowBulkActions">
+            <button disabled={!selectedEvents.length} onClick={() => selectedEvents.forEach(props.onApply)}>
+              Approve selected
+            </button>
+            <button disabled={!selectedEvents.length} onClick={() => selectedEvents.forEach(props.onDismiss)}>
+              Close selected
+            </button>
+          </div>
+        </div>
+
+        <div className="nowRows">
+          {events.map((event) => (
+            <article className={`nowEvent severity-${event.severity}`} key={event.id} title={event.explanation}>
+              <label className="nowSelect">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(event.id)}
+                  onChange={() => toggleEvent(event.id)}
+                  aria-label={`Select ${event.title}`}
+                />
+              </label>
+              <div className="nowEventBody">
+                <div className="nowEventHeader">
+                  <span className="nowSeverity">{event.severity}</span>
+                  <strong>{event.title}</strong>
+                  <small>{event.meta} · {event.trend}</small>
+                </div>
+                <div className="nowStateLoop" aria-label={`Current state ${stageLabel(event.stage)}`}>
+                  {NOW_LOOP.map((stage) => (
+                    <span
+                      className={stage === event.stage ? "active" : ""}
+                      key={stage}
+                    >
+                      {stageLabel(stage)}
+                    </span>
+                  ))}
+                </div>
+                <dl className="nowFacts">
+                  <div>
+                    <dt>Cluster</dt>
+                    <dd>{event.cluster}</dd>
+                  </div>
+                  <div>
+                    <dt>Suggested</dt>
+                    <dd>{event.recommendation}</dd>
+                  </div>
+                </dl>
+                <p className="nowExplanation">{event.explanation}</p>
+                {event.stateNote ? <p className="systemNote">{event.stateNote}</p> : null}
+              </div>
+              <div className="nowEventActions">
+                <button
+                  className="primaryButton"
+                  onClick={() => props.onApply(event)}
+                  disabled={event.stage === "close"}
+                >
+                  {nowPrimaryLabel(event)}
+                </button>
+                <button
+                  className="secondaryActionButton"
+                  onClick={() => event.targetView === "reviews" ? props.onOpenReviews() : props.onOpenInvestigation(event)}
+                >
+                  {event.targetView === "reviews" ? "Open queue" : "Open cluster"}
+                </button>
+                <button
+                  className="secondaryActionButton"
+                  onClick={() => props.onDismiss(event)}
+                  disabled={event.stage === "close"}
+                >
+                  Ignore
+                </button>
+              </div>
+            </article>
+          ))}
+          {!events.length ? (
+            <div className="nowEmpty">
+              <strong>Stream is healthy.</strong>
+              <span>
+                The next failed trace, behavior cluster, eval regression, or review SLA breach will populate this feed automatically.
+              </span>
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <aside className="panel nowSummary">
+        <div className="detailHeader">
+          <div>
+            <p className="sectionLabel">agent surface</p>
+            <h3>monitor · report · propose</h3>
+          </div>
+          <span className="judgeStatus active">NOW</span>
+        </div>
+        <div className="metricsRow">
+          <Metric icon={<Activity />} label="Stream" value={String(traces.length)} />
+          <Metric icon={<AlertTriangle />} label="Open events" value={String(events.filter((event) => event.stage !== "close").length)} />
+          <Metric icon={<CheckCircle2 />} label="Closed" value={String(events.filter((event) => event.stage === "close").length)} />
+        </div>
+        <div className="nowSummaryText">
+          <p>
+            Work starts here. Investigations, reviews, and library artifacts are destinations from the ranked feed.
+          </p>
+          <p>
+            Current approvals advance the visible loop and keep provenance in the row; backend executors can attach to the same event contract.
+          </p>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function CommandPalette(props: { commands: CommandItem[]; onClose: () => void }) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredCommands = props.commands.filter((command) => {
+    if (!normalizedQuery) return true;
+    return `${command.group} ${command.label} ${command.detail}`.toLowerCase().includes(normalizedQuery);
+  });
+
+  return (
+    <div className="commandOverlay" role="presentation" onMouseDown={props.onClose}>
+      <section
+        className="commandPalette"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="commandSearch">
+          <span>⌘K</span>
+          <input
+            autoFocus
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Type a command"
+          />
+        </div>
+        <div className="commandRows">
+          {filteredCommands.map((command) => (
+            <button
+              key={command.id}
+              disabled={command.disabled}
+              onClick={() => {
+                command.run();
+                props.onClose();
+              }}
+            >
+              <span>{command.group}</span>
+              <strong>{command.label}</strong>
+              <small>{command.detail}</small>
+            </button>
+          ))}
+          {!filteredCommands.length ? <div className="emptyState">Change the query or press Escape.</div> : null}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -559,7 +990,7 @@ function AgentConfigWorkspace(props: {
               <small>{config.versions?.length ?? 0} versions · {config.agent_config_id}</small>
             </button>
           ))}
-          {!configs.length ? <div className="emptyState">No agent configs</div> : null}
+          {!configs.length ? <div className="emptyState">Approved runtime fixes will create config versions here.</div> : null}
         </div>
       </section>
 
@@ -621,7 +1052,7 @@ function AgentConfigWorkspace(props: {
                       <VersionUsageRows usage={version.usage_summary} onOpenTrace={onOpenTrace} />
                     </div>
                   ))}
-                  {!versions.length ? <p className="systemNote">No versions yet</p> : null}
+                  {!versions.length ? <p className="systemNote">The next commit creates the first immutable version.</p> : null}
                 </div>
               </section>
 
@@ -651,7 +1082,7 @@ function AgentConfigWorkspace(props: {
                     Compare
                   </button>
                 </div>
-                {comparison ? <pre>{comparison.content_diff || "No content changes"}</pre> : null}
+                {comparison ? <pre>{comparison.content_diff || "Content is unchanged."}</pre> : null}
                 {comparison ? <AgentConfigDiffSummary comparison={comparison} /> : null}
               </section>
             </div>
@@ -809,7 +1240,7 @@ function OpsWorkspace(props: {
       ]);
       setHealth(healthStatus);
       setReady(readyStatus);
-      setMetricsText(metrics || "No counters emitted yet");
+      setMetricsText(metrics || "Counters appear after traffic reaches the API.");
       setOpsStatus(status);
       setSimilarityIndex(similarity);
       setDeadLetterRuns(deadLetters);
@@ -1172,7 +1603,7 @@ function OpsWorkspace(props: {
                 <dd>{opsStatus?.retention_job_status ? "recorded" : "none recorded"}</dd>
               </div>
               <div>
-                <dt>Automation failures</dt>
+                <dt>Route failures</dt>
                 <dd>{String(opsStatus?.automation_action_failures ?? 0)}</dd>
               </div>
               <div>
@@ -1194,7 +1625,7 @@ function OpsWorkspace(props: {
                   <small>{formatTime(heartbeat.last_seen_at)}</small>
                 </div>
               ))}
-              {!workerHeartbeats.length ? <div className="emptyState">No worker heartbeats</div> : null}
+              {!workerHeartbeats.length ? <div className="emptyState">Worker heartbeats appear after a worker reports queue state.</div> : null}
             </div>
             <div className="sectionRows">
               {(opsStatus?.mcp_tool_observability.tools ?? []).slice(0, 4).map((tool) => (
@@ -1204,7 +1635,7 @@ function OpsWorkspace(props: {
                   <small>{Math.round(tool.avg_latency_ms)} ms avg · {tool.max_latency_ms} ms max</small>
                 </div>
               ))}
-              {opsStatus && !opsStatus.mcp_tool_observability.tools.length ? <div className="emptyState">No MCP calls recorded</div> : null}
+              {opsStatus && !opsStatus.mcp_tool_observability.tools.length ? <div className="emptyState">Tool calls appear after MCP handlers are invoked.</div> : null}
             </div>
             <div className="sectionRows">
               {deadLetterRuns.slice(0, 4).map((run) => (
@@ -1213,7 +1644,7 @@ function OpsWorkspace(props: {
                   <span>{run.automation_id} · {formatTime(run.started_at)}</span>
                 </div>
               ))}
-              {!deadLetterRuns.length ? <div className="emptyState">No dead-letter runs</div> : null}
+              {!deadLetterRuns.length ? <div className="emptyState">Failed route runs will appear here for retry or inspection.</div> : null}
             </div>
           </section>
 
@@ -1252,7 +1683,7 @@ function OpsWorkspace(props: {
                 </div>
               ))}
               {similarityIndex && !similarityIndex.representations.length ? (
-                <div className="emptyState">No similarity index records</div>
+                <div className="emptyState">Similarity records appear after the indexer embeds traces.</div>
               ) : null}
             </div>
             {similarityRebuildResult ? (
@@ -1315,7 +1746,7 @@ function OpsWorkspace(props: {
                   ) : null}
                 </div>
               ))}
-              {!authApiKeys.length ? <div className="emptyState">No API keys</div> : null}
+              {!authApiKeys.length ? <div className="emptyState">Create an API key when a service needs project access.</div> : null}
             </div>
 
             <div className="inlineControls">
@@ -1342,7 +1773,7 @@ function OpsWorkspace(props: {
                   <button onClick={() => void createLocalAuthSession(user.user_id)}>New session</button>
                 </div>
               ))}
-              {!authUsers.length ? <div className="emptyState">No auth users</div> : null}
+              {!authUsers.length ? <div className="emptyState">Invited teammates appear here after they accept access.</div> : null}
             </div>
             <div className="sectionRows">
               {authSessions.slice(0, 3).map((session) => (
@@ -1371,13 +1802,13 @@ function OpsWorkspace(props: {
                   <small>{formatTime(delivery.created_at)}</small>
                 </div>
               ))}
-              {!authInviteDeliveries.length ? <div className="emptyState">No invite deliveries</div> : null}
+              {!authInviteDeliveries.length ? <div className="emptyState">Invite delivery attempts appear after an invite is sent.</div> : null}
             </div>
           </section>
 
           <section className="opsSection">
             <h4>Metrics</h4>
-            <pre>{metricsText || "No metrics loaded"}</pre>
+            <pre>{metricsText || "Metrics appear after the API emits counters."}</pre>
           </section>
 
           <section className="opsSection secretSection">
@@ -1436,7 +1867,7 @@ function OpsWorkspace(props: {
                   <small>{secret.redacted_value} · {secret.ciphertext_sha256.slice(0, 12)}</small>
                 </button>
               ))}
-              {!secretRefs.length ? <div className="emptyState">No secret refs</div> : null}
+              {!secretRefs.length ? <div className="emptyState">Secret refs appear after routes or notifications need protected values.</div> : null}
             </div>
             {selectedSecret ? (
               <div className="exportSummary">
@@ -1449,7 +1880,7 @@ function OpsWorkspace(props: {
                       <span>{entry.actor_id ?? "unknown"} · {formatTime(entry.created_at)}</span>
                     </div>
                   ))}
-                  {!secretAccessLog.length ? <div className="emptyState">No access log</div> : null}
+                  {!secretAccessLog.length ? <div className="emptyState">Secret reads will populate this audit log.</div> : null}
                 </div>
               </div>
             ) : null}
@@ -1577,7 +2008,7 @@ function OpsWorkspace(props: {
               <small>{formatRetentionRules(policy.rules)} · {policy.retention_policy_id}</small>
             </button>
           ))}
-          {!retentionPolicies.length ? <div className="emptyState">No retention policies</div> : null}
+          {!retentionPolicies.length ? <div className="emptyState">Add a retention rule before exporting or pruning project data.</div> : null}
         </div>
 
         {selectedRetentionPolicy ? (
@@ -2065,7 +2496,7 @@ function IssueInvestigationWorkspace(props: {
           <input value={issueTitle} onChange={(event) => setIssueTitle(event.target.value)} placeholder="Issue title" />
           <input value={issueDescription} onChange={(event) => setIssueDescription(event.target.value)} placeholder="Description" />
           <select value={seedTraceId} onChange={(event) => setSeedTraceId(event.target.value)}>
-            <option value="">No seed trace</option>
+            <option value="">Seed trace optional</option>
             {traces.map((trace) => (
               <option key={trace.trace_id} value={trace.trace_id}>
                 {trace.trace_id} · {trace.status}
@@ -2073,7 +2504,7 @@ function IssueInvestigationWorkspace(props: {
             ))}
           </select>
           <select value={seedSessionId} onChange={(event) => setSeedSessionId(event.target.value)}>
-            <option value="">No seed session</option>
+            <option value="">Seed session optional</option>
             {sessionIds.map((sessionId) => (
               <option key={sessionId} value={sessionId}>
                 {sessionId}
@@ -2140,7 +2571,7 @@ function IssueInvestigationWorkspace(props: {
               <small>{issue.source_type} · {issue.seed_trace_id_nullable ?? "no seed"} · {issue.issue_id}</small>
             </button>
           ))}
-          {!issues.length ? <div className="emptyState">No issues</div> : null}
+          {!issues.length ? <div className="emptyState">Triaged clusters from Now will appear here as issues.</div> : null}
         </div>
       </section>
 
@@ -2175,7 +2606,7 @@ function IssueInvestigationWorkspace(props: {
                       ) : null}
                     </div>
                   ))}
-                  {!issueLinks.length ? <p className="systemNote">No linked artifacts yet</p> : null}
+                  {!issueLinks.length ? <p className="systemNote">Linked artifacts appear as this issue is investigated.</p> : null}
                 </div>
               </section>
 
@@ -2214,7 +2645,7 @@ function IssueInvestigationWorkspace(props: {
                       <small>{run.result.evidence_trace_ids ? String((run.result.evidence_trace_ids as unknown[]).length) : 0} evidence traces · {run.investigation_run_id}</small>
                     </button>
                   ))}
-                  {!issueInvestigations.length ? <p className="systemNote">No investigations for this issue</p> : null}
+                  {!issueInvestigations.length ? <p className="systemNote">Run an investigation to populate this history.</p> : null}
                 </div>
               </section>
 
@@ -2245,7 +2676,7 @@ function IssueInvestigationWorkspace(props: {
                       <span>matching trace cohort</span>
                     </div>
                   ))}
-                  {!evidenceTraceIds.length ? <p className="systemNote">No evidence traces selected</p> : null}
+                  {!evidenceTraceIds.length ? <p className="systemNote">Select traces to attach evidence.</p> : null}
                 </div>
               </section>
 
@@ -2328,7 +2759,7 @@ function IssueInvestigationWorkspace(props: {
                     </div>
                   </>
                 ) : (
-                  <p className="systemNote">No impact report selected</p>
+                  <p className="systemNote">Select an impact report to inspect affected entities.</p>
                 )}
               </section>
 
@@ -2349,7 +2780,7 @@ function IssueInvestigationWorkspace(props: {
                       <span>{pack.classification} · {pack.source_trace_ids.join(", ")}</span>
                     </button>
                   ))}
-                  {!contextPacks.length ? <p className="systemNote">No context packs</p> : null}
+                  {!contextPacks.length ? <p className="systemNote">Context packs appear after an investigation collects evidence.</p> : null}
                 </div>
                 {selectedContextPack ? (
                   <pre>{JSON.stringify(selectedContextPack.content, null, 2)}</pre>
@@ -2824,7 +3255,7 @@ function PromptRegistryWorkspace(props: {
               <small>{prompt.versions?.length ?? 0} versions · {prompt.prompt_id}</small>
             </button>
           ))}
-          {!prompts.length ? <div className="emptyState">No prompts</div> : null}
+          {!prompts.length ? <div className="emptyState">Prompt versions appear after an approved fix edits a prompt.</div> : null}
         </div>
       </section>
 
@@ -2857,7 +3288,7 @@ function PromptRegistryWorkspace(props: {
                 </label>
                 <div className="inlineControls">
                   <select value={parentCommitId} onChange={(event) => setParentCommitId(event.target.value)}>
-                    <option value="">No parent</option>
+                    <option value="">Parent optional</option>
                     {versions.map((version) => (
                       <option key={version.commit_id} value={version.commit_id}>{version.commit_id}</option>
                     ))}
@@ -2892,7 +3323,7 @@ function PromptRegistryWorkspace(props: {
                       <VersionUsageRows usage={version.usage_summary} onOpenTrace={onOpenTrace} />
                     </div>
                   ))}
-                  {!versions.length ? <p className="systemNote">No versions yet</p> : null}
+                  {!versions.length ? <p className="systemNote">The next prompt commit creates the first version.</p> : null}
                 </div>
               </section>
 
@@ -2957,7 +3388,7 @@ function PromptRegistryWorkspace(props: {
                     Diff
                   </button>
                 </div>
-                {diff ? <pre>{diff.text_diff || "No text changes"}</pre> : null}
+                {diff ? <pre>{diff.text_diff || "Prompt text is unchanged."}</pre> : null}
                 {diff ? <PromptDiffSummary diff={diff} /> : null}
               </section>
             </div>
@@ -3187,7 +3618,7 @@ function BehaviorWorkspace(props: {
               <small>{String(behavior.detector.type ?? "detector")} · {behavior.status}</small>
             </button>
           ))}
-          {!behaviors.length ? <div className="emptyState">No behaviors</div> : null}
+          {!behaviors.length ? <div className="emptyState">Repeated review labels will propose behaviors for this catalog.</div> : null}
         </div>
       </section>
 
@@ -3280,7 +3711,7 @@ function BehaviorWorkspace(props: {
                       </button>
                     </div>
                   ))}
-                  {!matches.length ? <p className="systemNote">No persisted matches</p> : null}
+                  {!matches.length ? <p className="systemNote">Matches appear after the detector runs on traces.</p> : null}
                 </div>
               </section>
               <section className="behaviorSection">
@@ -3310,11 +3741,11 @@ function BehaviorWorkspace(props: {
                       ) : null}
                     </div>
                   ))}
-                  {!reviewTasks.length ? <p className="systemNote">No behavior review labels</p> : null}
+                  {!reviewTasks.length ? <p className="systemNote">Review labels from similar traces appear here.</p> : null}
                 </div>
               </section>
               <section className="behaviorSection">
-                <h4>Actions and automations</h4>
+                <h4>Actions and routes</h4>
                 <div className="sectionRows">
                   {relatedAutomations.map((automation) => (
                     <div key={automation.automation_id}>
@@ -3330,7 +3761,7 @@ function BehaviorWorkspace(props: {
                       <small>{backtest.review_task.evidence_ids.join(", ") || "no evidence ids"}</small>
                     </div>
                   ) : null}
-                  {!relatedAutomations.length && !backtest?.review_task ? <p className="systemNote">No linked actions</p> : null}
+                  {!relatedAutomations.length && !backtest?.review_task ? <p className="systemNote">Approved behaviors will link routes or review tasks here.</p> : null}
                 </div>
               </section>
               <section className="behaviorSection positiveExamples">
@@ -3343,7 +3774,7 @@ function BehaviorWorkspace(props: {
                       <small>{example.evidence_span_ids.join(", ") || "no cited spans"}</small>
                     </div>
                   ))}
-                  {backtest && !backtest.positive_examples.length ? <p className="systemNote">No positives</p> : null}
+                  {backtest && !backtest.positive_examples.length ? <p className="systemNote">Positive examples appear when the detector matches traces.</p> : null}
                   {!backtest ? <p className="systemNote">Run a backtest to populate examples</p> : null}
                 </div>
               </section>
@@ -3357,7 +3788,7 @@ function BehaviorWorkspace(props: {
                       <small>{example.evidence_span_ids.join(", ") || "no cited spans"}</small>
                     </div>
                   ))}
-                  {backtest && !backtest.negative_examples.length ? <p className="systemNote">No negatives</p> : null}
+                  {backtest && !backtest.negative_examples.length ? <p className="systemNote">Negative examples appear when the detector rejects traces.</p> : null}
                   {!backtest ? <p className="systemNote">Run a backtest to populate examples</p> : null}
                 </div>
               </section>
@@ -3402,7 +3833,7 @@ function AutomationWorkspace(props: {
   const [runTraceId, setRunTraceId] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(`web-${Date.now()}`);
   const [runResult, setRunResult] = useState<AutomationRun | null>(null);
-  const [stateText, setStateText] = useState("Automations need a live API");
+  const [stateText, setStateText] = useState("Routes need a live API");
 
   const selectedAutomation = automations.find((automation) => automation.automation_id === selectedId) ?? automations[0] ?? null;
   const selectedTarget = targets[0] ?? null;
@@ -3439,9 +3870,9 @@ function AutomationWorkspace(props: {
           ? current
           : loadedAutomations[0]?.automation_id ?? ""
       );
-      setStateText(`${loadedAutomations.length} automations · ${loadedTargets.length} targets`);
+      setStateText(`${loadedAutomations.length} routes · ${loadedTargets.length} targets`);
     } catch (error) {
-      setStateText(error instanceof Error ? error.message : "automation refresh failed");
+      setStateText(error instanceof Error ? error.message : "route refresh failed");
     }
   }
 
@@ -3458,7 +3889,7 @@ function AutomationWorkspace(props: {
       const runs = await client.listAutomationRuns(projectId, automation.automation_id);
       setRunHistory(runs);
     } catch (error) {
-      setStateText(error instanceof Error ? error.message : "automation history unavailable");
+      setStateText(error instanceof Error ? error.message : "route history unavailable");
     }
   }
 
@@ -3508,7 +3939,7 @@ function AutomationWorkspace(props: {
       setPreview(null);
       setStateText(`created ${created.name}`);
     } catch (error) {
-      setStateText(error instanceof Error ? error.message : "automation creation failed");
+      setStateText(error instanceof Error ? error.message : "route creation failed");
     }
   }
 
@@ -3542,7 +3973,7 @@ function AutomationWorkspace(props: {
       setIdempotencyKey(`web-${Date.now()}`);
       setStateText(result.duplicate ? `duplicate ${result.status}` : `run ${result.status}`);
     } catch (error) {
-      setStateText(error instanceof Error ? error.message : "automation run failed");
+      setStateText(error instanceof Error ? error.message : "route run failed");
     }
   }
 
@@ -3550,7 +3981,7 @@ function AutomationWorkspace(props: {
     <div className="automationGrid">
       <section className="panel automationList">
         <div className="toolbar">
-          <button className="iconButton" onClick={() => void loadAutomations()} aria-label="Refresh automations">
+          <button className="iconButton" onClick={() => void loadAutomations()} aria-label="Refresh routes">
             <TimerReset size={16} />
           </button>
           <span className="systemNote">{stateText}</span>
@@ -3573,7 +4004,7 @@ function AutomationWorkspace(props: {
           </button>
         </div>
         <div className="automationCreate secondaryCreate">
-          <input value={automationName} onChange={(event) => setAutomationName(event.target.value)} placeholder="Automation name" />
+          <input value={automationName} onChange={(event) => setAutomationName(event.target.value)} placeholder="Route name" />
           <div className="inlineControls">
             <select value={triggerType} onChange={(event) => setTriggerType(event.target.value)}>
               <option value="trace_completed">trace completed</option>
@@ -3581,7 +4012,7 @@ function AutomationWorkspace(props: {
               <option value="manual_test">manual test</option>
             </select>
             <select value={conditionField} onChange={(event) => setConditionField(event.target.value)}>
-              <option value="">No condition</option>
+              <option value="">Condition optional</option>
               <option value="trace.status">trace status</option>
               <option value="trace.environment">trace environment</option>
               <option value="trace.trace_id">trace id</option>
@@ -3628,7 +4059,7 @@ function AutomationWorkspace(props: {
           </div>
           <button onClick={() => void createAutomation()}>
             <Play size={15} />
-            Create automation
+            Create route
           </button>
         </div>
         <div className="automationRows">
@@ -3646,7 +4077,7 @@ function AutomationWorkspace(props: {
               <small>{automation.actions.length} actions · {automation.automation_id}</small>
             </button>
           ))}
-          {!automations.length ? <div className="emptyState">No automations</div> : null}
+          {!automations.length ? <div className="emptyState">Approved recommendations can be saved as always-on routes.</div> : null}
         </div>
       </section>
 
@@ -3655,7 +4086,7 @@ function AutomationWorkspace(props: {
           <>
             <div className="detailHeader">
               <div>
-                <p className="sectionLabel">automation</p>
+                <p className="sectionLabel">route</p>
                 <h3>{selectedAutomation.name}</h3>
               </div>
               <span className={`judgeStatus ${selectedAutomation.status}`}>{selectedAutomation.status}</span>
@@ -3711,7 +4142,7 @@ function AutomationWorkspace(props: {
                         <span>{match.status ?? "unknown"} · {match.session_id ?? "no session"} · {String(match.condition_result.passed ?? "unknown")}</span>
                       </div>
                     ))}
-                    {!preview.matches.length ? <p className="systemNote">No matching traces</p> : null}
+                    {!preview.matches.length ? <p className="systemNote">Adjust the route condition or wait for matching traces.</p> : null}
                   </div>
                 ) : null}
               </section>
@@ -3719,7 +4150,7 @@ function AutomationWorkspace(props: {
               <section className="automationSection">
                 <h4>Test run</h4>
                 <select value={runTraceId} onChange={(event) => setRunTraceId(event.target.value)}>
-                  <option value="">No trace trigger</option>
+                  <option value="">Select trace trigger</option>
                   {traces.map((trace) => (
                     <option key={trace.trace_id} value={trace.trace_id}>
                       {trace.trace_id} · {trace.status}
@@ -3751,7 +4182,7 @@ function AutomationWorkspace(props: {
                       <small>{run.automation_run_id}</small>
                     </div>
                   ))}
-                  {!runHistory.length ? <p className="systemNote">No runs recorded</p> : null}
+                  {!runHistory.length ? <p className="systemNote">Manual tests and live route executions will appear here.</p> : null}
                 </div>
               </section>
 
@@ -3765,7 +4196,7 @@ function AutomationWorkspace(props: {
                       <small>{JSON.stringify(item.action)}</small>
                     </div>
                   ))}
-                  {!deadLetteredActions.length ? <p className="systemNote">No dead-lettered actions</p> : null}
+                  {!deadLetteredActions.length ? <p className="systemNote">Failed route actions will appear here for retry triage.</p> : null}
                 </div>
               </section>
 
@@ -3775,10 +4206,10 @@ function AutomationWorkspace(props: {
                   {targets.map((target) => (
                     <div key={target.target_id}>
                       <strong>{target.display_name}</strong>
-                      <span>{target.type} · {target.status} · {target.config_secret_refs.join(", ") || "no secrets"}</span>
+                      <span>{target.type} · {target.status} · {target.config_secret_refs.join(", ") || "secrets not attached"}</span>
                     </div>
                   ))}
-                  {!targets.length ? <p className="systemNote">No targets</p> : null}
+                  {!targets.length ? <p className="systemNote">Notification targets appear after a route needs to contact another system.</p> : null}
                 </div>
               </section>
             </div>
@@ -3844,7 +4275,7 @@ function TagMovementRows(props: { events: Array<Record<string, unknown>> }) {
           {shortIdentifier(String(event.new_commit_id ?? "none"))}
         </span>
       ))}
-      {!props.events.length ? <span>No tag movements</span> : null}
+      {!props.events.length ? <span>Tag movements appear after tag changes.</span> : null}
     </div>
   );
 }
@@ -4128,7 +4559,7 @@ function DatasetEvalWorkspace(props: {
               <small>{dataset.latest_version_id}</small>
             </button>
           ))}
-          {!datasets.length ? <div className="emptyState">No datasets</div> : null}
+          {!datasets.length ? <div className="emptyState">Pinned traces will create datasets for regression evals.</div> : null}
         </div>
       </section>
 
@@ -4168,7 +4599,7 @@ function DatasetEvalWorkspace(props: {
                       <small>{example.dataset_example_id}</small>
                     </div>
                   ))}
-                  {!examples.length ? <p className="systemNote">No examples yet</p> : null}
+                  {!examples.length ? <p className="systemNote">Pinned traces appear here as dataset examples.</p> : null}
                 </div>
               </section>
 
@@ -4268,7 +4699,7 @@ function DatasetEvalWorkspace(props: {
                       <small>{formatEvalSummary(run.summary)}</small>
                     </button>
                   ))}
-                  {!datasetRuns.length ? <p className="systemNote">No eval runs for this dataset</p> : null}
+                  {!datasetRuns.length ? <p className="systemNote">Eval runs appear after a dataset is executed.</p> : null}
                 </div>
               </section>
 
@@ -4308,7 +4739,7 @@ function DatasetEvalWorkspace(props: {
                     </div>
                   </>
                 ) : (
-                  <p className="systemNote">No eval selected</p>
+                  <p className="systemNote">Select an eval run to inspect results.</p>
                 )}
               </section>
 
@@ -4430,7 +4861,7 @@ function EvalBehaviorShiftRows(props: {
           </div>
         );
       })}
-      {!deltas.length ? <span>No labeled behavior changes</span> : null}
+      {!deltas.length ? <span>Labeled behavior changes appear after review decisions.</span> : null}
     </div>
   );
 }
@@ -4460,7 +4891,7 @@ function EvalTrendRows(props: {
           <small>{formatEvalTrendRuntime(run)}</small>
         </div>
       ))}
-      {!rows.length ? <span>No trend data yet</span> : null}
+      {!rows.length ? <span>Trend data appears after eval runs accumulate.</span> : null}
     </div>
   );
 }
@@ -4484,7 +4915,7 @@ function EvalHistoryRows(props: { runs: EvalComparison["historical_runs"] }) {
           <small>{formatEvalHistoryRuntime(run)}</small>
         </div>
       ))}
-      {!props.runs.length ? <span>No related historical runs</span> : null}
+      {!props.runs.length ? <span>Related historical runs appear after comparisons accumulate.</span> : null}
     </div>
   );
 }
@@ -4528,7 +4959,7 @@ function EvalFailureRows(props: {
           </div>
         );
       })}
-      {!props.exampleIds.length ? <span>No examples</span> : null}
+      {!props.exampleIds.length ? <span>Examples appear after traces are pinned.</span> : null}
     </div>
   );
 }
@@ -4755,7 +5186,7 @@ function JudgeWorkspace(props: {
               <small>{judge.judge_type} · {judge.versions?.length ?? 0} versions</small>
             </button>
           ))}
-          {!judges.length ? <div className="emptyState">No judges</div> : null}
+          {!judges.length ? <div className="emptyState">Repeated review decisions will propose judges here.</div> : null}
         </div>
       </section>
 
@@ -4805,11 +5236,11 @@ function JudgeWorkspace(props: {
                           <span>{String(row.score_count ?? 0)} scores · {formatCounts(asRecord(row.verdict_counts))}</span>
                         </div>
                       ))}
-                      {!report.drift_report.length ? <p className="systemNote">No eval drift rows yet</p> : null}
+                      {!report.drift_report.length ? <p className="systemNote">Drift rows appear after calibration has comparable evals.</p> : null}
                     </div>
                   </>
                 ) : (
-                  <div className="emptyState">No calibration report</div>
+                  <div className="emptyState">Run calibration to generate the report.</div>
                 )}
               </section>
 
@@ -4874,7 +5305,7 @@ function JudgeWorkspace(props: {
                     <strong>{formatScore(asRecord(testScore))}</strong>
                     <span>{testScore.status} · evidence {testScore.evidence_span_ids.join(", ") || "none"}</span>
                   </div>
-                ) : <p className="systemNote">No test result yet</p>}
+                ) : <p className="systemNote">Run the test trace to inspect the result.</p>}
               </section>
 
               <section className="judgeSection">
@@ -4902,7 +5333,7 @@ function JudgeWorkspace(props: {
                       checked={requireNoOpenReviews}
                       onChange={(event) => setRequireNoOpenReviews(event.target.checked)}
                     />
-                    No open reviews
+                    Review tasks will appear when judge output needs a human decision.
                   </label>
                 </div>
                 <button className="primaryButton" onClick={() => void promoteSelectedJudge()}>
@@ -4927,7 +5358,7 @@ function JudgeWorkspace(props: {
                       <small>{formatTime(version.created_at)}</small>
                     </div>
                   ))}
-                  {!selectedJudge.versions?.length ? <p className="systemNote">No immutable versions yet</p> : null}
+                  {!selectedJudge.versions?.length ? <p className="systemNote">The next draft promotion creates an immutable version.</p> : null}
                 </div>
               </section>
             </div>
@@ -5443,7 +5874,7 @@ function TraceExplorer(props: {
             <p className="systemNote">{props.similarState}</p>
           </>
         ) : (
-          <div className="emptyState">No trace selected</div>
+          <div className="emptyState">Select a trace from Now or the investigation table to inspect it.</div>
         )}
       </section>
     </div>
@@ -5541,7 +5972,7 @@ function SpanTree(props: { detail: TraceDetail; selectedSpanId: string; onSelect
         />
       ))}
       {!roots.length && !detail.reconstruction.missing_parent_group.length ? (
-        <p className="systemNote">No span tree available</p>
+        <p className="systemNote">Span tree appears after spans include parent relationships.</p>
       ) : null}
     </div>
   );
@@ -5626,7 +6057,7 @@ function ConversationView(props: { detail: TraceDetail; selectedSpanId: string; 
           </div>
         </button>
       ))}
-      {!rows.length ? <p className="systemNote">No conversation payloads captured</p> : null}
+      {!rows.length ? <p className="systemNote">Conversation payloads appear when captured inputs or outputs are available.</p> : null}
       {detail.spans.flatMap((span) => span.events).length ? (
         <div className="inlineAnnotations">
           {detail.spans.flatMap((span) =>
@@ -5671,7 +6102,7 @@ function ToolSequenceView(props: { detail: TraceDetail; selectedSpanId: string; 
           </div>
         </button>
       ))}
-      {!tools.length ? <p className="systemNote">No tool calls captured</p> : null}
+      {!tools.length ? <p className="systemNote">Tool calls appear when spans record tool activity.</p> : null}
     </div>
   );
 }
@@ -5706,14 +6137,14 @@ function CodeErrorView(props: { detail: TraceDetail; selectedSpanId: string; onS
         </button>
       ))}
       {!rows.length && !Object.keys(deployment).length ? (
-        <p className="systemNote">No code or error context captured for this trace</p>
+        <p className="systemNote">Code and error context appears when the SDK attaches runtime evidence.</p>
       ) : null}
     </div>
   );
 }
 
 function Inspector({ span }: { span: SpanEnvelope | null }) {
-  if (!span) return <div className="emptyState">No span</div>;
+  if (!span) return <div className="emptyState">Select a span to inspect its payload and events.</div>;
   return (
     <div className="inspector">
       <div className="inspectorHeader">
@@ -5756,7 +6187,7 @@ function Inspector({ span }: { span: SpanEnvelope | null }) {
               ))}
             </div>
           ) : (
-            <p className="systemNote">No events captured</p>
+            <p className="systemNote">Span events appear when the runtime emits them.</p>
           )}
         </section>
         <section>
@@ -5800,7 +6231,7 @@ function TraceEvidencePanel(props: {
               <span>{score.status} · {score.judge_id} · evidence {score.evidence_span_ids.join(", ") || "none"}</span>
             </div>
           ))}
-          {!scores.length ? <p className="systemNote">No scores persisted for {trace.trace_id}</p> : null}
+          {!scores.length ? <p className="systemNote">Judge scores for {trace.trace_id} appear after a judge runs.</p> : null}
         </div>
       </section>
       <section>
@@ -5812,7 +6243,7 @@ function TraceEvidencePanel(props: {
               <span>{match.status} · evidence {match.evidence_span_ids.join(", ") || "none"}</span>
             </div>
           ))}
-          {!behaviorMatches.length ? <p className="systemNote">No behavior matches persisted</p> : null}
+          {!behaviorMatches.length ? <p className="systemNote">Behavior matches appear after detectors evaluate this trace.</p> : null}
         </div>
       </section>
       <section>
@@ -5824,7 +6255,7 @@ function TraceEvidencePanel(props: {
               <span>{membership.labels.join(", ") || "unlabeled"} · {membership.dataset_example_id}</span>
             </div>
           ))}
-          {!datasetMemberships.length ? <p className="systemNote">No dataset examples linked yet</p> : null}
+          {!datasetMemberships.length ? <p className="systemNote">Dataset links appear after this trace is pinned.</p> : null}
         </div>
       </section>
       <section>
@@ -5842,7 +6273,7 @@ function TraceEvidencePanel(props: {
             </div>
           ))}
           {similarResult && !similarResult.disabled && !similarResult.data.length ? (
-            <p className="systemNote">No similar traces returned</p>
+            <p className="systemNote">Similar traces appear after the similarity search finds neighbors.</p>
           ) : null}
           {!similarResult ? <p className="systemNote">Similarity not run for {trace.trace_id}</p> : null}
         </div>
@@ -5857,7 +6288,7 @@ function TraceEvidencePanel(props: {
               <pre>{JSON.stringify(assertionResult, null, 2)}</pre>
             </div>
           ) : (
-            <p className="systemNote">No assertion check run</p>
+            <p className="systemNote">Run an assertion check to populate deterministic findings.</p>
           )}
         </div>
       </section>
@@ -5961,7 +6392,7 @@ function ReviewQueue(props: {
               <small>{task.source_entity_type} · {task.source_entity_id}</small>
             </button>
           ))}
-          {!tasks.length ? <div className="emptyState">No review tasks</div> : null}
+          {!tasks.length ? <div className="emptyState">Approved Now events can queue review tasks with evidence attached.</div> : null}
         </div>
       </section>
 
@@ -6100,7 +6531,7 @@ async function moduleLiveSummary(
       value: String(judges.length),
       detail: judges[0]
         ? `Latest: ${judges[0].name} (${judges[0].judge_type})`
-        : "No judge drafts or versions yet"
+        : "Judge drafts appear after reviews propose measurable criteria"
     };
   }
   if (view === "datasets") {
@@ -6109,7 +6540,7 @@ async function moduleLiveSummary(
     return {
       label: "Eval runs",
       value: String(evals.length),
-      detail: latest ? `Latest ${latest.status} run: ${latest.eval_run_id}` : "No eval runs yet"
+      detail: latest ? `Latest ${latest.status} run: ${latest.eval_run_id}` : "Eval runs appear after a dataset executes"
     };
   }
   if (view === "reviews") {
@@ -6119,7 +6550,7 @@ async function moduleLiveSummary(
       value: String(tasks.length),
       detail: tasks[0]
         ? `${tasks[0].task_type}: ${tasks[0].source_entity_id}`
-        : "No open review tasks"
+        : "Open review tasks appear when clusters need human judgment"
     };
   }
   if (view === "mcp") {
@@ -6127,7 +6558,7 @@ async function moduleLiveSummary(
     return {
       label: "Docs hits",
       value: String(hits.length),
-      detail: hits[0] ? `${hits[0].path}:${hits[0].line}` : "No public doc hits"
+      detail: hits[0] ? `${hits[0].path}:${hits[0].line}` : "Documentation hits appear after indexing"
     };
   }
   return moduleFixtureSummary(view);
@@ -6135,12 +6566,12 @@ async function moduleLiveSummary(
 
 function moduleFixtureSummary(view: ViewKey): ModuleSummary {
   const summaries: Record<ViewKey, ModuleSummary> = {
-    traces: { label: "Mode", value: "fixture", detail: "Trace explorer uses bundled fixtures offline" },
-    issues: { label: "Issue flow", value: "ready", detail: "Issue and investigation APIs are wired" },
+    now: { label: "Now", value: "live", detail: "The ranked work feed is derived from trace activity" },
+    investigations: { label: "Mode", value: "fixture", detail: "Trace explorer is available as a drill-down from Now" },
     reviews: { label: "Reviews", value: "live", detail: "Review decisions are API-backed" },
     judges: { label: "Judges", value: "ready", detail: "Registry, drafts, and versions are API-backed" },
     behaviors: { label: "Behaviors", value: "ready", detail: "Rules and backtests are API-backed" },
-    automations: { label: "Automations", value: "ready", detail: "Targets, definitions, runs, cooldowns, and retries are API-backed" },
+    routes: { label: "Routes", value: "ready", detail: "Targets, definitions, runs, cooldowns, and retries are API-backed" },
     datasets: { label: "Evals", value: "ready", detail: "Eval runs can link prompt and runtime config versions" },
     prompts: { label: "Prompts", value: "ready", detail: "Versions, tags, render, and diff are API-backed" },
     configs: { label: "Configs", value: "ready", detail: "Runtime config versions and comparisons are API-backed" },
@@ -6162,8 +6593,8 @@ function scaffoldRows(view: ViewKey) {
       { icon: <Braces />, title: "Rule detectors", status: "condition grammar available", phase: "Phase 6" },
       { icon: <Network />, title: "Cluster discovery", status: "embedding grouping and review examples ready", phase: "Phase 6" }
     ],
-    automations: [
-      { icon: <Play />, title: "Definitions", status: "trigger, condition, action, and cooldown records available", phase: "Phase 6" },
+    routes: [
+      { icon: <Play />, title: "Route definitions", status: "trigger, condition, action, and cooldown records available", phase: "Phase 6" },
       { icon: <KeyRound />, title: "Notification targets", status: "secret-ref based targets available", phase: "Phase 6" },
       { icon: <TimerReset />, title: "Runs", status: "idempotency, cooldown, retry, and dead-letter checks available", phase: "Phase 6" }
     ],
@@ -6192,9 +6623,13 @@ function scaffoldRows(view: ViewKey) {
       { icon: <Shield />, title: "API key scopes and audit", status: "local scopes and audit available", phase: "Phase 8" },
       { icon: <Database />, title: "Retention/export/delete", status: "policy, manifest, and tombstone paths available", phase: "Phase 8" }
     ],
-    traces: [],
-    issues: [
-      { icon: <AlertTriangle />, title: "Issue intake", status: "API and storage available", phase: "Spec v2" },
+    now: [
+      { icon: <Activity />, title: "Live work feed", status: "trace activity is ranked into detected events", phase: "UX direction" },
+      { icon: <AlertTriangle />, title: "Cluster recommendations", status: "visible state loop and approval path", phase: "UX direction" },
+      { icon: <CheckCircle2 />, title: "Verification loop", status: "approved items advance toward close", phase: "UX direction" }
+    ],
+    investigations: [
+      { icon: <AlertTriangle />, title: "Trace drill-down", status: "available from Now clusters", phase: "Spec v2" },
       { icon: <FileSearch />, title: "Deterministic investigation", status: "structured search and impact reporting available", phase: "Spec v2" },
       { icon: <Database />, title: "Affected entities", status: "computed from trace dimensions", phase: "Spec v2" }
     ],
@@ -6205,6 +6640,164 @@ function scaffoldRows(view: ViewKey) {
     ],
   };
   return shared[view];
+}
+
+function buildNowEvents(traces: TraceEnvelope[], actionState: Record<string, NowActionState>): NowEvent[] {
+  const groups = new Map<string, TraceEnvelope[]>();
+  const problemTraces = traces.filter((trace) => trace.status !== "ok");
+  for (const trace of problemTraces) {
+    const key = traceSignature(trace);
+    groups.set(key, [...(groups.get(key) ?? []), trace]);
+  }
+
+  const clusterEvents = Array.from(groups.entries())
+    .sort(([, left], [, right]) => right.length - left.length)
+    .map(([signature, groupedTraces]) => {
+      const first = groupedTraces[0];
+      const id = `cluster:${signature}`;
+      const isRefundWrongTool = looksLikeRefundWrongTool(first);
+      const stage = actionState[id]?.stage ?? "propose_fix";
+      return {
+        id,
+        title: isRefundWrongTool
+          ? `${groupedTraces.length} ${plural(groupedTraces.length, "trace")} failed lookup_order for refund intents`
+          : `${groupedTraces.length} ${plural(groupedTraces.length, "trace")} share ${signature}`,
+        meta: `${traceEnvironment(first)} · last ${formatAge(first.started_at)}`,
+        cluster: isRefundWrongTool ? "refund_routing_violation" : stableClusterName(signature),
+        recommendation: isRefundWrongTool
+          ? "route refund-shaped requests to lookup_order_v2 before policy response"
+          : `watch ${signature} and queue matching traces for review`,
+        primaryLabel: isRefundWrongTool ? "Apply route" : "Approve watch",
+        explanation: isRefundWrongTool
+          ? "Span used lookup_order after a refund-shaped utterance; prior traces with this shape were corrected toward refund-policy routing."
+          : `These traces share status, environment, and error attributes; OpenABM is treating them as one cluster instead of separate rows.`,
+        severity: groupedTraces.length > 3 ? "critical" : first.status === "error" ? "high" : "medium",
+        trend: groupedTraces.length > 1 ? `+${groupedTraces.length} in window` : "new",
+        traceIds: groupedTraces.map((trace) => trace.trace_id),
+        stage,
+        stateNote: actionState[id]?.note,
+        targetView: "investigations"
+      } satisfies NowEvent;
+    });
+
+  const reviewEvent = problemTraces.length
+    ? (() => {
+        const id = "reviews:problem-traces";
+        const stage = actionState[id]?.stage ?? "propose_fix";
+        return {
+          id,
+          title: `${problemTraces.length} ${plural(problemTraces.length, "review")} queued from current failures`,
+          meta: "human feedback loop",
+          cluster: "review_queue_from_failures",
+          recommendation: "create review tasks with trace IDs already attached",
+          primaryLabel: "Queue reviews",
+          explanation: "OpenABM can carry the failing trace IDs into review tasks so reviewers do not retype context.",
+          severity: problemTraces.length > 3 ? "high" : "medium",
+          trend: problemTraces.length > 1 ? `${problemTraces.length} pending` : "1 pending",
+          traceIds: problemTraces.map((trace) => trace.trace_id),
+          stage,
+          stateNote: actionState[id]?.note,
+          targetView: "reviews"
+        } satisfies NowEvent;
+      })()
+    : null;
+
+  return reviewEvent ? [...clusterEvents, reviewEvent] : clusterEvents;
+}
+
+function traceSignature(trace: TraceEnvelope) {
+  const attributes = asRecord(trace.attributes);
+  const errorType =
+    stringFromValue(attributes["error.type"]) ??
+    stringFromValue(attributes.error_type) ??
+    stringFromValue(attributes.exception) ??
+    trace.status;
+  const workflow =
+    stringFromValue(attributes.workflow) ??
+    stringFromValue(attributes.channel) ??
+    trace.tags.find((tag) => !["fixture", "failure", "support"].includes(tag)) ??
+    trace.environment;
+  return `${slugify(workflow)}_${slugify(errorType)}`;
+}
+
+function looksLikeRefundWrongTool(trace: TraceEnvelope) {
+  const haystack = [
+    trace.summary,
+    ...trace.tags,
+    ...Object.values(asRecord(trace.attributes)).map((value) => String(value))
+  ].join(" ").toLowerCase();
+  return haystack.includes("refund") && (haystack.includes("wrong_tool") || haystack.includes("order lookup"));
+}
+
+function stableClusterName(signature: string) {
+  return `${signature.replace(/_+/g, "_")}_cluster`;
+}
+
+function traceEnvironment(trace: TraceEnvelope) {
+  return trace.environment || "agent stream";
+}
+
+function nextNowStage(stage: NowStage): NowStage {
+  if (stage === "detect") return "cluster";
+  if (stage === "cluster") return "propose_fix";
+  if (stage === "propose_fix") return "apply";
+  if (stage === "apply") return "verify";
+  if (stage === "verify") return "close";
+  return "close";
+}
+
+function nowActionNote(stage: NowStage, event: NowEvent) {
+  if (stage === "apply") return `Approved "${event.recommendation}". Waiting for executor confirmation.`;
+  if (stage === "verify") return "Apply step recorded. Watching the cluster for verification.";
+  if (stage === "close") return "Verification complete in this UI session; provenance retained on the event.";
+  return `Advanced to ${stageLabel(stage)}.`;
+}
+
+function nowPrimaryLabel(event: NowEvent) {
+  if (event.stage === "apply") return "Verify signal";
+  if (event.stage === "verify") return "Close";
+  if (event.stage === "close") return "Closed";
+  return event.primaryLabel;
+}
+
+function stageLabel(stage: NowStage) {
+  return stage.replace("_", " ").toUpperCase();
+}
+
+function zoneLabelForView(view: ViewKey) {
+  return NAV_ZONES.find((zone) => zone.views.some((item) => item.key === view))?.label ?? "WORK";
+}
+
+function formatClockTime(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
+function formatAge(value: string) {
+  const elapsedMs = Math.max(0, Date.now() - new Date(value).getTime());
+  const minutes = Math.max(1, Math.round(elapsedMs / 60000));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  return `${hours}h`;
+}
+
+function stringFromValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function slugify(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "unknown";
+}
+
+function plural(count: number, noun: string) {
+  return count === 1 ? noun : `${noun}s`;
+}
+
+function isTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable;
 }
 
 function NavButton(props: { num: string; label: string; active: boolean; onClick: () => void }) {
@@ -6788,7 +7381,7 @@ function formatEvalRuntimeContext(context: Record<string, unknown>) {
 }
 
 function formatEvalAnalyticsGroup(group: EvalAnalytics["by_prompt_version"][number] | undefined) {
-  if (!group) return "No historical runs";
+  if (!group) return "Historical runs appear after evals are executed.";
   const passRate =
     typeof group.avg_pass_rate === "number"
       ? `${Math.round(group.avg_pass_rate * 1000) / 10}% pass`
@@ -6986,12 +7579,12 @@ function connectionLabel(connection: ConnectionState) {
 
 function viewTitle(view: ViewKey) {
   const labels: Record<ViewKey, string> = {
-    traces: "Trace explorer",
-    issues: "Issues and investigations",
+    now: "Now",
+    investigations: "Investigations",
     reviews: "Review queue",
     judges: "Judge runtime",
     behaviors: "Behavior monitoring",
-    automations: "Automations",
+    routes: "Routes",
     datasets: "Datasets and evals",
     prompts: "Prompt registry",
     configs: "Agent configs",

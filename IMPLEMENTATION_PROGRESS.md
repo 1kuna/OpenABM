@@ -1390,3 +1390,37 @@ Implemented in this pass:
   screenshot intake, ChatOps artifact creation, investigation run selection,
   ChatOps response classification, and impact report inspection can be
   exercised from the UI.
+- Started the `docs/ux-direction.md` app rewrite:
+  - `Now` is now the default WORK surface instead of Trace Explorer.
+  - Navigation is grouped as WORK (`Now`, `Investigations`, `Reviews`),
+    LIBRARY (`Behaviors`, `Judges`, `Datasets`, `Prompts`, `Configs`), and
+    SETTINGS (`Routes`, `MCP`, `Ops`).
+  - Trace Explorer is demoted to `Investigations`, `Issues` is removed from
+    primary navigation, and Automations are labeled as `Routes` in the app
+    surface.
+  - WORK surfaces stream automatically and no longer show the global refresh
+    button; LIBRARY/SETTINGS retain refresh controls.
+  - Added the first Now feed over current traces with clustered events,
+    severity/trend, plain-English explanation, visible
+    `DETECT -> CLUSTER -> PROPOSE FIX -> APPLY -> VERIFY -> CLOSE` state,
+    one-click approval progression, row bulk selection, and links into
+    investigations/reviews.
+  - Added an interactive status bar and `Command` / `⌘K` palette covering
+    navigation, trace filters, and Now event actions.
+  - Reworked prominent empty-state copy away from inert `No ...` messages and
+    toward the event/action that will populate each surface.
+- UX verification:
+  - `npm --prefix apps/web run build`: passed.
+  - Chrome/Computer Use desktop check: Now default rendered correctly, Apply
+    Route advanced the state loop, and the command palette exposed the same
+    Now actions.
+  - Headless Chrome screenshots passed for desktop and mobile:
+    `/tmp/openabm-now-desktop.png` and `/tmp/openabm-now-mobile.png`.
+  - `frontend_static_audit.py` now only reports false positives for the Web
+    Blob API used by download helpers; negative letter-spacing warnings were
+    removed.
+- Honest UX gap after this pass: Now approvals currently advance UI state and
+  preserve visible provenance, but the backend does not yet expose the typed
+  recommendation/executor contract needed to persist `APPLY`, run verification,
+  and close clusters automatically. That is the next product gap between the
+  UI surface and the full agent loop described in `docs/ux-direction.md`.

@@ -71,7 +71,7 @@ body {
   font-family: var(--mono);
   font-size: 13px;
   line-height: 1.5;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
 }
 
 button,
@@ -248,6 +248,26 @@ pre {
   padding: 14px 0;
 }
 
+.navZone {
+  display: grid;
+  gap: 0;
+}
+
+.navZoneLabel {
+  display: block;
+  padding: 14px 16px 6px;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.navZone:first-child .navZoneLabel {
+  padding-top: 0;
+}
+
 .nav button {
   display: grid;
   grid-template-columns: 32px 1fr;
@@ -409,7 +429,7 @@ pre {
   font-weight: 500;
   font-size: 28px;
   line-height: 1.05;
-  letter-spacing: -0.022em;
+  letter-spacing: 0;
   color: var(--bone);
   text-transform: uppercase;
 }
@@ -444,6 +464,34 @@ pre {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.topbarActionGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.livePulse {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mid);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.livePulse::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  background: var(--signal);
+  animation: pulse-signal 2.2s var(--ease) infinite;
 }
 
 .topbar select,
@@ -483,6 +531,7 @@ pre {
 
 /* Buttons — bracketed, no fills, except primary */
 .primaryButton,
+.secondaryButton,
 .iconButton,
 .actionStrip button {
   display: inline-flex;
@@ -505,6 +554,8 @@ pre {
 
 .primaryButton::before,
 .primaryButton::after,
+.secondaryButton::before,
+.secondaryButton::after,
 .iconButton::before,
 .iconButton::after,
 .actionStrip button::before,
@@ -516,12 +567,14 @@ pre {
 }
 
 .primaryButton::before,
+.secondaryButton::before,
 .actionStrip button::before {
   content: "[";
   margin-right: 4px;
 }
 
 .primaryButton::after,
+.secondaryButton::after,
 .actionStrip button::after {
   content: "]";
   margin-left: 4px;
@@ -531,6 +584,26 @@ pre {
 .actionStrip button:hover {
   background: var(--signal);
   color: var(--black);
+}
+
+.secondaryButton {
+  border-color: var(--rule-hi);
+  color: var(--bone-dim);
+}
+
+.secondaryButton::before,
+.secondaryButton::after {
+  color: var(--dim);
+}
+
+.secondaryButton:hover {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+.secondaryButton:hover::before,
+.secondaryButton:hover::after {
+  color: var(--signal);
 }
 
 .primaryButton:hover::before,
@@ -574,6 +647,7 @@ pre {
    ============================================================================ */
 
 .traceGrid,
+.nowGrid,
 .reviewGrid,
 .judgeGrid,
 .datasetGrid,
@@ -590,6 +664,10 @@ pre {
 
 .traceGrid {
   grid-template-columns: minmax(420px, 1.2fr) minmax(360px, 0.8fr);
+}
+
+.nowGrid {
+  grid-template-columns: minmax(520px, 1fr) minmax(340px, 0.38fr);
 }
 
 .reviewGrid {
@@ -663,6 +741,268 @@ pre {
 .configList { grid-template-rows: auto auto minmax(0, 1fr); }
 .issueList { grid-template-rows: auto auto auto auto minmax(0, 1fr); }
 .automationList { grid-template-rows: auto auto auto minmax(0, 1fr); }
+
+.nowPanel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.nowToolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--rule);
+  padding: 10px 14px;
+  background: var(--black);
+}
+
+.bulkToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--bone-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.bulkToggle input,
+.nowSelect input {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--signal);
+}
+
+.nowBulkActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.nowBulkActions button,
+.secondaryActionButton {
+  min-height: 28px;
+  border: 1px solid var(--rule-hi);
+  background: transparent;
+  color: var(--bone-dim);
+  padding: 0 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nowBulkActions button::before,
+.secondaryActionButton::before {
+  content: "[";
+  color: var(--dim);
+  margin-right: 4px;
+}
+
+.nowBulkActions button::after,
+.secondaryActionButton::after {
+  content: "]";
+  color: var(--dim);
+  margin-left: 4px;
+}
+
+.nowBulkActions button:hover,
+.secondaryActionButton:hover {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+.nowBulkActions button:disabled,
+.secondaryActionButton:disabled,
+.primaryButton:disabled,
+.statusButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.nowRows {
+  overflow: auto;
+  display: grid;
+  align-content: start;
+}
+
+.nowEvent {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  gap: 14px;
+  border-bottom: 1px solid var(--rule);
+  border-left: 2px solid transparent;
+  padding: 14px;
+  background: transparent;
+}
+
+.nowEvent:hover {
+  background: var(--panel-hi);
+}
+
+.nowEvent.severity-critical,
+.nowEvent.severity-high {
+  border-left-color: var(--signal);
+}
+
+.nowEventBody {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.nowEventHeader {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  align-items: baseline;
+}
+
+.nowEventHeader strong {
+  color: var(--bone);
+  font-family: var(--mono);
+  font-size: 13.5px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.nowEventHeader small {
+  grid-column: 2;
+  color: var(--mid);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  white-space: normal;
+}
+
+.nowSeverity {
+  color: var(--signal);
+  border: 1px solid var(--signal-dim);
+  padding: 1px 7px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.nowStateLoop {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.nowStateLoop span {
+  border: 1px solid var(--rule-hi);
+  color: var(--dim);
+  padding: 1px 6px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.nowStateLoop span.active {
+  color: var(--black);
+  background: var(--signal);
+  border-color: var(--signal);
+}
+
+.nowFacts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  border: 1px solid var(--rule);
+}
+
+.nowFacts div {
+  min-width: 0;
+  padding: 9px 11px;
+  border-right: 1px solid var(--rule);
+}
+
+.nowFacts div:last-child {
+  border-right: 0;
+}
+
+.nowFacts dt {
+  color: var(--mid);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.nowFacts dd {
+  margin: 4px 0 0;
+  color: var(--bone-dim);
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.nowExplanation,
+.nowSummaryText p {
+  margin: 0;
+  color: var(--bone-dim);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.nowEventActions {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 148px;
+}
+
+.nowEventActions .primaryButton,
+.nowEventActions .secondaryActionButton {
+  width: 100%;
+}
+
+.nowEmpty {
+  display: grid;
+  gap: 8px;
+  min-height: 240px;
+  place-content: center;
+  padding: 24px;
+  color: var(--mid);
+  text-align: center;
+}
+
+.nowEmpty strong {
+  color: var(--bone);
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.nowEmpty span {
+  max-width: 54ch;
+  color: var(--mid);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.nowSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 18px;
+  overflow: auto;
+}
+
+.nowSummaryText {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--rule);
+  padding: 12px 14px;
+}
 
 .traceList .toolbar,
 .reviewList .toolbar,
@@ -1205,7 +1545,7 @@ td span {
   font-weight: 500;
   font-size: 17px;
   line-height: 1.2;
-  letter-spacing: -0.012em;
+  letter-spacing: 0;
   color: var(--bone);
   overflow-wrap: anywhere;
   text-transform: lowercase;
@@ -1259,7 +1599,7 @@ td span {
   font-family: var(--mono);
   font-size: 22px;
   font-weight: 500;
-  letter-spacing: -0.022em;
+  letter-spacing: 0;
   color: var(--bone);
   overflow-wrap: anywhere;
   font-feature-settings: "tnum", "zero";
@@ -1302,7 +1642,7 @@ td span {
   color: var(--bone);
   font-size: 11.5px;
   font-family: var(--mono);
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
   overflow-wrap: anywhere;
 }
 
@@ -1939,7 +2279,7 @@ td span {
   color: var(--bone);
   font-family: var(--mono);
   font-size: 12px;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
   padding: 10px 12px;
   text-transform: none;
 }
@@ -2003,7 +2343,7 @@ td span {
   text-transform: none;
   font-family: var(--mono);
   font-size: 12.5px;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
 }
 
 .notesBox input {
@@ -2189,7 +2529,7 @@ td span {
   font-family: var(--mono);
   font-size: 12px;
   text-transform: none;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
 }
 
 .policyGrid .toggleLabel {
@@ -3016,7 +3356,7 @@ td span {
   font-family: var(--mono);
   font-weight: 500;
   font-size: 14px;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   color: var(--bone);
   text-transform: uppercase;
 }
@@ -3128,6 +3468,133 @@ td span {
   font-size: 10px;
   letter-spacing: 0;
   margin-right: 4px;
+}
+
+.statusBar button.statusItem {
+  border-top: 0;
+  border-bottom: 0;
+  border-left: 0;
+  background: transparent;
+  color: var(--mid);
+  text-transform: uppercase;
+}
+
+.statusBar button.statusItem:hover {
+  color: var(--signal);
+}
+
+.statusBar button.statusItem:hover b,
+.statusBar button.statusItem:hover kbd {
+  color: var(--signal);
+  border-color: var(--signal);
+}
+
+/* ============================================================================
+   COMMAND PALETTE
+   ============================================================================ */
+
+.commandOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: start center;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.commandPalette {
+  width: min(720px, calc(100vw - 28px));
+  max-height: min(680px, calc(100vh - 120px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border: 1px solid var(--signal);
+  background: var(--black);
+  box-shadow: 0 0 0 1px var(--signal-tint-hi);
+}
+
+.commandSearch {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--rule);
+  padding: 12px 14px;
+}
+
+.commandSearch span {
+  color: var(--signal);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+.commandSearch input {
+  border: 0;
+  background: transparent;
+  color: var(--bone);
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 15px;
+}
+
+.commandSearch input:focus {
+  box-shadow: none;
+}
+
+.commandRows {
+  overflow: auto;
+  display: grid;
+  align-content: start;
+}
+
+.commandRows button {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 3px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--bone-dim);
+  padding: 11px 14px;
+  text-align: left;
+}
+
+.commandRows button:hover {
+  background: var(--panel-hi);
+  border-left-color: var(--signal);
+}
+
+.commandRows button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.commandRows button span {
+  grid-row: 1 / span 2;
+  color: var(--signal);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.commandRows button strong {
+  min-width: 0;
+  color: var(--bone);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.commandRows button small {
+  min-width: 0;
+  color: var(--mid);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 /* ============================================================================
@@ -3244,11 +3711,21 @@ button:focus-visible {
     padding: 8px 0;
   }
 
+  .navZone {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .navZoneLabel {
+    grid-column: 1 / -1;
+  }
+
   .connectionBox {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .traceGrid,
+  .nowGrid,
   .reviewGrid,
   .judgeGrid,
   .judgeSections,
@@ -3287,8 +3764,58 @@ button:focus-visible {
 }
 
 @media (max-width: 680px) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  .shell {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
   .workspace {
     padding: 14px;
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  .sidebar {
+    overflow: visible;
+  }
+
+  .nav {
+    display: flex;
+    overflow-x: auto;
+    padding: 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .navZone {
+    display: flex;
+    flex: 0 0 auto;
+  }
+
+  .navZoneLabel {
+    display: none;
+  }
+
+  .nav button {
+    min-width: 142px;
+    grid-template-columns: 28px minmax(0, 1fr);
+    border-left: 0;
+    border-bottom: 2px solid transparent;
+    padding: 10px 14px;
+  }
+
+  .nav button.active {
+    border-left-color: transparent;
+    border-bottom-color: var(--signal);
+  }
+
+  .connectionBox {
+    display: none;
   }
 
   .topbar,
@@ -3311,8 +3838,116 @@ button:focus-visible {
   .opsMetrics,
   .issueMetrics,
   .automationMetrics,
+  .nowFacts,
   .policyGrid {
     grid-template-columns: 1fr;
+  }
+
+  .topbarActionGroup {
+    display: grid;
+    grid-template-columns: 1fr;
+    flex: 1 1 100%;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .topbar select,
+  .topbarActionGroup button {
+    width: 100%;
+  }
+
+  .nowToolbar,
+  .nowBulkActions {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .nowBulkActions {
+    display: grid;
+    grid-template-columns: 1fr;
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .nowBulkActions button {
+    width: 100%;
+  }
+
+  .nowEvent {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .nowEventHeader {
+    grid-template-columns: 1fr;
+  }
+
+  .nowGrid,
+  .nowPanel,
+  .nowRows,
+  .nowEventBody,
+  .nowSummary,
+  .panel {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .nowEventHeader small {
+    grid-column: auto;
+  }
+
+  .nowEventHeader small {
+    white-space: normal;
+  }
+
+  .nowEventHeader strong {
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  .nowStateLoop span {
+    font-size: 8.5px;
+    padding: 1px 4px;
+  }
+
+  .nowEventActions {
+    grid-column: auto;
+    grid-template-columns: 1fr;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .nowSelect {
+    justify-self: start;
+  }
+
+  .nowExplanation,
+  .nowEventHeader strong,
+  .nowFacts dd,
+  .commandRows button strong,
+  .commandRows button small {
+    max-width: 32ch;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .topbarActionGroup select,
+  .topbarActionGroup button {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .nowFacts div {
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .nowFacts div:last-child {
+    border-bottom: 0;
   }
 
   .metric {
@@ -3355,5 +3990,15 @@ button:focus-visible {
   .statusBar {
     overflow-x: auto;
     white-space: nowrap;
+  }
+}
+
+@media (max-width: 520px) {
+  .nav button {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .nav button .navLabel {
+    overflow-wrap: anywhere;
   }
 }
