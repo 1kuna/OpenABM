@@ -260,6 +260,179 @@ def _agent_config_commit_id(
     return f"agent_config_{digest[:32]}"
 
 
+NOW_STAGE_ORDER = ["detect", "cluster", "propose_fix", "apply", "verify", "close"]
+NOW_SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+
+def _stable_now_id(prefix: str, *parts: str) -> str:
+    digest = hashlib.sha256(":".join(parts).encode("utf-8")).hexdigest()
+    return f"{prefix}_{digest[:24]}"
+
+
+def _now_slug(value: str | None, default: str = "unknown") -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", str(value or "").lower()).strip("_")
+    return slug or default
+
+
+def _stringish(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value or None
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    return None
+
+
+def _text_haystack(*values: Any) -> str:
+    chunks: list[str] = []
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, dict):
+            chunks.append(encode_json(value))
+        elif isinstance(value, list):
+            chunks.extend(_text_haystack(item) for item in value)
+        else:
+            chunks.append(str(value))
+    return " ".join(chunk for chunk in chunks if chunk).lower()
+
+
+def _trace_tool_names(trace: dict[str, Any], spans: list[dict[str, Any]]) -> list[str]:
+    names: list[str] = []
+    for tool_id in trace.get("tool_version_ids") or []:
+        if tool_id:
+            names.append(str(tool_id))
+    for span in spans:
+        attributes = span.get("attributes") or {}
+        tool_name = attributes.get("tool.name") or attributes.get("tool_name")
+        tool = attributes.get("tool")
+        if not tool_name and isinstance(tool, dict):
+            tool_name = tool.get("name")
+        if tool_name:
+            names.append(str(tool_name))
+        if span.get("span_type") == "tool" or span.get("name"):
+            names.append(str(span.get("name") or ""))
+    deduped: list[str] = []
+    for name in names:
+        if name and name not in deduped:
+            deduped.append(name)
+    return deduped
+
+
+def _trace_now_signature(
+    trace: dict[str, Any],
+    spans: list[dict[str, Any]],
+) -> dict[str, Any]:
+    attributes = trace.get("attributes") or {}
+    tool_names = _trace_tool_names(trace, spans)
+    haystack = _text_haystack(
+        trace.get("summary"),
+        trace.get("tags") or [],
+        attributes,
+        tool_names,
+        [span.get("attributes") or {} for span in spans],
+    )
+    workflow = (
+        _stringish(attributes.get("workflow"))
+        or _stringish(attributes.get("intent"))
+        or _stringish(attributes.get("channel"))
+        or next(
+            (
+                str(tag)
+                for tag in trace.get("tags") or []
+                if tag not in {"fixture", "failure", "support"}
+            ),
+            None,
+        )
+        or trace.get("environment")
+        or "agent"
+    )
+    error_type = (
+        _stringish(attributes.get("error.type"))
+        or _stringish(attributes.get("error_type"))
+        or _stringish(attributes.get("exception"))
+        or trace.get("status")
+        or "unknown"
+    )
+    wrong_refund_tool = "refund" in haystack and (
+        "wrong_tool" in haystack
+        or "order lookup" in haystack
+        or any("lookup_order" in name.lower() for name in tool_names)
+        or any("order_lookup" in name.lower() for name in tool_names)
+    )
+    if wrong_refund_tool:
+        return {
+            "event_type": "trace_cluster",
+            "cluster_key": "refund_routing_violation",
+            "workflow": "refund",
+            "error_type": "wrong_tool_for_refund",
+            "tool_name": next((name for name in tool_names if name), "lookup_order"),
+        }
+    tool_part = _now_slug(tool_names[0], "") if tool_names else ""
+    pieces = [_now_slug(workflow), tool_part, _now_slug(error_type)]
+    cluster_key = "_".join(piece for piece in pieces if piece)
+    return {
+        "event_type": "trace_cluster",
+        "cluster_key": f"{cluster_key}_cluster",
+        "workflow": workflow,
+        "error_type": error_type,
+        "tool_name": tool_names[0] if tool_names else None,
+    }
+
+
+def _now_recommendation_for_signature(
+    signature: dict[str, Any],
+) -> dict[str, Any]:
+    if signature["cluster_key"] == "refund_routing_violation":
+        return {
+            "type": "route_tool",
+            "label": "Apply route",
+            "summary": "route refund-shaped requests to lookup_order_v2 before policy response",
+            "explanation": (
+                "Span used lookup_order after a refund-shaped utterance; the route "
+                "override sends future refund-shaped requests to lookup_order_v2."
+            ),
+            "executor": "agent_config",
+            "route": {
+                "intent": "refund",
+                "avoid_tool": "lookup_order",
+                "target_tool": "lookup_order_v2",
+                "match": {
+                    "cluster_key": "refund_routing_violation",
+                    "utterance_contains": ["refund"],
+                },
+            },
+        }
+    return {
+        "type": "create_review_task",
+        "label": "Queue reviews",
+        "summary": f"queue matching traces for review before promoting {signature['cluster_key']}",
+        "explanation": (
+            "These traces share status, environment, tool, or error attributes; "
+            "OpenABM can carry the trace IDs into review tasks with provenance."
+        ),
+        "executor": "review_task",
+    }
+
+
+def _now_event_primary_label(event: dict[str, Any]) -> str:
+    stage = event.get("stage")
+    if stage == "verify":
+        return "Verify signal"
+    if stage == "close":
+        return "Closed"
+    recommendation = event.get("recommendation") or {}
+    return str(recommendation.get("label") or "Approve")
+
+
+def _now_trace_after(trace: dict[str, Any], after: str | None) -> bool:
+    if not after:
+        return True
+    started_at = trace.get("started_at")
+    return bool(started_at and str(started_at) > after)
+
+
 def _first_eval_verdict(result: dict[str, Any] | None) -> str | None:
     if not result or not result.get("scores"):
         return None
@@ -2909,6 +3082,613 @@ class SQLiteStore:
         with self.connect() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [self._trace_from_row(row) for row in rows]
+
+    def sync_now_events(self, project_id: str, limit: int = 250) -> list[dict[str, Any]]:
+        self.ensure_project(project_id)
+        traces = self.search_traces(project_id, limit=limit)
+        spans_by_trace = {
+            trace["trace_id"]: self.list_spans(project_id, trace["trace_id"])
+            for trace in traces
+        }
+        now = utc_now()
+        events = self._derive_now_events(project_id, traces, spans_by_trace, now)
+        for event in events:
+            self._upsert_now_event(event, now)
+        return self.list_now_events(project_id)
+
+    def list_now_events(
+        self,
+        project_id: str,
+        *,
+        include_closed: bool = False,
+    ) -> list[dict[str, Any]]:
+        clauses = ["project_id = ?"]
+        params: list[Any] = [project_id]
+        if not include_closed:
+            clauses.append("stage != 'close'")
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM now_events WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY updated_at DESC",
+                params,
+            ).fetchall()
+        events = [self._now_event_from_row(row) for row in rows]
+        return sorted(
+            events,
+            key=lambda event: (
+                event["stage"] == "close",
+                NOW_SEVERITY_ORDER.get(event["severity"], 99),
+                -len(event["source_trace_ids"]),
+                event["updated_at"],
+            ),
+        )
+
+    def get_now_event(
+        self,
+        project_id: str,
+        now_event_id: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM now_events
+                WHERE project_id = ? AND now_event_id = ?
+                """,
+                (project_id, now_event_id),
+            ).fetchone()
+        return self._now_event_from_row(row) if row else None
+
+    def approve_now_event(
+        self,
+        project_id: str,
+        now_event_id: str,
+        *,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        event = self.get_now_event(project_id, now_event_id)
+        if event is None:
+            raise KeyError(f"now event not found: {now_event_id}")
+        if event["stage"] == "close":
+            return event
+        if any(result.get("action") == "approve" for result in event["action_results"]):
+            return event
+
+        recommendation = event["recommendation"]
+        if recommendation.get("type") == "route_tool":
+            action_result = self._apply_now_route_tool(event, actor_id=actor_id)
+        else:
+            action_result = self._apply_now_review_task(event, actor_id=actor_id)
+
+        self.append_audit(
+            "approve_now_event",
+            "now_event",
+            project_id,
+            now_event_id,
+            {
+                "recommendation_type": recommendation.get("type"),
+                "operation": action_result.get("operation"),
+                "source_trace_ids": event["source_trace_ids"],
+            },
+            actor_id=actor_id,
+        )
+        return self.update_now_event_execution(
+            project_id,
+            now_event_id,
+            stage="verify",
+            action_result=action_result,
+            applied_at=action_result["created_at"],
+            verification={
+                "status": "watching",
+                "message": "Approved change applied; waiting for verification.",
+                "created_at": action_result["created_at"],
+            },
+        )
+
+    def verify_now_event(
+        self,
+        project_id: str,
+        now_event_id: str,
+        *,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        event = self.get_now_event(project_id, now_event_id)
+        if event is None:
+            raise KeyError(f"now event not found: {now_event_id}")
+        if event["stage"] == "close":
+            return event
+
+        now = utc_now()
+        if event["recommendation"].get("type") == "create_review_task":
+            tasks = self.list_review_tasks_for_source(project_id, "now_event", now_event_id)
+            open_tasks = [task for task in tasks if task["status"] == "open"]
+            verification = {
+                "status": "passed" if tasks and not open_tasks else "awaiting_reviews",
+                "review_task_ids": [task["review_task_id"] for task in tasks],
+                "open_review_task_ids": [task["review_task_id"] for task in open_tasks],
+                "created_at": now,
+            }
+            next_stage = "close" if verification["status"] == "passed" else "verify"
+        else:
+            new_matching_trace_ids = self.matching_now_trace_ids_after(
+                project_id,
+                event,
+                event.get("applied_at") or event.get("updated_at"),
+            )
+            verification = {
+                "status": "passed" if not new_matching_trace_ids else "watching",
+                "new_matching_trace_ids": new_matching_trace_ids,
+                "created_at": now,
+            }
+            next_stage = "close" if not new_matching_trace_ids else "verify"
+
+        self.append_audit(
+            "verify_now_event",
+            "now_event",
+            project_id,
+            now_event_id,
+            verification,
+            actor_id=actor_id,
+        )
+        return self.update_now_event_execution(
+            project_id,
+            now_event_id,
+            stage=next_stage,
+            action_result={
+                "action": "verify",
+                "operation": "verify_now_event",
+                "status": verification["status"],
+                "created_at": now,
+            },
+            verification=verification,
+            closed_at=now if next_stage == "close" else None,
+        )
+
+    def close_now_event(
+        self,
+        project_id: str,
+        now_event_id: str,
+        *,
+        reason: str,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        event = self.get_now_event(project_id, now_event_id)
+        if event is None:
+            raise KeyError(f"now event not found: {now_event_id}")
+        now = utc_now()
+        self.append_audit(
+            "close_now_event",
+            "now_event",
+            project_id,
+            now_event_id,
+            {"reason": reason, "source_trace_ids": event["source_trace_ids"]},
+            actor_id=actor_id,
+        )
+        return self.update_now_event_execution(
+            project_id,
+            now_event_id,
+            stage="close",
+            action_result={
+                "action": reason,
+                "operation": "close_now_event",
+                "created_at": now,
+            },
+            verification={
+                **event.get("verification", {}),
+                "closed_reason": reason,
+                "closed_at": now,
+            },
+            closed_at=now,
+        )
+
+    def update_now_event_execution(
+        self,
+        project_id: str,
+        now_event_id: str,
+        *,
+        stage: str,
+        action_result: dict[str, Any] | None = None,
+        verification: dict[str, Any] | None = None,
+        applied_at: str | None = None,
+        closed_at: str | None = None,
+    ) -> dict[str, Any]:
+        event = self.get_now_event(project_id, now_event_id)
+        if event is None:
+            raise KeyError(f"now event not found: {now_event_id}")
+        now = utc_now()
+        action_results = list(event["action_results"])
+        if action_result:
+            action_results.append(action_result)
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE now_events
+                SET stage = ?,
+                    action_results_json = ?,
+                    verification_json = ?,
+                    applied_at = COALESCE(?, applied_at),
+                    closed_at = COALESCE(?, closed_at),
+                    updated_at = ?
+                WHERE project_id = ? AND now_event_id = ?
+                """,
+                (
+                    stage,
+                    encode_json(action_results),
+                    encode_json(
+                        verification if verification is not None else event["verification"],
+                    ),
+                    applied_at,
+                    closed_at,
+                    now,
+                    project_id,
+                    now_event_id,
+                ),
+            )
+        updated = self.get_now_event(project_id, now_event_id)
+        if updated is None:
+            raise KeyError(f"now event not found: {now_event_id}")
+        return updated
+
+    def list_review_tasks_for_source(
+        self,
+        project_id: str,
+        source_entity_type: str,
+        source_entity_id: str,
+    ) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM review_tasks
+                WHERE project_id = ?
+                  AND source_entity_type = ?
+                  AND source_entity_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id, source_entity_type, source_entity_id),
+            ).fetchall()
+        return [self._review_task_from_row(row) for row in rows]
+
+    def matching_now_trace_ids_after(
+        self,
+        project_id: str,
+        event: dict[str, Any],
+        after: str | None,
+        *,
+        limit: int = 1000,
+    ) -> list[str]:
+        traces = self.search_traces(
+            project_id,
+            filters={"time_from": after} if after else {},
+            limit=limit,
+        )
+        matching_trace_ids: list[str] = []
+        source_trace_ids = set(event.get("source_trace_ids") or [])
+        for trace in traces:
+            if trace["trace_id"] in source_trace_ids or not _now_trace_after(trace, after):
+                continue
+            spans = self.list_spans(project_id, trace["trace_id"])
+            signature = _trace_now_signature(trace, spans)
+            if signature["cluster_key"] == event["cluster_key"]:
+                matching_trace_ids.append(trace["trace_id"])
+        return matching_trace_ids
+
+    def _derive_now_events(
+        self,
+        project_id: str,
+        traces: list[dict[str, Any]],
+        spans_by_trace: dict[str, list[dict[str, Any]]],
+        now: str,
+    ) -> list[dict[str, Any]]:
+        problem_traces = [trace for trace in traces if trace.get("status") != "ok"]
+        groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        signatures: dict[tuple[str, str], dict[str, Any]] = {}
+        for trace in problem_traces:
+            signature = _trace_now_signature(trace, spans_by_trace.get(trace["trace_id"], []))
+            key = (signature["event_type"], signature["cluster_key"])
+            groups.setdefault(key, []).append(trace)
+            signatures[key] = signature
+
+        events: list[dict[str, Any]] = []
+        for (event_type, cluster_key), grouped in groups.items():
+            grouped = sorted(grouped, key=lambda item: item["started_at"], reverse=True)
+            first = grouped[0]
+            signature = signatures[(event_type, cluster_key)]
+            recommendation = _now_recommendation_for_signature(signature)
+            count = len(grouped)
+            if cluster_key == "refund_routing_violation":
+                title = (
+                    f"{count} {'trace' if count == 1 else 'traces'} failed "
+                    "lookup_order for refund intents"
+                )
+            else:
+                title = f"{count} {'trace' if count == 1 else 'traces'} share {cluster_key}"
+            event = {
+                "now_event_id": _stable_now_id("now_event", project_id, event_type, cluster_key),
+                "project_id": project_id,
+                "event_type": event_type,
+                "cluster_key": cluster_key,
+                "title": title,
+                "summary": (
+                    f"{first.get('environment') or 'agent stream'} "
+                    f"latest {first['started_at']}"
+                ),
+                "severity": self._now_severity(grouped),
+                "trend": f"+{count} in window" if count > 1 else "new",
+                "stage": "propose_fix",
+                "recommendation": recommendation,
+                "source_trace_ids": [trace["trace_id"] for trace in grouped],
+                "target_view": "investigations",
+                "action_results": [],
+                "verification": {},
+                "applied_at": None,
+                "closed_at": None,
+                "created_at": now,
+                "updated_at": now,
+            }
+            events.append(event)
+
+        if problem_traces:
+            grouped = sorted(problem_traces, key=lambda item: item["started_at"], reverse=True)
+            count = len(grouped)
+            events.append(
+                {
+                    "now_event_id": _stable_now_id(
+                        "now_event",
+                        project_id,
+                        "review_queue",
+                        "review_queue_from_failures",
+                    ),
+                    "project_id": project_id,
+                    "event_type": "review_queue",
+                    "cluster_key": "review_queue_from_failures",
+                    "title": (
+                        f"{count} {'review' if count == 1 else 'reviews'} "
+                        "queued from current failures"
+                    ),
+                    "summary": "human feedback loop",
+                    "severity": "high" if count > 3 else "medium",
+                    "trend": f"{count} pending",
+                    "stage": "propose_fix",
+                    "recommendation": {
+                        "type": "create_review_task",
+                        "label": "Queue reviews",
+                        "summary": "create review tasks with trace IDs already attached",
+                        "explanation": (
+                            "OpenABM can carry failing trace IDs into review tasks "
+                            "so reviewers do not retype context."
+                        ),
+                        "executor": "review_task",
+                    },
+                    "source_trace_ids": [trace["trace_id"] for trace in grouped],
+                    "target_view": "reviews",
+                    "action_results": [],
+                    "verification": {},
+                    "applied_at": None,
+                    "closed_at": None,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+        return events
+
+    @staticmethod
+    def _now_severity(grouped_traces: list[dict[str, Any]]) -> str:
+        if len(grouped_traces) > 3:
+            return "critical"
+        if any(trace.get("status") == "error" for trace in grouped_traces):
+            return "high"
+        if any(trace.get("status") == "timeout" for trace in grouped_traces):
+            return "medium"
+        return "medium"
+
+    def _upsert_now_event(self, event: dict[str, Any], now: str) -> None:
+        with self.connect() as conn:
+            existing = conn.execute(
+                """
+                SELECT * FROM now_events
+                WHERE project_id = ? AND cluster_key = ? AND event_type = ?
+                """,
+                (event["project_id"], event["cluster_key"], event["event_type"]),
+            ).fetchone()
+            if existing is None:
+                conn.execute(
+                    """
+                    INSERT INTO now_events(
+                      now_event_id, project_id, event_type, cluster_key, title, summary,
+                      severity, trend, stage, recommendation_json, source_trace_ids_json,
+                      target_view, action_results_json, verification_json, applied_at,
+                      closed_at, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event["now_event_id"],
+                        event["project_id"],
+                        event["event_type"],
+                        event["cluster_key"],
+                        event["title"],
+                        event["summary"],
+                        event["severity"],
+                        event["trend"],
+                        event["stage"],
+                        encode_json(event["recommendation"]),
+                        encode_json(event["source_trace_ids"]),
+                        event["target_view"],
+                        encode_json(event["action_results"]),
+                        encode_json(event["verification"]),
+                        event["applied_at"],
+                        event["closed_at"],
+                        event["created_at"],
+                        now,
+                    ),
+                )
+                return
+
+            existing_event = self._now_event_from_row(existing)
+            existing_trace_ids = set(existing_event["source_trace_ids"])
+            new_trace_ids = set(event["source_trace_ids"]) - existing_trace_ids
+            if existing_event["stage"] == "close" and not new_trace_ids:
+                return
+            if existing_event["stage"] == "close":
+                verification = {
+                    "status": "reopened",
+                    "previous_closed_at": existing_event["closed_at"],
+                    "new_trace_ids": sorted(new_trace_ids),
+                    "created_at": now,
+                }
+                conn.execute(
+                    """
+                    UPDATE now_events
+                    SET title = ?,
+                        summary = ?,
+                        severity = ?,
+                        trend = ?,
+                        stage = 'propose_fix',
+                        recommendation_json = ?,
+                        source_trace_ids_json = ?,
+                        target_view = ?,
+                        verification_json = ?,
+                        applied_at = NULL,
+                        closed_at = NULL,
+                        updated_at = ?
+                    WHERE project_id = ? AND now_event_id = ?
+                    """,
+                    (
+                        event["title"],
+                        event["summary"],
+                        event["severity"],
+                        event["trend"],
+                        encode_json(event["recommendation"]),
+                        encode_json(event["source_trace_ids"]),
+                        event["target_view"],
+                        encode_json(verification),
+                        now,
+                        event["project_id"],
+                        existing_event["now_event_id"],
+                    ),
+                )
+                return
+
+            conn.execute(
+                """
+                UPDATE now_events
+                SET title = ?,
+                    summary = ?,
+                    severity = ?,
+                    trend = ?,
+                    recommendation_json = ?,
+                    source_trace_ids_json = ?,
+                    target_view = ?,
+                    updated_at = ?
+                WHERE project_id = ? AND now_event_id = ?
+                """,
+                (
+                    event["title"],
+                    event["summary"],
+                    event["severity"],
+                    event["trend"],
+                    encode_json(event["recommendation"]),
+                    encode_json(event["source_trace_ids"]),
+                    event["target_view"],
+                    now,
+                    event["project_id"],
+                    existing_event["now_event_id"],
+                ),
+            )
+
+    def _apply_now_route_tool(
+        self,
+        event: dict[str, Any],
+        *,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        recommendation = event["recommendation"]
+        route = recommendation.get("route") or {}
+        config_id = _stable_now_id(
+            "agent_config_now",
+            event["project_id"],
+            event["cluster_key"],
+            recommendation.get("type", "route_tool"),
+        )
+        config = self.get_agent_config(event["project_id"], config_id)
+        if config is None:
+            config = self.create_agent_config(
+                {
+                    "agent_config_id": config_id,
+                    "project_id": event["project_id"],
+                    "name": f"Now route: {event['cluster_key']}",
+                    "config_type": "routing_override",
+                }
+            )
+        content = {
+            "kind": "routing_override",
+            "source": "now_event",
+            "now_event_id": event["now_event_id"],
+            "cluster_key": event["cluster_key"],
+            "source_trace_ids": event["source_trace_ids"],
+            "route": route,
+        }
+        version = self.commit_agent_config_version(
+            event["project_id"],
+            config["agent_config_id"],
+            content=content,
+            metadata={
+                "source": "now_event",
+                "now_event_id": event["now_event_id"],
+                "recommendation_type": recommendation.get("type"),
+                "summary": recommendation.get("summary"),
+                "approved_by": actor_id,
+            },
+            tag="now-approved",
+        )
+        created_at = utc_now()
+        return {
+            "action": "approve",
+            "operation": "commit_agent_config_version",
+            "status": "applied",
+            "agent_config_id": config["agent_config_id"],
+            "agent_config_version_id": version["agent_config_version_id"],
+            "commit_id": version["commit_id"],
+            "created_at": created_at,
+        }
+
+    def _apply_now_review_task(
+        self,
+        event: dict[str, Any],
+        *,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        review_task_id = _stable_now_id(
+            "review_task_now",
+            event["project_id"],
+            event["now_event_id"],
+        )
+        task = self.get_review_task(event["project_id"], review_task_id)
+        if task is None:
+            task = self.create_review_task(
+                {
+                    "review_task_id": review_task_id,
+                    "project_id": event["project_id"],
+                    "task_type": "now_event_review",
+                    "source_entity_type": "now_event",
+                    "source_entity_id": event["now_event_id"],
+                    "assigned_to_nullable": actor_id,
+                    "status": "open",
+                    "notes_nullable": (
+                        f"{event['title']}: "
+                        f"{event['recommendation'].get('summary') or 'review event'}"
+                    ),
+                    "evidence_ids": event["source_trace_ids"],
+                }
+            )
+        created_at = utc_now()
+        return {
+            "action": "approve",
+            "operation": "create_review_task",
+            "status": "applied",
+            "review_task_id": task["review_task_id"],
+            "created_at": created_at,
+        }
 
     def list_scores(self, project_id: str, trace_id: str | None = None) -> list[dict[str, Any]]:
         clauses = ["project_id = ?"]
@@ -7514,6 +8294,41 @@ class SQLiteStore:
             "server_received_at": row["server_received_at"],
             "updated_at": row["updated_at"],
         }
+
+    @staticmethod
+    def _now_event_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        recommendation = decode_json(row["recommendation_json"], {})
+        source_trace_ids = decode_json(row["source_trace_ids_json"], [])
+        event = {
+            "now_event_id": row["now_event_id"],
+            "id": row["now_event_id"],
+            "project_id": row["project_id"],
+            "event_type": row["event_type"],
+            "cluster_key": row["cluster_key"],
+            "cluster": row["cluster_key"],
+            "title": row["title"],
+            "summary": row["summary"],
+            "meta": row["summary"],
+            "severity": row["severity"],
+            "trend": row["trend"],
+            "stage": row["stage"],
+            "recommendation": recommendation,
+            "recommendation_summary": recommendation.get("summary"),
+            "recommendation_type": recommendation.get("type"),
+            "primary_label": recommendation.get("label"),
+            "explanation": recommendation.get("explanation"),
+            "source_trace_ids": source_trace_ids,
+            "trace_ids": source_trace_ids,
+            "target_view": row["target_view"],
+            "action_results": decode_json(row["action_results_json"], []),
+            "verification": decode_json(row["verification_json"], {}),
+            "applied_at": row["applied_at"],
+            "closed_at": row["closed_at"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        event["primary_label"] = _now_event_primary_label(event)
+        return event
 
     @staticmethod
     def _deployment_context_from_row(row: sqlite3.Row) -> dict[str, Any]:

@@ -3044,6 +3044,56 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         del actor
         return {"data": store.list_review_tasks(project_id, status=status, task_type=task_type)}
 
+    @app.get("/api/now/events")
+    def list_now_events(
+        project_id: str,
+        include_closed: bool = False,
+        actor: dict[str, object] = Depends(auth_dependency(["traces:read"])),
+    ) -> dict[str, object]:
+        del actor
+        store.sync_now_events(project_id)
+        return {"data": store.list_now_events(project_id, include_closed=include_closed)}
+
+    @app.post("/api/now/events/{now_event_id}/advance")
+    def advance_now_event(
+        now_event_id: str,
+        request: dict[str, Any],
+        actor: dict[str, object] = Depends(
+            auth_dependency(["agent_configs:write", "reviews:write"]),
+        ),
+    ) -> dict[str, object]:
+        project_id = request.get("project_id")
+        if not project_id:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "project_id is required",
+                "/project_id",
+            )
+        action = request.get("action") or "approve"
+        if action not in {"approve", "verify", "close", "ignore"}:
+            raise SchemaValidationFailure(
+                "schema_validation_failed",
+                "action must be approve, verify, close, or ignore",
+                "/action",
+            )
+        actor_id = str(actor.get("actor_id") or actor.get("api_key_id") or "unknown")
+        try:
+            if action == "approve":
+                return store.approve_now_event(project_id, now_event_id, actor_id=actor_id)
+            if action == "verify":
+                return store.verify_now_event(project_id, now_event_id, actor_id=actor_id)
+            return store.close_now_event(
+                project_id,
+                now_event_id,
+                reason=str(action),
+                actor_id=actor_id,
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("not_found", str(exc)),
+            ) from exc
+
     @app.post("/api/review-tasks", status_code=201)
     def create_review_task(
         request: dict[str, Any],

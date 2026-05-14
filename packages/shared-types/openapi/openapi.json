@@ -1468,6 +1468,74 @@
         }
       }
     },
+    "/v1/now/events": {
+      "get": {
+        "operationId": "listNowEvents",
+        "summary": "List executable Now events for the live work feed.",
+        "x-required-scopes": [
+          "traces:read"
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "include_closed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Now events."
+          }
+        }
+      }
+    },
+    "/v1/now/events/{now_event_id}/advance": {
+      "post": {
+        "operationId": "advanceNowEvent",
+        "summary": "Approve, verify, close, or ignore a Now event.",
+        "x-required-scopes": [
+          "agent_configs:write",
+          "reviews:write"
+        ],
+        "parameters": [
+          {
+            "name": "now_event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "../schemas/now-event-advance.schema.json"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated Now event."
+          }
+        }
+      }
+    },
     "/v1/review-tasks": {
       "get": {
         "operationId": "listReviewTasks",

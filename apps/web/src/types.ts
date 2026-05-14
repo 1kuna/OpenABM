@@ -1022,3 +1022,44 @@ export interface ReviewTask {
   created_at: string;
   updated_at: string;
 }
+
+export type NowStage = "detect" | "cluster" | "propose_fix" | "apply" | "verify" | "close";
+export type NowSeverity = "critical" | "high" | "medium" | "low";
+
+export interface NowRecommendation {
+  type: string;
+  label?: string;
+  summary?: string;
+  explanation?: string;
+  executor?: string;
+  route?: Record<string, unknown>;
+}
+
+export interface NowEventRecord {
+  now_event_id: string;
+  id: string;
+  project_id: string;
+  event_type: string;
+  cluster_key: string;
+  cluster: string;
+  title: string;
+  summary: string;
+  meta: string;
+  severity: NowSeverity;
+  trend: string;
+  stage: NowStage;
+  recommendation: NowRecommendation;
+  recommendation_summary: string | null;
+  recommendation_type: string | null;
+  primary_label: string;
+  explanation: string | null;
+  source_trace_ids: string[];
+  trace_ids: string[];
+  target_view: string;
+  action_results: Array<Record<string, unknown>>;
+  verification: Record<string, unknown>;
+  applied_at: string | null;
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}

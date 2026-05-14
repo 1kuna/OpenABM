@@ -1556,6 +1556,119 @@ def test_v1_judge_registry_eval_compare_and_docs_search(tmp_path) -> None:
     assert "openabm_implementation_spec.md" not in all_paths
 
 
+def test_now_events_execute_recommendations_and_verify(tmp_path) -> None:
+    client = make_client(tmp_path)
+    fixture = json.loads(FIXTURE_PATH.read_text())["fixtures"][1]
+    response = client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [fixture["trace"]], "spans": fixture["spans"]},
+    )
+    assert response.status_code == 207
+
+    listed = client.get(
+        "/v1/now/events",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert listed.status_code == 200
+    events = listed.json()["data"]
+    route_event = next(
+        event for event in events if event["cluster_key"] == "refund_routing_violation"
+    )
+    assert route_event["stage"] == "propose_fix"
+    assert route_event["recommendation"]["type"] == "route_tool"
+    assert route_event["source_trace_ids"] == ["trace_wrong_tool"]
+
+    approved = client.post(
+        f"/v1/now/events/{route_event['now_event_id']}/advance",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "action": "approve"},
+    )
+    assert approved.status_code == 200
+    approved_body = approved.json()
+    assert approved_body["stage"] == "verify"
+    assert approved_body["action_results"][0]["operation"] == "commit_agent_config_version"
+    assert approved_body["action_results"][0]["commit_id"]
+
+    config = client.get(
+        f"/v1/agent-configs/{approved_body['action_results'][0]['agent_config_id']}",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    assert config.status_code == 200
+    assert config.json()["versions"][0]["content"]["route"]["target_tool"] == "lookup_order_v2"
+
+    verified = client.post(
+        f"/v1/now/events/{route_event['now_event_id']}/advance",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "action": "verify"},
+    )
+    assert verified.status_code == 200
+    assert verified.json()["stage"] == "close"
+    assert verified.json()["verification"]["status"] == "passed"
+
+    recurrence = _clone_trace_fixture(
+        fixture,
+        trace_id="trace_wrong_tool_recurrence",
+        session_id="session_wrong_tool_recurrence",
+        span_id_map={
+            "span_wrong_tool_root": "span_wrong_tool_recurrence_root",
+            "span_wrong_tool_order_lookup": "span_wrong_tool_recurrence_order_lookup",
+        },
+        summary="Agent reused an order lookup tool for a refund after route approval.",
+    )
+    recurrence["trace"]["started_at"] = "2026-05-14T12:00:00Z"
+    recurrence["trace"]["ended_at"] = "2026-05-14T12:00:05Z"
+    for span in recurrence["spans"]:
+        span["started_at"] = "2026-05-14T12:00:00Z"
+        span["ended_at"] = "2026-05-14T12:00:05Z"
+    recurrence_response = client.post(
+        "/v1/ingest/batch",
+        headers=auth_headers(),
+        json={"traces": [recurrence["trace"]], "spans": recurrence["spans"]},
+    )
+    assert recurrence_response.status_code == 207
+    reopened = client.get(
+        "/v1/now/events",
+        params={"project_id": "proj_demo"},
+        headers=auth_headers(),
+    )
+    reopened_route = next(
+        event for event in reopened.json()["data"]
+        if event["cluster_key"] == "refund_routing_violation"
+    )
+    assert reopened_route["stage"] == "propose_fix"
+    assert reopened_route["verification"]["status"] == "reopened"
+    assert "trace_wrong_tool_recurrence" in reopened_route["source_trace_ids"]
+
+    review_event = next(
+        event for event in events if event["cluster_key"] == "review_queue_from_failures"
+    )
+    approved_review = client.post(
+        f"/v1/now/events/{review_event['now_event_id']}/advance",
+        headers=auth_headers(),
+        json={"project_id": "proj_demo", "action": "approve"},
+    )
+    assert approved_review.status_code == 200
+    assert approved_review.json()["stage"] == "verify"
+    assert approved_review.json()["action_results"][0]["operation"] == "create_review_task"
+
+    review_tasks = client.get(
+        "/v1/review-tasks",
+        params={"project_id": "proj_demo", "task_type": "now_event_review"},
+        headers=auth_headers(),
+    )
+    assert review_tasks.status_code == 200
+    assert review_tasks.json()["data"][0]["source_entity_type"] == "now_event"
+    assert set(review_tasks.json()["data"][0]["evidence_ids"]) == {
+        "trace_wrong_tool",
+        "trace_wrong_tool_recurrence",
+    }
+    assert audit_rows(client, "approve_now_event")
+    assert audit_rows(client, "verify_now_event")
+
+
 def test_v1_model_backed_judge_draft_requires_review(tmp_path, monkeypatch) -> None:
     class StubProvider:
         async def structured_completion(self, request, schema):

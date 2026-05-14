@@ -55,6 +55,9 @@ import type {
   JudgeCalibrationReport,
   JudgeDefinition,
   JudgePromotionResult,
+  NowEventRecord,
+  NowSeverity,
+  NowStage,
   NotificationTarget,
   OpsStatus,
   Project,
@@ -101,8 +104,6 @@ type ViewKey =
   | "configs"
   | "mcp"
   | "ops";
-type NowStage = "detect" | "cluster" | "propose_fix" | "apply" | "verify" | "close";
-type NowSeverity = "critical" | "high" | "medium" | "low";
 type NowActionState = {
   stage: NowStage;
   note: string;
@@ -194,6 +195,7 @@ export function App() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState(new Date().toISOString());
   const [commandOpen, setCommandOpen] = useState(false);
   const [nowActionState, setNowActionState] = useState<Record<string, NowActionState>>({});
+  const [serverNowEvents, setServerNowEvents] = useState<NowEventRecord[] | null>(null);
 
   const client = useMemo(() => new OpenAbmClient({ baseUrl, apiKey }), [baseUrl, apiKey]);
 
@@ -213,9 +215,11 @@ export function App() {
         const nextProjectId = loadedProjects[0]?.project_id ?? projectId;
         setProjectId(nextProjectId);
         const loadedTraces = await client.listTraces(nextProjectId);
+        const loadedNowEvents = await client.listNowEvents(nextProjectId).catch(() => null);
         if (cancelled) return;
         setConnection("live");
         setTraces(loadedTraces);
+        setServerNowEvents(loadedNowEvents);
         setLastUpdatedAt(new Date().toISOString());
         setSelectedTraceId((current) =>
           loadedTraces.some((trace) => trace.trace_id === current)
@@ -228,6 +232,7 @@ export function App() {
         setConnection("fixture");
         setProjects(fixtureProjects);
         setTraces(fixtureTraces);
+        setServerNowEvents(null);
         setProjectId("proj_demo");
         setLastUpdatedAt(new Date().toISOString());
         setSelectedTraceId(fixtureTraces[0]?.trace_id ?? "");
@@ -264,13 +269,16 @@ export function App() {
   const refreshTraces = useCallback(async (options: { preserveSelection?: boolean } = {}) => {
     if (connection !== "live") {
       setTraces(fixtureTraces);
+      setServerNowEvents(null);
       setLastUpdatedAt(new Date().toISOString());
       return;
     }
     const loaded = query
       ? await client.searchTraces(projectId, query)
       : await client.listTraces(projectId, status || undefined);
+    const loadedNowEvents = await client.listNowEvents(projectId).catch(() => null);
     setTraces(loaded);
+    setServerNowEvents(loadedNowEvents);
     setLastUpdatedAt(new Date().toISOString());
     setSelectedTraceId((current) =>
       options.preserveSelection && loaded.some((trace) => trace.trace_id === current)
@@ -328,7 +336,9 @@ export function App() {
     const loaded = nextQuery
       ? await client.searchTraces(projectId, nextQuery)
       : await client.listTraces(projectId, nextStatus || undefined);
+    const loadedNowEvents = await client.listNowEvents(projectId).catch(() => null);
     setTraces(loaded);
+    setServerNowEvents(loadedNowEvents);
     setLastUpdatedAt(new Date().toISOString());
     setSelectedTraceId(loaded[0]?.trace_id ?? "");
     if (!loaded[0]) setDetail(null);
@@ -343,13 +353,16 @@ export function App() {
         ? fixtureTraces.filter((trace) => trace.status === nextStatus)
         : fixtureTraces;
       setTraces(filtered);
+      setServerNowEvents(null);
       setLastUpdatedAt(new Date().toISOString());
       setSelectedTraceId(filtered[0]?.trace_id ?? "");
       if (!filtered[0]) setDetail(null);
       return;
     }
     const loaded = await client.listTraces(projectId, nextStatus || undefined);
+    const loadedNowEvents = await client.listNowEvents(projectId).catch(() => null);
     setTraces(loaded);
+    setServerNowEvents(loadedNowEvents);
     setLastUpdatedAt(new Date().toISOString());
     setSelectedTraceId(loaded[0]?.trace_id ?? "");
     if (!loaded[0]) setDetail(null);
@@ -360,7 +373,24 @@ export function App() {
     setActiveView("investigations");
   }
 
-  function applyNowEvent(event: NowEvent) {
+  async function applyNowEvent(event: NowEvent) {
+    if (connection === "live") {
+      try {
+        const updated = await client.advanceNowEvent(projectId, event.id, nowAdvanceAction(event));
+        setServerNowEvents((current) => upsertNowRecord(current, updated));
+        setLastUpdatedAt(new Date().toISOString());
+        return;
+      } catch (error) {
+        setNowActionState((current) => ({
+          ...current,
+          [event.id]: {
+            stage: event.stage,
+            note: `Action failed: ${error instanceof Error ? error.message : "unknown error"}`,
+            updatedAt: new Date().toISOString()
+          }
+        }));
+      }
+    }
     const nextStage = nextNowStage(event.stage);
     setNowActionState((current) => ({
       ...current,
@@ -372,7 +402,24 @@ export function App() {
     }));
   }
 
-  function dismissNowEvent(event: NowEvent) {
+  async function dismissNowEvent(event: NowEvent) {
+    if (connection === "live") {
+      try {
+        const updated = await client.advanceNowEvent(projectId, event.id, "ignore");
+        setServerNowEvents((current) => upsertNowRecord(current, updated));
+        setLastUpdatedAt(new Date().toISOString());
+        return;
+      } catch (error) {
+        setNowActionState((current) => ({
+          ...current,
+          [event.id]: {
+            stage: event.stage,
+            note: `Close failed: ${error instanceof Error ? error.message : "unknown error"}`,
+            updatedAt: new Date().toISOString()
+          }
+        }));
+      }
+    }
     setNowActionState((current) => ({
       ...current,
       [event.id]: {
@@ -384,8 +431,12 @@ export function App() {
   }
 
   const nowEvents = useMemo(
-    () => buildNowEvents(traces, nowActionState),
-    [nowActionState, traces]
+    () => (
+      connection === "live" && serverNowEvents
+        ? serverNowEvents.map(nowRecordToEvent)
+        : buildNowEvents(traces, nowActionState)
+    ),
+    [connection, nowActionState, serverNowEvents, traces]
   );
   const activeIndex = VIEW_ORDER.indexOf(activeView);
   const pageNum = String(activeIndex + 1).padStart(2, "0");
@@ -423,7 +474,7 @@ export function App() {
         label: `${nowPrimaryLabel(event)}: ${event.title}`,
         detail: event.recommendation,
         disabled: event.stage === "close",
-        run: () => applyNowEvent(event)
+        run: () => void applyNowEvent(event)
       },
       {
         id: `now:open:${event.id}`,
@@ -438,7 +489,7 @@ export function App() {
         label: `Close: ${event.title}`,
         detail: "Archive the item with provenance visible in the row.",
         disabled: event.stage === "close",
-        run: () => dismissNowEvent(event)
+        run: () => void dismissNowEvent(event)
       }
     ])
   ];
@@ -635,8 +686,8 @@ function NowSurface(props: {
   events: NowEvent[];
   traces: TraceEnvelope[];
   lastUpdatedAt: string;
-  onApply: (event: NowEvent) => void;
-  onDismiss: (event: NowEvent) => void;
+  onApply: (event: NowEvent) => void | Promise<void>;
+  onDismiss: (event: NowEvent) => void | Promise<void>;
   onOpenInvestigation: (event: NowEvent) => void;
   onOpenReviews: () => void;
 }) {
@@ -684,10 +735,10 @@ function NowSurface(props: {
           </label>
           <span className="livePulse">last pulse {formatClockTime(props.lastUpdatedAt)}</span>
           <div className="nowBulkActions">
-            <button disabled={!selectedEvents.length} onClick={() => selectedEvents.forEach(props.onApply)}>
+            <button disabled={!selectedEvents.length} onClick={() => selectedEvents.forEach((event) => void props.onApply(event))}>
               Approve selected
             </button>
-            <button disabled={!selectedEvents.length} onClick={() => selectedEvents.forEach(props.onDismiss)}>
+            <button disabled={!selectedEvents.length} onClick={() => selectedEvents.forEach((event) => void props.onDismiss(event))}>
               Close selected
             </button>
           </div>
@@ -736,7 +787,7 @@ function NowSurface(props: {
               <div className="nowEventActions">
                 <button
                   className="primaryButton"
-                  onClick={() => props.onApply(event)}
+                  onClick={() => void props.onApply(event)}
                   disabled={event.stage === "close"}
                 >
                   {nowPrimaryLabel(event)}
@@ -749,7 +800,7 @@ function NowSurface(props: {
                 </button>
                 <button
                   className="secondaryActionButton"
-                  onClick={() => props.onDismiss(event)}
+                  onClick={() => void props.onDismiss(event)}
                   disabled={event.stage === "close"}
                 >
                   Ignore
@@ -786,7 +837,7 @@ function NowSurface(props: {
             Work starts here. Investigations, reviews, and library artifacts are destinations from the ranked feed.
           </p>
           <p>
-            Current approvals advance the visible loop and keep provenance in the row; backend executors can attach to the same event contract.
+            Current approvals execute backend changes and keep provenance in the row.
           </p>
         </div>
       </aside>
@@ -6705,6 +6756,74 @@ function buildNowEvents(traces: TraceEnvelope[], actionState: Record<string, Now
   return reviewEvent ? [...clusterEvents, reviewEvent] : clusterEvents;
 }
 
+function nowRecordToEvent(record: NowEventRecord): NowEvent {
+  return {
+    id: record.now_event_id,
+    title: record.title,
+    meta: record.meta || record.summary,
+    cluster: record.cluster_key,
+    recommendation:
+      record.recommendation_summary ??
+      record.recommendation.summary ??
+      record.recommendation_type ??
+      "review event",
+    primaryLabel: record.primary_label || record.recommendation.label || "Approve",
+    explanation:
+      record.explanation ??
+      record.recommendation.explanation ??
+      "OpenABM grouped this signal from traces and kept provenance attached.",
+    severity: record.severity,
+    trend: record.trend,
+    traceIds: record.source_trace_ids.length ? record.source_trace_ids : record.trace_ids,
+    stage: record.stage,
+    stateNote: nowRecordStateNote(record),
+    targetView: isViewKey(record.target_view) ? record.target_view : "investigations"
+  };
+}
+
+function nowRecordStateNote(record: NowEventRecord) {
+  const latest = record.action_results[record.action_results.length - 1] ?? null;
+  const operation = stringFromValue(latest?.operation);
+  const verificationStatus = stringFromValue(record.verification.status);
+  if (record.stage === "close" && verificationStatus === "passed") {
+    return "Verification passed; this cluster is closed with provenance retained.";
+  }
+  if (operation === "commit_agent_config_version") {
+    const commit = stringFromValue(latest?.commit_id);
+    return commit
+      ? `Applied route override ${commit}; watching for recurrence.`
+      : "Applied route override; watching for recurrence.";
+  }
+  if (operation === "create_review_task") {
+    const taskId = stringFromValue(latest?.review_task_id);
+    return taskId
+      ? `Review task ${taskId} opened with trace evidence attached.`
+      : "Review task opened with trace evidence attached.";
+  }
+  if (verificationStatus === "awaiting_reviews") {
+    return "Waiting on review task decisions before closing.";
+  }
+  return undefined;
+}
+
+function upsertNowRecord(current: NowEventRecord[] | null, updated: NowEventRecord): NowEventRecord[] {
+  const records = current ? [...current] : [];
+  const index = records.findIndex((record) => record.now_event_id === updated.now_event_id);
+  if (index >= 0) records[index] = updated;
+  else records.unshift(updated);
+  return records;
+}
+
+function nowAdvanceAction(event: NowEvent): "approve" | "verify" | "close" {
+  if (event.stage === "verify") return "verify";
+  if (event.stage === "close") return "close";
+  return "approve";
+}
+
+function isViewKey(value: string): value is ViewKey {
+  return VIEW_ORDER.includes(value as ViewKey);
+}
+
 function traceSignature(trace: TraceEnvelope) {
   const attributes = asRecord(trace.attributes);
   const errorType =
@@ -6754,8 +6873,7 @@ function nowActionNote(stage: NowStage, event: NowEvent) {
 }
 
 function nowPrimaryLabel(event: NowEvent) {
-  if (event.stage === "apply") return "Verify signal";
-  if (event.stage === "verify") return "Close";
+  if (event.stage === "apply" || event.stage === "verify") return "Verify signal";
   if (event.stage === "close") return "Closed";
   return event.primaryLabel;
 }

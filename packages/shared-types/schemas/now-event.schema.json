@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openabm.dev/schemas/now-event.schema.json",
+  "title": "NowEvent",
+  "type": "object",
+  "required": [
+    "now_event_id",
+    "project_id",
+    "event_type",
+    "cluster_key",
+    "title",
+    "summary",
+    "severity",
+    "trend",
+    "stage",
+    "recommendation",
+    "source_trace_ids",
+    "target_view",
+    "action_results",
+    "verification",
+    "created_at",
+    "updated_at"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "now_event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cluster_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "type": "string"
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low"]
+    },
+    "trend": {
+      "type": "string"
+    },
+    "stage": {
+      "type": "string",
+      "enum": ["detect", "cluster", "propose_fix", "apply", "verify", "close"]
+    },
+    "recommendation": {
+      "type": "object",
+      "required": ["type", "summary"],
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "executor": {
+          "type": "string"
+        }
+      }
+    },
+    "source_trace_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "target_view": {
+      "type": "string"
+    },
+    "action_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "applied_at": {
+      "type": ["string", "null"]
+    },
+    "closed_at": {
+      "type": ["string", "null"]
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": "string"
+    }
+  }
+}

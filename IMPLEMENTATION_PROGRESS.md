@@ -1419,8 +1419,39 @@ Implemented in this pass:
   - `frontend_static_audit.py` now only reports false positives for the Web
     Blob API used by download helpers; negative letter-spacing warnings were
     removed.
-- Honest UX gap after this pass: Now approvals currently advance UI state and
-  preserve visible provenance, but the backend does not yet expose the typed
-  recommendation/executor contract needed to persist `APPLY`, run verification,
-  and close clusters automatically. That is the next product gap between the
-  UI surface and the full agent loop described in `docs/ux-direction.md`.
+- Closed the prior honest UX gap by adding a persisted Now event contract:
+  `/v1/now/events` syncs trace-derived clusters into typed events, while
+  `/v1/now/events/{now_event_id}/advance` approves, verifies, closes, or
+  ignores an event with audit records.
+- Added the `now_events` SQLite table and contract schemas for executable Now
+  events and advance requests.
+- Added backend executors for the first recommendation types:
+  - `route_tool` commits a routing override into the agent-config registry and
+    tags the approved version.
+  - `create_review_task` creates a review task with the Now event and source
+    trace IDs attached.
+- Added deterministic verification for applied Now events:
+  route/tool clusters close when no newer matching trace has appeared since
+  apply; review-task events remain in VERIFY until their review tasks resolve.
+  Closed clusters reopen when a later matching trace joins the cluster instead
+  of suppressing the recurrence behind the archived state.
+- Wired the web Now surface to the live API so Apply/Verify/Ignore mutate
+  persisted state, update action history, and keep provenance notes visible.
+- Added regression coverage proving the wrong-tool refund cluster can sync,
+  approve into an agent-config commit, verify closed, queue reviews, and write
+  approval/verification audit rows.
+- UX verification after backend wiring:
+  - `make ci`: passed with 107 pytest tests, contract checks, docs link checks,
+    and the web TypeScript/Vite build.
+  - In-app Browser desktop check: live API feed rendered, `Apply route`
+    committed a backend route override, and `Verify signal` closed the cluster
+    with provenance.
+  - In-app Browser mobile check at 390px width: Now rendered from the live API
+    with no horizontal overflow.
+  - `frontend_static_audit.py` still reports only the existing Web Blob API
+    false positives in download helpers.
+- Remaining UX-direction gap: the current Now sync derives trace clusters and
+  review queues deterministically. The broader recommendation set from the UX
+  direction (`revert_prompt`, `raise_threshold`, `add_behavior`,
+  `disable_judge`, eval drift/regression signals) still needs dedicated event
+  producers and executors.

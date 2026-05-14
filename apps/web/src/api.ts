@@ -40,6 +40,7 @@ import type {
   JudgePromotionResult,
   JudgeVersion,
   LabelTraceBehaviorResult,
+  NowEventRecord,
   NotificationTarget,
   OpsStatus,
   Project,
@@ -1105,6 +1106,24 @@ export class OpenAbmClient {
     if (filters.taskType) params.set("task_type", filters.taskType);
     const body = await this.get<{ data: ReviewTask[] }>(`/v1/review-tasks?${params.toString()}`);
     return body.data;
+  }
+
+  async listNowEvents(projectId: string, includeClosed = false): Promise<NowEventRecord[]> {
+    const params = new URLSearchParams({ project_id: projectId });
+    if (includeClosed) params.set("include_closed", "true");
+    const body = await this.get<{ data: NowEventRecord[] }>(`/v1/now/events?${params.toString()}`);
+    return body.data;
+  }
+
+  async advanceNowEvent(
+    projectId: string,
+    nowEventId: string,
+    action: "approve" | "verify" | "close" | "ignore"
+  ): Promise<NowEventRecord> {
+    return this.post<NowEventRecord>(`/v1/now/events/${nowEventId}/advance`, {
+      project_id: projectId,
+      action
+    });
   }
 
   async updateReviewTask(
