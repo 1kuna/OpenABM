@@ -106,7 +106,7 @@ Current validation gate:
 
 ## UX Direction App Update: 2026-05-14
 
-Status: in progress against `docs/ux-direction.md`
+Status: complete against `docs/ux-direction.md` for the current local-reference app
 
 Done in the current app slice:
 
@@ -138,6 +138,11 @@ Validation for this slice:
 - `make ci` passed locally after the WORK command/bulk slice.
 - `make deploy-config-check` passed locally after the WORK command/bulk slice.
 - Remote CI run `25891862988` passed for commit `4650008`.
+- `make ci` passed locally after the final Library escape-hatch polish with 113
+  tests passing.
+- `make deploy-config-check` passed locally after the final Library
+  escape-hatch polish.
+- Remote CI run `25892035742` passed for commit `2be4072`.
 - Browser QA passed at the default 1280x720 viewport for Now, Investigations,
   Reviews, and Ops Local connection controls.
 - Browser QA passed at a 390x844 mobile viewport for Now, Investigations, and
@@ -149,8 +154,9 @@ Validation for this slice:
 
 Remaining before calling the UX direction complete:
 
-- Full local CI and remote CI after committing/pushing the final Library
-  escape-hatch polish.
+- None for `docs/ux-direction.md` in the current local-reference app. Future
+  usability work should be driven by real users/workloads, not this direction
+  doc alone.
 
 Prompt-to-artifact checklist:
 
