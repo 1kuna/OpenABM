@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",
-    "lucide-react": "^0.555.0",
+    "lucide-react": "^1.16.0",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "vite": "^7.2.6"
