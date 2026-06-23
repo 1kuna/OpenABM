@@ -79,6 +79,30 @@ No model-backed synthetic pilot or real deployment smoke was rerun for this
 handoff; the request was to preserve a handoff state, and the local deterministic
 repo gates already passed.
 
+## Archived Thread Addendum - 2026-06-23
+
+The old `OpenABM` project thread was asked to dump context before archival. The
+live handoff already contained the important parked state. Additional
+thread-specific facts worth preserving:
+
+- current parked HEAD after the handoff commit was
+  `54ff284879a69e2d4f944d04d923c6ca94a6e843` (`Add handoff documentation`);
+- remote CI for the handoff commit succeeded: run `27974946085`, completed
+  `2026-06-22T18:28:27Z`;
+- UX direction implementation ended at `56667ae Record UX direction completion`;
+- UX commits from the old thread included `8b58aa8 Add UX direction doc`,
+  `d5c32cd Implement UX direction app shell`, `9d77e35 Implement executable Now
+  event loop`, `732a2d7 Add library-backed Now recommendations`, `6d3a453
+  Complete remaining Now UX actions`, `4650008 Complete work-surface UX
+  controls`, `2be4072 Demote library setup forms`, and `56667ae Record UX
+  direction completion`;
+- remote CI runs `25891862988`, `25892035742`, and `25892089276` succeeded for
+  the late UX commits.
+
+These details are archival only. `main` plus this handoff remain the resume
+authority; the stale `.claude` worktree remains non-authoritative generated
+context.
+
 ## Blockers And Cautions
 
 - Phase 9 real-world pilots remain blocked on real users/workloads. Synthetic
